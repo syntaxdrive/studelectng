@@ -620,22 +620,21 @@ function writeOrgLicensesStore(licenses: SuperAdminOrgLicense[]) {
 
 export async function getSuperAdminOrgLicensesAction(): Promise<SuperAdminOrgLicense[]> {
   try {
-    const { data: dbOrgs } = await supabase
-      .from("organizations")
-      .select("*")
-      .order("name", { ascending: true });
-
-    const { data: dbInsts } = await supabase
-      .from("institutions")
-      .select("id, name, slug, code");
-
-    const { data: dbStudents } = await supabase
-      .from("students")
-      .select("id, institution_id, department, faculty");
-
-    const { data: dbBallots } = await supabase
-      .from("ballots")
-      .select("id, election_id");
+    const [
+      { data: dbOrgs },
+      { data: dbInsts },
+      { data: dbStudents },
+      { data: dbElections },
+      { data: dbAccreditations },
+      { data: dbBallots },
+    ] = await Promise.all([
+      supabase.from("organizations").select("*").order("name", { ascending: true }),
+      supabase.from("institutions").select("id, name, slug, code"),
+      supabase.from("students").select("id, institution_id, department, faculty, hall_of_residence, portal_pin"),
+      supabase.from("elections").select("id, organization_id"),
+      supabase.from("voter_accreditations").select("id, election_id, student_id"),
+      supabase.from("ballots").select("id, election_id"),
+    ]);
 
     const overrides = readOrgLicensesStore();
     const deletedOrgs = readDeletedOrgsStore();
@@ -668,21 +667,87 @@ export async function getSuperAdminOrgLicensesAction(): Promise<SuperAdminOrgLic
 
         const existingOverride = overrides.find((o) => o.id === org.id);
 
-        // Real registered voter count for this organization
+        // Find elections for this organization
+        const orgElectionIds = (dbElections || [])
+          .filter((e: any) => e.organization_id === org.id)
+          .map((e: any) => e.id);
+
+        // Accredited voters for this organization's elections
+        const accreditedStudentIds = new Set(
+          (dbAccreditations || [])
+            .filter((a: any) => orgElectionIds.includes(a.election_id))
+            .map((a: any) => a.student_id)
+        );
+
+        // Organization code / slug prefixes for voter PIN matching
+        const orgPrefixes = [
+          (org.slug || "").toUpperCase(),
+          (org.code || "").toUpperCase(),
+          (org.slug || "").slice(0, 3).toUpperCase(),
+          (org.code || "").slice(0, 3).toUpperCase(),
+        ].filter((p: string) => p.length >= 2);
+
+        // Real registered voter count strictly for this organization
         const orgStudents = (dbStudents || []).filter((s: any) => {
           if (s.institution_id !== org.institution_id) return false;
-          if (org.org_type === "SUG") return true;
-          if (org.org_type === "FACULTY") {
-            return !s.faculty || s.faculty.toLowerCase().includes(org.slug.toLowerCase()) || s.faculty.toLowerCase().includes(org.code.toLowerCase()) || true;
+
+          // 1. Explicitly accredited for this organization's election
+          if (accreditedStudentIds.has(s.id)) return true;
+
+          // 2. Explicit PIN prefix match (e.g. NES-..., NACO-..., SUG-...)
+          const pin = (s.portal_pin || "").toUpperCase();
+          if (pin && orgPrefixes.some((p: string) => pin.startsWith(p + "-") || (p.length >= 3 && pin.startsWith(p)))) {
+            return true;
           }
-          if (org.org_type === "DEPARTMENT") {
-            return !s.department || s.department.toLowerCase().includes(org.slug.toLowerCase()) || s.department.toLowerCase().includes(org.code.toLowerCase()) || true;
+
+          const dept = (s.department || "").toLowerCase().trim();
+          const fac = (s.faculty || "").toLowerCase().trim();
+          const orgName = (org.name || "").toLowerCase().trim();
+          const orgSlug = (org.slug || "").toLowerCase().trim();
+          const orgCode = (org.code || "").toLowerCase().trim();
+
+          // 3. Departmental association: student's department must strictly match
+          if (org.org_type === "DEPARTMENT" && dept) {
+            if (
+              orgName.includes(dept) ||
+              dept.includes(orgSlug) ||
+              dept.includes(orgCode) ||
+              orgSlug === dept ||
+              orgCode === dept
+            ) {
+              return true;
+            }
           }
-          return true;
+
+          // 4. Faculty association: student's faculty must strictly match
+          if (org.org_type === "FACULTY" && fac) {
+            if (
+              orgName.includes(fac) ||
+              fac.includes(orgSlug) ||
+              fac.includes(orgCode) ||
+              orgSlug === fac ||
+              orgCode === fac
+            ) {
+              return true;
+            }
+          }
+
+          // 5. Hall of Residence: student's hall must strictly match
+          if (org.org_type === "HALL" && s.hall_of_residence) {
+            const hall = (s.hall_of_residence || "").toLowerCase().trim();
+            if (orgName.includes(hall) || hall.includes(orgSlug) || hall.includes(orgCode)) {
+              return true;
+            }
+          }
+
+          // Note: Newly created orgs with 0 registrations/accreditations/matching departments accurately evaluate to false
+          return false;
         });
 
         const registeredCount = orgStudents.length;
-        const ballotsCount = (dbBallots || []).length;
+        const ballotsCount = (dbBallots || []).filter((b: any) =>
+          orgElectionIds.includes(b.election_id)
+        ).length;
 
         const defaultQuota = org.org_type === "SUG" ? 10000 : org.org_type === "FACULTY" ? 3000 : 1000;
         const defaultPlan = org.org_type === "SUG" ? "SUG_UNLIMITED" : org.org_type === "FACULTY" ? "FACULTY_3000" : "DEPT_1000";

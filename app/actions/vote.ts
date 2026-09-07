@@ -320,12 +320,41 @@ export async function getRealtimeElectionTelemetryAction(
     const rawPosts = await getElectionPostsAndCandidatesAction(electionId);
     const ballots = readBallotsStore();
 
-    // 1. Get exact registered voters count using zero-egress count query (cached 30s)
+    // 1. Get exact registered voters count for this election (cached 30s)
     const totalRegistered = await fetchWithCache(
-      `telemetry:reg_count:${instSlug.toLowerCase()}`,
+      `telemetry:reg_count:${electionId}:${instSlug.toLowerCase()}`,
       30,
       async () => {
         try {
+          const accCountRes = await supabase
+            .from("voter_accreditations")
+            .select("id", { count: "exact", head: true })
+            .eq("election_id", electionId);
+          if (accCountRes.count && accCountRes.count > 0) {
+            return accCountRes.count;
+          }
+
+          const { data: elecData } = await supabase
+            .from("elections")
+            .select("organization_id")
+            .eq("id", electionId)
+            .maybeSingle();
+
+          if (elecData?.organization_id) {
+            const { data: orgData } = await supabase
+              .from("organizations")
+              .select("id, name, slug, code, org_type")
+              .eq("id", elecData.organization_id)
+              .maybeSingle();
+
+            if (orgData) {
+              const rollRes = await getOrgVoterRollAction(instSlug, orgData.slug);
+              if (rollRes.success && rollRes.students) {
+                return rollRes.students.length;
+              }
+            }
+          }
+
           const countRes = await supabase
             .from("students")
             .select("id", { count: "exact", head: true })

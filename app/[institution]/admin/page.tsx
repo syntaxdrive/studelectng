@@ -34,6 +34,7 @@ import {
   SUPERADMIN_WHATSAPP_RAW,
   AdminWhatsAppReason,
 } from "@/lib/whatsapp";
+import { getCurrentUserSession } from "@/app/actions/auth";
 import { getInstitutionBySlug } from "@/lib/db/institutions";
 import { updateOrgLogoAction } from "@/app/actions/elections";
 import {
@@ -234,16 +235,42 @@ export default function InstitutionAdminPage({
     loadRules();
   }, [electionId]);
 
+  const [activeOrgSlug, setActiveOrgSlug] = useState<string>("");
+
+  useEffect(() => {
+    async function resolveActiveOrg() {
+      let detectedOrg = "";
+      if (typeof window !== "undefined") {
+        const queryOrg = new URLSearchParams(window.location.search).get("org");
+        if (queryOrg) detectedOrg = queryOrg.toLowerCase().trim();
+      }
+      if (!detectedOrg) {
+        try {
+          const session = await getCurrentUserSession();
+          if (session?.orgId) {
+            detectedOrg = session.orgId.replace(/^org-[^-]+-/, "").toLowerCase().trim();
+          }
+        } catch (_) {}
+      }
+      if (!detectedOrg) {
+        detectedOrg = instSlug === "unilag" ? "nacos" : "nesa";
+      }
+      setActiveOrgSlug(detectedOrg);
+    }
+    resolveActiveOrg();
+  }, [instSlug]);
+
   // Load organization license metadata
   useEffect(() => {
     async function loadLicense() {
-      const res = await getOrgLicenseInfoAction("nesa", instSlug);
+      const orgToLoad = activeOrgSlug || (instSlug === "unilag" ? "nacos" : "nesa");
+      const res = await getOrgLicenseInfoAction(orgToLoad, instSlug);
       if (res && res.license) {
         setOrgLicenseInfo(res.license);
       }
     }
     loadLicense();
-  }, [instSlug]);
+  }, [activeOrgSlug, instSlug]);
 
   // Load audit logs when switching to LOGS tab or on interval
   const loadAuditLogs = async () => {
@@ -333,15 +360,20 @@ export default function InstitutionAdminPage({
   }, [posts, instSlug]);
 
   // ── Voter Roll Loader ───────────────────────────────────────────────────────
-  const loadVoterRoll = async () => {
+  const loadVoterRoll = async (targetOrg?: any) => {
     setVoterRollLoading(true);
-    const res = await getOrgVoterRollAction(instSlug);
+    const orgToUse = typeof targetOrg === "string" ? targetOrg : activeOrgSlug;
+    const res = await getOrgVoterRollAction(instSlug, orgToUse || undefined);
     if (res.success) setVoterRoll(res.students);
     setVoterRollLoading(false);
   };
 
   useEffect(() => {
-    loadVoterRoll();
+    if (activeOrgSlug) {
+      loadVoterRoll(activeOrgSlug);
+    } else {
+      loadVoterRoll();
+    }
     try {
       const cached = localStorage.getItem(`studelect_org_logo_${instSlug}`);
       if (cached) setOrgLogoUrl(cached);
@@ -352,7 +384,7 @@ export default function InstitutionAdminPage({
       }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [instSlug]);
+  }, [activeOrgSlug, instSlug]);
 
   // ── Organization DP / Logo Upload Handler ──────────────────────────────────
   const handleOrgLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1006,8 +1038,8 @@ export default function InstitutionAdminPage({
           </div>
           <p className="font-mono text-sm font-bold text-white break-all">
             {typeof window !== "undefined"
-              ? `${window.location.origin}/${instSlug}/nesa`
-              : `http://localhost:3000/${instSlug}/nesa`}
+              ? `${window.location.origin}/${instSlug}/${activeOrgSlug || "nesa"}`
+              : `http://localhost:3000/${instSlug}/${activeOrgSlug || "nesa"}`}
           </p>
           <p className="text-[11px] text-zinc-400">
             Share this link to student WhatsApp group chats, notice boards, and department portals.
@@ -1018,7 +1050,7 @@ export default function InstitutionAdminPage({
           <button
             type="button"
             onClick={async () => {
-              const url = `${window.location.origin}/${instSlug}/nesa`;
+              const url = `${window.location.origin}/${instSlug}/${activeOrgSlug || "nesa"}`;
               const ok = await safeCopyToClipboard(url);
               if (ok) {
                 setCopiedLink(true);
@@ -1044,7 +1076,7 @@ export default function InstitutionAdminPage({
             href={`https://api.whatsapp.com/send?text=${encodeURIComponent(
               `🗳️ *OFFICIAL ELECTION NOTICE*\nAccreditation and voting are now officially OPEN!\n\nClick here to lookup your PIN and cast your vote:\n${
                 typeof window !== "undefined" ? window.location.origin : "http://localhost:3000"
-              }/${instSlug}/nesa\n\n— *Electoral Commission (ELCOM)*`
+              }/${instSlug}/${activeOrgSlug || "nesa"}\n\n— *Electoral Commission (ELCOM)*`
             )}`}
             target="_blank"
             rel="noopener noreferrer"
@@ -1055,7 +1087,7 @@ export default function InstitutionAdminPage({
           </a>
 
           <Link
-            href={`/${instSlug}/nesa`}
+            href={`/${instSlug}/${activeOrgSlug || "nesa"}`}
             target="_blank"
             className="p-2 rounded-lg border border-zinc-700 hover:bg-zinc-800 text-zinc-300 transition"
             title="Open Student Portal"
@@ -1974,7 +2006,7 @@ export default function InstitutionAdminPage({
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                onClick={loadVoterRoll}
+                onClick={() => loadVoterRoll()}
                 disabled={voterRollLoading}
                 className="p-2 rounded-lg border border-zinc-300 hover:bg-zinc-50 text-zinc-700 text-xs font-semibold transition flex items-center gap-1"
                 title="Refresh Roster from Database"
@@ -3409,7 +3441,7 @@ export default function InstitutionAdminPage({
             <div className="p-3.5 rounded-xl bg-zinc-50 border border-zinc-200 space-y-1">
               <div className="flex items-center justify-between font-mono text-[11px]">
                 <span className="text-zinc-500 uppercase font-semibold">Campus & Organization:</span>
-                <span className="font-bold text-zinc-900">{instSlug.toUpperCase()} • NESA ELCOM</span>
+                <span className="font-bold text-zinc-900">{instSlug.toUpperCase()} • {orgLicenseInfo.orgName || (activeOrgSlug ? activeOrgSlug.toUpperCase() + " ELCOM" : "ELCOM")}</span>
               </div>
               <div className="flex items-center justify-between font-mono text-[11px]">
                 <span className="text-zinc-500 uppercase font-semibold">Active Quota Capacity:</span>
@@ -3509,8 +3541,8 @@ export default function InstitutionAdminPage({
                   href={buildSuperAdminWhatsAppUrl(supportReason, {
                     institutionName: `${instSlug.toUpperCase()} University`,
                     institutionSlug: instSlug,
-                    orgName: "NESA ELCOM",
-                    orgSlug: "nesa",
+                    orgName: orgLicenseInfo.orgName || (activeOrgSlug ? activeOrgSlug.toUpperCase() + " ELCOM" : "ELCOM"),
+                    orgSlug: activeOrgSlug || "elcom",
                     adminName: "ELCOM Presiding Officer",
                     adminRole: "Administrator",
                     currentQuota: orgLicenseInfo.voterQuota || 500,

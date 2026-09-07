@@ -215,12 +215,49 @@ export async function registerStudentAccountAction(input: StudentRegisterInput) 
 /**
  * Get all registered voters for an organization (for ELCOM admin dashboard)
  */
-export async function getOrgVoterRollAction(institutionSlug: string) {
+export async function getOrgVoterRollAction(institutionSlug: string, orgSlug?: string) {
   const cleanSlug = (institutionSlug || "ui").toLowerCase().trim();
   const institutionId = `inst-${cleanSlug}`;
+  const cleanOrgSlug = (orgSlug || "").toLowerCase().trim();
 
-  return fetchWithCache(`voter_roll:${cleanSlug}`, 20, async () => {
+  const cacheKey = cleanOrgSlug
+    ? `voter_roll:${cleanSlug}:${cleanOrgSlug}`
+    : `voter_roll:${cleanSlug}`;
+
+  return fetchWithCache(cacheKey, 20, async () => {
     try {
+      let org: any = null;
+      let orgElectionIds: string[] = [];
+      let accreditedStudentIds = new Set<string>();
+
+      if (cleanOrgSlug) {
+        try {
+          const { data: orgData } = await supabase
+            .from("organizations")
+            .select("*")
+            .eq("institution_id", institutionId)
+            .eq("slug", cleanOrgSlug)
+            .maybeSingle();
+          org = orgData;
+
+          if (org) {
+            const { data: elecData } = await supabase
+              .from("elections")
+              .select("id")
+              .eq("organization_id", org.id);
+            orgElectionIds = (elecData || []).map((e: any) => e.id);
+
+            if (orgElectionIds.length > 0) {
+              const { data: accData } = await supabase
+                .from("voter_accreditations")
+                .select("student_id")
+                .in("election_id", orgElectionIds);
+              accreditedStudentIds = new Set((accData || []).map((a: any) => a.student_id));
+            }
+          }
+        } catch (_) {}
+      }
+
       const { data, error } = await supabase
         .from("students")
         .select("*")
@@ -230,6 +267,45 @@ export async function getOrgVoterRollAction(institutionSlug: string) {
       if (error) {
         console.warn("getOrgVoterRollAction error:", error);
         return { success: false, students: [], message: error.message };
+      }
+
+      // If org is specified, filter strictly to students registered for or eligible for this organization
+      let filteredData = data || [];
+      if (org) {
+        const orgPrefixes = [
+          (org.slug || "").toUpperCase(),
+          (org.code || "").toUpperCase(),
+          (org.slug || "").slice(0, 3).toUpperCase(),
+          (org.code || "").slice(0, 3).toUpperCase(),
+        ].filter((p: string) => p.length >= 2);
+
+        filteredData = (data || []).filter((s: any) => {
+          if (accreditedStudentIds.has(s.id)) return true;
+
+          const pin = (s.portal_pin || "").toUpperCase();
+          if (pin && orgPrefixes.some((p: string) => pin.startsWith(p + "-") || (p.length >= 3 && pin.startsWith(p)))) {
+            return true;
+          }
+
+          const dept = (s.department || "").toLowerCase().trim();
+          const fac = (s.faculty || "").toLowerCase().trim();
+          const orgName = (org.name || "").toLowerCase().trim();
+          const oSlug = (org.slug || "").toLowerCase().trim();
+          const oCode = (org.code || "").toLowerCase().trim();
+
+          if (org.org_type === "DEPARTMENT" && dept) {
+            if (orgName.includes(dept) || dept.includes(oSlug) || dept.includes(oCode) || oSlug === dept) return true;
+          }
+          if (org.org_type === "FACULTY" && fac) {
+            if (orgName.includes(fac) || fac.includes(oSlug) || fac.includes(oCode) || oSlug === fac) return true;
+          }
+          if (org.org_type === "HALL" && s.hall_of_residence) {
+            const hall = (s.hall_of_residence || "").toLowerCase().trim();
+            if (orgName.includes(hall) || hall.includes(oSlug) || hall.includes(oCode)) return true;
+          }
+
+          return false;
+        });
       }
 
       // Check which students are enrolled in admin_users
@@ -247,7 +323,7 @@ export async function getOrgVoterRollAction(institutionSlug: string) {
         });
       } catch (_) {}
 
-      const students = (data || []).map((s: any) => {
+      const students = filteredData.map((s: any) => {
         const sEmail = (s.email || "").toLowerCase().trim();
         const adminEntry = adminEmailMap.get(sEmail) || (adminIdSet.has(`admin-${s.id}`) ? { role: "POLLING_AGENT" } : null);
         const isAdmin = !!adminEntry;

@@ -17,8 +17,7 @@ build
 .env.production.local
 
 # Data stores — live runtime state, not tracked in source control
-data/ballots-store.json
-data/voted-students-store.json
+data/*.json
 
 # Debug / Logs
 npm-debug.log*
