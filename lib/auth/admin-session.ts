@@ -94,9 +94,15 @@ export const MOCK_ADMINS = AUTHORIZED_SYSTEM_ADMINS;
 /**
  * Verifies a plain input password against a stored hash or plain password
  */
-function verifyPassword(inputPassword: string, storedHash?: string): boolean {
-  if (!storedHash) return false;
+function verifyPassword(inputPassword: string, storedHash?: string, isSuperAdmin?: boolean): boolean {
   const trimmed = inputPassword.trim();
+
+  // 0. Environment-configured SuperAdmin password check
+  if (isSuperAdmin && process.env.SUPERADMIN_PASSWORD && trimmed === process.env.SUPERADMIN_PASSWORD.trim()) {
+    return true;
+  }
+
+  if (!storedHash) return false;
 
   // 1. Direct plain match
   if (storedHash === trimmed) return true;
@@ -127,6 +133,7 @@ export async function authenticateAdmin(
 ): Promise<{ success: boolean; user?: AdminSessionUser; message: string }> {
   const cleanEmail = (email || "").trim().toLowerCase();
   const trimmedPassword = (password || "").trim();
+  const isSuperAdminEmail = cleanEmail === "superadmin@studelect.ng";
 
   if (!cleanEmail || !trimmedPassword) {
     return {
@@ -145,7 +152,7 @@ export async function authenticateAdmin(
       .maybeSingle();
 
     if (!error && dbUser) {
-      const isPasswordValid = verifyPassword(trimmedPassword, dbUser.password_hash);
+      const isPasswordValid = verifyPassword(trimmedPassword, dbUser.password_hash, isSuperAdminEmail);
       if (!isPasswordValid) {
         return {
           success: false,
@@ -203,7 +210,13 @@ export async function authenticateAdmin(
   );
 
   if (systemAdmin) {
-    if (systemAdmin.password === trimmedPassword) {
+    const isSystemAdminValid =
+      systemAdmin.password === trimmedPassword ||
+      (isSuperAdminEmail &&
+        !!process.env.SUPERADMIN_PASSWORD &&
+        trimmedPassword === process.env.SUPERADMIN_PASSWORD.trim());
+
+    if (isSystemAdminValid) {
       return {
         success: true,
         user: {
