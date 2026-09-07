@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { getAdminSession } from "@/lib/auth/session";
-import { supabase } from "@/lib/supabase";
+import { supabase, fetchWithCache } from "@/lib/supabase";
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
@@ -164,44 +164,46 @@ export interface SuperAdminCommissioner {
  * Fetch platform-wide SuperAdmin telemetry from live database
  */
 export async function getSuperAdminTelemetryAction(): Promise<SuperAdminTelemetry> {
-  let totalInstitutions = 0;
-  let totalActiveElections = 0;
-  let totalRegisteredStudents = 0;
-  let totalBallotsCast = 0;
-  let activeCommissionersCount = 0;
+  return fetchWithCache("superadmin:telemetry", 30, async () => {
+    let totalInstitutions = 0;
+    let totalActiveElections = 0;
+    let totalRegisteredStudents = 0;
+    let totalBallotsCast = 0;
+    let activeCommissionersCount = 0;
 
-  try {
-    // 1. Count Institutions
-    const { data: insts } = await supabase.from("institutions").select("id");
-    totalInstitutions = insts?.length || 0;
+    try {
+      // 1. Count Institutions (zero-egress head query)
+      const instsRes = await supabase.from("institutions").select("id", { count: "exact", head: true });
+      totalInstitutions = instsRes?.count || 0;
 
-    // 2. Count Active Elections
-    const { data: elecs } = await supabase.from("elections").select("id, status");
-    totalActiveElections = (elecs || []).filter((e: any) => e.status === "LIVE").length;
+      // 2. Count Active Elections
+      const { data: elecs } = await supabase.from("elections").select("id, status");
+      totalActiveElections = (elecs || []).filter((e: any) => e.status === "LIVE").length;
 
-    // 3. Count Students
-    const { data: students } = await supabase.from("students").select("id");
-    totalRegisteredStudents = students?.length || 0;
+      // 3. Count Students (zero-egress head query)
+      const studentsRes = await supabase.from("students").select("id", { count: "exact", head: true });
+      totalRegisteredStudents = studentsRes?.count || 0;
 
-    // 4. Count Ballots
-    const { data: ballots } = await supabase.from("ballots").select("id");
-    totalBallotsCast = ballots?.length || 0;
+      // 4. Count Ballots (zero-egress head query)
+      const ballotsRes = await supabase.from("ballots").select("id", { count: "exact", head: true });
+      totalBallotsCast = ballotsRes?.count || 0;
 
-    // 5. Count Commissioners
-    const { data: admins } = await supabase.from("admin_users").select("id, is_active");
-    activeCommissionersCount = (admins || []).filter((a: any) => a.is_active !== false).length;
-  } catch (err) {
-    console.warn("Telemetry query error:", err);
-  }
+      // 5. Count Commissioners
+      const { data: admins } = await supabase.from("admin_users").select("id, is_active");
+      activeCommissionersCount = (admins || []).filter((a: any) => a.is_active !== false).length;
+    } catch (err) {
+      console.warn("Telemetry query error:", err);
+    }
 
-  return {
-    totalInstitutions,
-    totalActiveElections,
-    totalRegisteredStudents,
-    totalBallotsCast,
-    systemHealth: "OPTIMAL",
-    activeCommissionersCount,
-  };
+    return {
+      totalInstitutions,
+      totalActiveElections,
+      totalRegisteredStudents,
+      totalBallotsCast,
+      systemHealth: "OPTIMAL",
+      activeCommissionersCount,
+    };
+  });
 }
 
 /**

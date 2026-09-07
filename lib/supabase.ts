@@ -39,10 +39,53 @@ async function fetchWithTimeout(
   }
 }
 
+interface SelectOptions {
+  count?: "exact" | "planned" | "estimated";
+  head?: boolean;
+}
+
+interface CacheEntry<T> {
+  data: T;
+  expiresAt: number;
+}
+const MEMORY_CACHE = new Map<string, CacheEntry<any>>();
+
+/**
+ * In-memory TTL cache to reduce Supabase REST hits and egress on free-tier
+ */
+export async function fetchWithCache<T>(
+  key: string,
+  ttlSeconds: number,
+  fetcher: () => Promise<T>
+): Promise<T> {
+  const cached = MEMORY_CACHE.get(key);
+  const now = Date.now();
+  if (cached && cached.expiresAt > now) {
+    return cached.data;
+  }
+  const data = await fetcher();
+  MEMORY_CACHE.set(key, { data, expiresAt: now + ttlSeconds * 1000 });
+  return data;
+}
+
+export function invalidateCache(keyPrefix?: string) {
+  if (!keyPrefix) {
+    MEMORY_CACHE.clear();
+    return;
+  }
+  for (const k of MEMORY_CACHE.keys()) {
+    if (k.startsWith(keyPrefix)) {
+      MEMORY_CACHE.delete(k);
+    }
+  }
+}
+
 export class SupabaseQueryBuilder {
   private table: string;
   private filters: Array<{ column: string; operator: string; value: any }> = [];
   private selectedColumns: string = "*";
+  private countOption?: "exact" | "planned" | "estimated";
+  private isHeadOnly: boolean = false;
   private isSingleResult: boolean = false;
   private sortColumn?: string;
   private sortAsc: boolean = true;
@@ -52,8 +95,14 @@ export class SupabaseQueryBuilder {
     this.table = table;
   }
 
-  select(columns: string = "*") {
+  select(columns: string = "*", options?: SelectOptions) {
     this.selectedColumns = columns;
+    if (options?.count) {
+      this.countOption = options.count;
+    }
+    if (options?.head) {
+      this.isHeadOnly = true;
+    }
     return this;
   }
 
@@ -69,6 +118,26 @@ export class SupabaseQueryBuilder {
 
   in(column: string, values: any[]) {
     this.filters.push({ column, operator: "in", value: `(${values.join(",")})` });
+    return this;
+  }
+
+  lt(column: string, value: any) {
+    this.filters.push({ column, operator: "lt", value });
+    return this;
+  }
+
+  lte(column: string, value: any) {
+    this.filters.push({ column, operator: "lte", value });
+    return this;
+  }
+
+  gt(column: string, value: any) {
+    this.filters.push({ column, operator: "gt", value });
+    return this;
+  }
+
+  gte(column: string, value: any) {
+    this.filters.push({ column, operator: "gte", value });
     return this;
   }
 
@@ -103,7 +172,7 @@ export class SupabaseQueryBuilder {
     return this;
   }
 
-  async then(resolve: (value: { data: any; error: any }) => void) {
+  async then(resolve: (value: { data: any; count?: number | null; error: any }) => void) {
     try {
       const url = new URL(`${SUPABASE_URL}/rest/v1/${this.table}`);
       url.searchParams.append("select", this.selectedColumns);
@@ -127,30 +196,50 @@ export class SupabaseQueryBuilder {
         url.searchParams.append("limit", String(this.limitCount));
       }
 
+      const preferDirectives: string[] = [];
+      if (this.isSingleResult) preferDirectives.push("return=representation");
+      if (this.countOption) preferDirectives.push(`count=${this.countOption}`);
+
       const headers = getHeaders(
-        this.isSingleResult ? { Prefer: "return=representation" } : undefined
+        preferDirectives.length > 0 ? { Prefer: preferDirectives.join(",") } : undefined
       );
 
+      const method = this.isHeadOnly ? "HEAD" : "GET";
       const res = await fetchWithTimeout(url.toString(), {
-        method: "GET",
+        method,
         headers,
         cache: "no-store",
       });
 
+      let count: number | null = null;
+      const contentRange = res.headers.get("content-range");
+      if (contentRange) {
+        const parts = contentRange.split("/");
+        if (parts[1] && parts[1] !== "*") {
+          count = parseInt(parts[1], 10) || 0;
+        }
+      }
+
       if (!res.ok) {
-        const errorText = await res.text();
-        resolve({ data: null, error: { message: errorText, status: res.status } });
+        const errorText = this.isHeadOnly ? `HTTP ${res.status}` : await res.text();
+        resolve({ data: null, count, error: { message: errorText, status: res.status } });
+        return;
+      }
+
+      if (this.isHeadOnly) {
+        resolve({ data: null, count, error: null });
         return;
       }
 
       const json = await res.json();
       const result =
         this.isSingleResult && Array.isArray(json) ? json[0] ?? null : json;
-      resolve({ data: result, error: null });
+      resolve({ data: result, count, error: null });
     } catch (err: any) {
       const isTimeout = err?.name === "AbortError";
       resolve({
         data: null,
+        count: null,
         error: {
           message: isTimeout
             ? "Supabase request timed out after 6s."
@@ -285,6 +374,22 @@ export class SupabaseQueryBuilder {
       },
       in(column: string, values: any[]) {
         filters.push({ column, operator: "in", value: `(${values.join(",")})` });
+        return executor;
+      },
+      lt(column: string, value: any) {
+        filters.push({ column, operator: "lt", value });
+        return executor;
+      },
+      lte(column: string, value: any) {
+        filters.push({ column, operator: "lte", value });
+        return executor;
+      },
+      gt(column: string, value: any) {
+        filters.push({ column, operator: "gt", value });
+        return executor;
+      },
+      gte(column: string, value: any) {
+        filters.push({ column, operator: "gte", value });
         return executor;
       },
       ilike(column: string, pattern: string) {

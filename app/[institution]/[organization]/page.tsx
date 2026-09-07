@@ -278,7 +278,18 @@ export default function OrganizationPortalPage({
       } catch (_) {}
     }
     syncRules();
-    const interval = setInterval(syncRules, 1500); // 1.5s real-time heartbeat
+    // Eco-friendly polling: 6s heartbeat when active, paused when tab is hidden to conserve database tier
+    const interval = setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      syncRules();
+    }, 6000);
+
+    const onVisibilityChange = () => {
+      if (typeof document !== "undefined" && document.visibilityState === "visible") {
+        syncRules();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
 
     // Instant local sync if admin is testing in another tab of same browser
     const onStorage = (e: StorageEvent) => {
@@ -294,6 +305,7 @@ export default function OrganizationPortalPage({
     return () => {
       isMounted = false;
       clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener("storage", onStorage);
     };
   }, [election.id, instSlug, orgSlug]);

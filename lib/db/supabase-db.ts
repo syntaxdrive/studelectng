@@ -1,4 +1,4 @@
-import { supabase } from "../supabase";
+import { supabase, fetchWithCache, invalidateCache } from "../supabase";
 import { CANONICAL_INSTITUTIONS } from "./institutions";
 
 /**
@@ -30,54 +30,58 @@ export interface DbOrganization {
 // ---------------------------------------------------------------------------
 
 export async function getDbInstitutions(): Promise<DbInstitution[]> {
-  try {
-    const { data, error } = await supabase
-      .from("institutions")
-      .select("*")
-      .order("name", { ascending: true });
+  return fetchWithCache("db:institutions", 60, async () => {
+    try {
+      const { data, error } = await supabase
+        .from("institutions")
+        .select("*")
+        .order("name", { ascending: true });
 
-    if (!error && data && data.length > 0) {
-      return data.map((i: any) => ({
-        id: i.id,
-        name: i.name,
-        slug: i.slug,
-        code: i.code,
-        tagline: i.tagline,
-        logoUrl: i.logo_url || i.logoUrl,
-      }));
+      if (!error && data && data.length > 0) {
+        return data.map((i: any) => ({
+          id: i.id,
+          name: i.name,
+          slug: i.slug,
+          code: i.code,
+          tagline: i.tagline,
+          logoUrl: i.logo_url || i.logoUrl,
+        }));
+      }
+    } catch (err) {
+      console.warn("Supabase getInstitutions error, using fallback.", err);
     }
-  } catch (err) {
-    console.warn("Supabase getInstitutions error, using fallback.", err);
-  }
 
-  return CANONICAL_INSTITUTIONS;
+    return CANONICAL_INSTITUTIONS;
+  });
 }
 
 export async function getDbInstitutionBySlug(slug: string): Promise<DbInstitution | null> {
   const cleanSlug = slug.toLowerCase();
-  try {
-    const { data, error } = await supabase
-      .from("institutions")
-      .select("*")
-      .eq("slug", cleanSlug)
-      .single();
+  return fetchWithCache(`db:inst:${cleanSlug}`, 60, async () => {
+    try {
+      const { data, error } = await supabase
+        .from("institutions")
+        .select("*")
+        .eq("slug", cleanSlug)
+        .single();
 
-    if (!error && data) {
-      return {
-        id: data.id,
-        name: data.name,
-        slug: data.slug,
-        code: data.code,
-        tagline: data.tagline,
-        logoUrl: data.logo_url || data.logoUrl,
-      };
+      if (!error && data) {
+        return {
+          id: data.id,
+          name: data.name,
+          slug: data.slug,
+          code: data.code,
+          tagline: data.tagline,
+          logoUrl: data.logo_url || data.logoUrl,
+        };
+      }
+    } catch (err) {
+      console.warn("Supabase getInstitutionBySlug error, using fallback.", err);
     }
-  } catch (err) {
-    console.warn("Supabase getInstitutionBySlug error, using fallback.", err);
-  }
 
-  const found = CANONICAL_INSTITUTIONS.find((i) => i.slug === cleanSlug);
-  return found || null;
+    const found = CANONICAL_INSTITUTIONS.find((i) => i.slug === cleanSlug);
+    return found || null;
+  });
 }
 
 export async function createDbInstitution(inst: {
@@ -87,6 +91,7 @@ export async function createDbInstitution(inst: {
   tagline: string;
   logoUrl?: string;
 }): Promise<{ success: boolean; data?: DbInstitution; error?: string }> {
+  invalidateCache("db:");
   try {
     const { data, error } = await supabase
       .from("institutions")
@@ -116,40 +121,45 @@ export async function getDbOrganization(
   institutionSlug: string,
   orgSlug: string
 ): Promise<DbOrganization | null> {
-  try {
-    const inst = await getDbInstitutionBySlug(institutionSlug);
-    if (!inst) return null;
+  const cleanInst = institutionSlug.toLowerCase();
+  const cleanOrg = orgSlug.toLowerCase();
 
-    const { data, error } = await supabase
-      .from("organizations")
-      .select("*")
-      .eq("institution_id", inst.id)
-      .eq("slug", orgSlug.toLowerCase())
-      .single();
+  return fetchWithCache(`db:org:${cleanInst}:${cleanOrg}`, 60, async () => {
+    try {
+      const inst = await getDbInstitutionBySlug(cleanInst);
+      if (!inst) return null;
 
-    if (!error && data) {
-      return {
-        id: data.id,
-        institutionId: data.institution_id || data.institutionId,
-        name: data.name,
-        slug: data.slug,
-        orgType: data.org_type || data.orgType,
-        code: data.code,
-        logoUrl: data.logo_url || data.logoUrl,
-      };
+      const { data, error } = await supabase
+        .from("organizations")
+        .select("*")
+        .eq("institution_id", inst.id)
+        .eq("slug", cleanOrg)
+        .single();
+
+      if (!error && data) {
+        return {
+          id: data.id,
+          institutionId: data.institution_id || data.institutionId,
+          name: data.name,
+          slug: data.slug,
+          orgType: data.org_type || data.orgType,
+          code: data.code,
+          logoUrl: data.logo_url || data.logoUrl,
+        };
+      }
+    } catch (err) {
+      console.warn("Supabase getOrganization error, using fallback.", err);
     }
-  } catch (err) {
-    console.warn("Supabase getOrganization error, using fallback.", err);
-  }
 
-  return {
-    id: `org-${orgSlug.toLowerCase()}`,
-    institutionId: `inst-${institutionSlug.toLowerCase()}`,
-    name: `${orgSlug.toUpperCase()} Students' Association`,
-    slug: orgSlug.toLowerCase(),
-    orgType: "DEPARTMENT",
-    code: orgSlug.toUpperCase(),
-  };
+    return {
+      id: `org-${cleanOrg}`,
+      institutionId: `inst-${cleanInst}`,
+      name: `${cleanOrg.toUpperCase()} Students' Association`,
+      slug: cleanOrg,
+      orgType: "DEPARTMENT",
+      code: cleanOrg.toUpperCase(),
+    };
+  });
 }
 
 // ---------------------------------------------------------------------------

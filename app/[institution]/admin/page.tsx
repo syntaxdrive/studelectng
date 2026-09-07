@@ -305,8 +305,23 @@ export default function InstitutionAdminPage({
 
   useEffect(() => {
     loadTelemetry();
-    const interval = setInterval(loadTelemetry, 3500);
-    return () => clearInterval(interval);
+    // Eco-friendly polling: 6s when active, paused when admin tab is backgrounded
+    const interval = setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      loadTelemetry();
+    }, 6000);
+
+    const onVisibilityChange = () => {
+      if (typeof document !== "undefined" && document.visibilityState === "visible") {
+        loadTelemetry();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
   }, [electionId, instSlug]);
 
   useEffect(() => {

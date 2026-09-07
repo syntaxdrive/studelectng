@@ -1,6 +1,6 @@
 "use server";
 
-import { supabase } from "@/lib/supabase";
+import { supabase, fetchWithCache, invalidateCache } from "@/lib/supabase";
 import { normalizeMatricNo } from "@/lib/matric-normalizer";
 import { generateSingleVoterPin } from "@/lib/auth/pin-generator";
 import fs from "fs";
@@ -219,67 +219,70 @@ export async function getOrgVoterRollAction(institutionSlug: string) {
   const cleanSlug = (institutionSlug || "ui").toLowerCase().trim();
   const institutionId = `inst-${cleanSlug}`;
 
-  try {
-    const { data, error } = await supabase
-      .from("students")
-      .select("*")
-      .eq("institution_id", institutionId)
-      .order("full_name", { ascending: true });
-
-    if (error) {
-      console.warn("getOrgVoterRollAction error:", error);
-      return { success: false, students: [], message: error.message };
-    }
-
-    // Check which students are enrolled in admin_users
-    let adminEmailMap = new Map<string, any>();
-    let adminIdSet = new Set<string>();
+  return fetchWithCache(`voter_roll:${cleanSlug}`, 20, async () => {
     try {
-      const { data: adminUsers } = await supabase
-        .from("admin_users")
-        .select("id, email, full_name, role")
-        .eq("institution_id", institutionId);
+      const { data, error } = await supabase
+        .from("students")
+        .select("*")
+        .eq("institution_id", institutionId)
+        .order("full_name", { ascending: true });
 
-      (adminUsers || []).forEach((a: any) => {
-        if (a.email) adminEmailMap.set(a.email.toLowerCase().trim(), a);
-        if (a.id) adminIdSet.add(a.id);
+      if (error) {
+        console.warn("getOrgVoterRollAction error:", error);
+        return { success: false, students: [], message: error.message };
+      }
+
+      // Check which students are enrolled in admin_users
+      let adminEmailMap = new Map<string, any>();
+      let adminIdSet = new Set<string>();
+      try {
+        const { data: adminUsers } = await supabase
+          .from("admin_users")
+          .select("id, email, full_name, role")
+          .eq("institution_id", institutionId);
+
+        (adminUsers || []).forEach((a: any) => {
+          if (a.email) adminEmailMap.set(a.email.toLowerCase().trim(), a);
+          if (a.id) adminIdSet.add(a.id);
+        });
+      } catch (_) {}
+
+      const students = (data || []).map((s: any) => {
+        const sEmail = (s.email || "").toLowerCase().trim();
+        const adminEntry = adminEmailMap.get(sEmail) || (adminIdSet.has(`admin-${s.id}`) ? { role: "POLLING_AGENT" } : null);
+        const isAdmin = !!adminEntry;
+
+        return {
+          id: s.id,
+          matricNo: s.matric_no,
+          fullName: s.full_name,
+          email: s.email || "",
+          phoneNumber: s.phone_number || "",
+          faculty: s.faculty || "",
+          department: s.department || "",
+          level: s.level || 100,
+          duesPaid: s.dues_paid !== false,
+          disciplinaryStatus: s.disciplinary_status || "GOOD_STANDING",
+          portalPin: s.portal_pin || "",
+          programType: s.program_type || "FULL_TIME",
+          isAdmin,
+          adminRole: adminEntry?.role || (isAdmin ? "POLLING_AGENT" : null),
+        };
       });
-    } catch (_) {}
 
-    const students = (data || []).map((s: any) => {
-      const sEmail = (s.email || "").toLowerCase().trim();
-      const adminEntry = adminEmailMap.get(sEmail) || (adminIdSet.has(`admin-${s.id}`) ? { role: "POLLING_AGENT" } : null);
-      const isAdmin = !!adminEntry;
-
-      return {
-        id: s.id,
-        matricNo: s.matric_no,
-        fullName: s.full_name,
-        email: s.email || "",
-        phoneNumber: s.phone_number || "",
-        faculty: s.faculty || "",
-        department: s.department || "",
-        level: s.level || 100,
-        duesPaid: s.dues_paid !== false,
-        disciplinaryStatus: s.disciplinary_status || "GOOD_STANDING",
-        portalPin: s.portal_pin || "",
-        programType: s.program_type || "FULL_TIME",
-        isAdmin,
-        adminRole: adminEntry?.role || (isAdmin ? "POLLING_AGENT" : null),
-      };
-    });
-
-    return { success: true, students };
-  } catch (err: any) {
-    console.error("getOrgVoterRollAction exception:", err);
-    return { success: false, students: [], message: err.message };
-  }
+      return { success: true, students };
+    } catch (err: any) {
+      console.error("getOrgVoterRollAction exception:", err);
+      return { success: false, students: [], message: err.message };
+    }
+  });
 }
 
 /**
  * Toggle dues paid status for a student
  */
 export async function updateStudentDuesAction(studentId: string, paid: boolean) {
+  invalidateCache("voter_roll:");
   try {
     await supabase
       .from("students")
@@ -295,6 +298,7 @@ export async function updateStudentDuesAction(studentId: string, paid: boolean) 
  * Enable or disable a student voter (uses disciplinary_status as the gate)
  */
 export async function toggleStudentActiveAction(studentId: string, active: boolean) {
+  invalidateCache("voter_roll:");
   try {
     await supabase
       .from("students")
@@ -312,6 +316,7 @@ export async function toggleStudentActiveAction(studentId: string, active: boole
  * Reset a student's voter PIN
  */
 export async function resetStudentPinAction(studentId: string, orgSlug: string) {
+  invalidateCache("voter_roll:");
   const { generateSingleVoterPin } = await import("@/lib/auth/pin-generator");
   const orgCode = (orgSlug || "ST").substring(0, 4).toUpperCase();
   const newPin = generateSingleVoterPin(orgCode);
@@ -331,6 +336,7 @@ export async function resetStudentPinAction(studentId: string, orgSlug: string) 
  * Delete a student voter record from the voter roll
  */
 export async function deleteStudentAction(studentId: string) {
+  invalidateCache("voter_roll:");
   try {
     const { error } = await supabase
       .from("students")

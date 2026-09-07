@@ -1,7 +1,7 @@
 "use server";
 
 import { verifyBlindedBallotToken, generateReceiptHash, computeAuditBlockHash } from "@/lib/crypto";
-import { supabase } from "@/lib/supabase";
+import { supabase, fetchWithCache } from "@/lib/supabase";
 import { checkRateLimit } from "@/lib/security/rate-limiter";
 import fs from "fs";
 import path from "path";
@@ -320,25 +320,22 @@ export async function getRealtimeElectionTelemetryAction(
     const rawPosts = await getElectionPostsAndCandidatesAction(electionId);
     const ballots = readBallotsStore();
 
-    // 1. Get exact registered voters count from voter roll
-    let totalRegistered = 0;
-    try {
-      const voterRollRes = await getOrgVoterRollAction(instSlug);
-      if (voterRollRes.success && voterRollRes.students) {
-        totalRegistered = voterRollRes.students.length;
+    // 1. Get exact registered voters count using zero-egress count query (cached 30s)
+    const totalRegistered = await fetchWithCache(
+      `telemetry:reg_count:${instSlug.toLowerCase()}`,
+      30,
+      async () => {
+        try {
+          const countRes = await supabase
+            .from("students")
+            .select("id", { count: "exact", head: true })
+            .eq("institution_id", `inst-${instSlug.toLowerCase()}`);
+          return countRes.count || 0;
+        } catch (_) {
+          return 0;
+        }
       }
-    } catch (_) {}
-
-    if (totalRegistered === 0) {
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const countRes = await (supabase as any)
-          .from("students")
-          .select("id", { count: "exact", head: true })
-          .eq("institution_id", `inst-${instSlug.toLowerCase()}`);
-        totalRegistered = countRes.count || 0;
-      } catch (_) {}
-    }
+    );
 
     const totalBallotsCast = ballots.length;
     const turnoutPercentage =
