@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { supabase } from "@/lib/supabase";
+import { supabase, fetchWithCache, invalidateCache } from "@/lib/supabase";
 import fs from "fs";
 import path from "path";
 
@@ -99,57 +99,66 @@ function writeServerStore(store: { posts: PostWithCandidatesDto[] }) {
 export async function getElectionPostsAndCandidatesAction(
   electionId: string
 ): Promise<PostWithCandidatesDto[]> {
-  try {
-    const store = readServerStore();
-
-    // Also attempt querying Supabase to merge any cloud records
+  return fetchWithCache(`posts:${electionId}`, 15, async () => {
     try {
-      const { data: cloudPosts } = await supabase
-        .from("posts")
-        .select("*")
-        .eq("election_id", electionId)
-        .order("display_order", { ascending: true });
+      const store = readServerStore();
 
-      const { data: cloudCandidates } = await supabase
-        .from("candidates")
-        .select("*")
-        .order("created_at", { ascending: true });
+      // Attempt querying Supabase in parallel to merge any cloud records
+      try {
+        const [postsRes, candidatesRes] = await Promise.allSettled([
+          supabase
+            .from("posts")
+            .select("*")
+            .eq("election_id", electionId)
+            .order("display_order", { ascending: true }),
+          supabase
+            .from("candidates")
+            .select("*")
+            .order("created_at", { ascending: true }),
+        ]);
 
-      if (cloudPosts && cloudPosts.length > 0) {
-        const cloudMerged: PostWithCandidatesDto[] = cloudPosts.map((p: any) => ({
-          id: p.id,
-          electionId: p.election_id || electionId,
-          title: p.title,
-          description: p.description || "",
-          maxSelections: p.max_selections || 1,
-          allowedLevels: p.allowed_levels || [],
-          candidates: (cloudCandidates || [])
-            .filter((c: any) => (c.post_id || c.postId) === p.id)
-            .map((c: any) => ({
-              id: c.id,
-              postId: p.id,
-              fullName: c.full_name || c.fullName,
-              nickname: c.nickname || "",
-              matricNo: c.matric_no || c.matricNo || "",
-              photoUrl: c.photo_url || c.photoUrl || "",
-              manifesto: c.manifesto || "",
-              status: c.status || "CLEARED",
-              voteCount: c.vote_count || 0,
-            })),
-        }));
+        const cloudPosts = postsRes.status === "fulfilled" ? postsRes.value.data : null;
+        const cloudCandidates = candidatesRes.status === "fulfilled" ? candidatesRes.value.data : null;
 
-        // Merge local and cloud candidates
-        if (cloudMerged.some((p) => p.candidates.length > 0)) {
-          return cloudMerged;
+        if (cloudPosts && cloudPosts.length > 0) {
+          const cloudMerged: PostWithCandidatesDto[] = cloudPosts.map((p: any) => ({
+            id: p.id,
+            electionId: p.election_id || electionId,
+            title: p.title,
+            description: p.description || "",
+            maxSelections: p.max_selections || 1,
+            allowedLevels: p.allowed_levels || [],
+            candidates: (cloudCandidates || [])
+              .filter((c: any) => (c.post_id || c.postId) === p.id)
+              .map((c: any) => ({
+                id: c.id,
+                postId: p.id,
+                fullName: c.full_name || c.fullName,
+                nickname: c.nickname || "",
+                matricNo: c.matric_no || c.matricNo || "",
+                photoUrl: c.photo_url || c.photoUrl || "",
+                manifesto: c.manifesto || "",
+                status: c.status || "CLEARED",
+                voteCount: c.vote_count || 0,
+              })),
+          }));
+
+          if (cloudMerged.length > 0) {
+            return cloudMerged;
+          }
         }
-      }
-    } catch (_) {}
+      } catch (_) {}
 
-    return store.posts;
-  } catch (err) {
-    console.warn("Error in getElectionPostsAndCandidatesAction:", err);
-    return getInitialStore().posts;
-  }
+      // Filter store posts matching this electionId, or all posts if matching
+      const matchingStorePosts = store.posts.filter(
+        (p) => p.electionId === electionId || !p.electionId
+      );
+      return matchingStorePosts.length > 0 ? matchingStorePosts : store.posts;
+    } catch (err) {
+      console.warn("Error in getElectionPostsAndCandidatesAction:", err);
+      return getInitialStore().posts;
+    }
+  });
 }
 
 /**
@@ -189,6 +198,7 @@ export async function createPostAction(input: {
     });
   } catch (_) {}
 
+  invalidateCache("posts:");
   revalidatePath("/[institution]/admin");
   revalidatePath("/[institution]/[organization]");
   return {
@@ -261,6 +271,7 @@ export async function createCandidateAction(input: {
     });
   } catch (_) {}
 
+  invalidateCache("posts:");
   revalidatePath("/[institution]/admin");
   revalidatePath("/[institution]/[organization]");
   return {
@@ -317,6 +328,7 @@ export async function updateCandidateAction(input: {
       .eq("id", input.candidateId);
   } catch (_) {}
 
+  invalidateCache("posts:");
   revalidatePath("/[institution]/admin");
   revalidatePath("/[institution]/[organization]");
   return {
@@ -342,6 +354,7 @@ export async function deleteCandidateAction(candidateId: string) {
     await supabase.from("candidates").delete().eq("id", candidateId);
   } catch (_) {}
 
+  invalidateCache("posts:");
   revalidatePath("/[institution]/admin");
   revalidatePath("/[institution]/[organization]");
   return { success: true, message: "Candidate removed." };
@@ -360,6 +373,7 @@ export async function deletePostAction(postId: string) {
     await supabase.from("posts").delete().eq("id", postId);
   } catch (_) {}
 
+  invalidateCache("posts:");
   revalidatePath("/[institution]/admin");
   revalidatePath("/[institution]/[organization]");
   return { success: true, message: "Elective post removed." };

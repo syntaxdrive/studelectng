@@ -210,6 +210,26 @@ export default function AdminCreateElectionPage() {
     setIsLoading(false);
 
     if (res.success && res.directStudentUrl) {
+      // If any candidates were drafted in Step 3, save them in parallel
+      const allDraftCandidates = posts.flatMap((p) =>
+        p.candidates.map((c) => ({ ...c, postId: p.id }))
+      );
+      if (allDraftCandidates.length > 0) {
+        try {
+          const { createCandidateAction } = await import("@/app/actions/candidates");
+          await Promise.allSettled(
+            allDraftCandidates.map((c) =>
+              createCandidateAction({
+                postId: c.postId,
+                fullName: c.fullName,
+                nickname: c.nickname,
+                photoUrl: c.photoUrl,
+                manifesto: c.manifesto,
+              })
+            )
+          );
+        } catch (_) {}
+      }
       setGeneratedLink(res.directStudentUrl);
       setCurrentStep(4);
     } else {
@@ -557,7 +577,7 @@ export default function AdminCreateElectionPage() {
             </div>
           </div>
 
-          <div className="pt-4 border-t border-zinc-100 flex items-center justify-between">
+          <div className="pt-4 border-t border-zinc-100 flex flex-wrap items-center justify-between gap-3">
             <button
               type="button"
               onClick={() => setCurrentStep(1)}
@@ -565,13 +585,25 @@ export default function AdminCreateElectionPage() {
             >
               ← Back
             </button>
-            <button
-              type="submit"
-              className="px-5 py-2.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white font-bold transition flex items-center gap-2 shadow-xs"
-            >
-              <span>Next: Positions & Candidates</span>
-              <ArrowRight className="w-4 h-4" />
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={handleSubmitAll}
+                disabled={isLoading}
+                className="px-4 py-2.5 rounded-lg border border-zinc-300 bg-white hover:bg-zinc-50 text-zinc-800 font-bold transition flex items-center gap-1.5 shadow-xs"
+                title="Launch with standard positions (President, VP, Sec) and add candidates later in the dashboard"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                <span>{isLoading ? "Provisioning Portal..." : "Skip Candidates & Launch Portal"}</span>
+              </button>
+              <button
+                type="submit"
+                className="px-5 py-2.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white font-bold transition flex items-center gap-2 shadow-xs"
+              >
+                <span>Customize Offices & Candidates</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
           </div>
         </form>
       )}
@@ -587,10 +619,21 @@ export default function AdminCreateElectionPage() {
             </div>
             <div>
               <h2 className="text-base font-bold text-zinc-900">
-                Step 3: Contested Positions & Candidate Photos
+                Step 3: Contested Positions & Candidates <span className="text-zinc-400 font-normal text-xs">(Optional)</span>
               </h2>
               <p className="text-zinc-500 text-xs">
-                Add elective offices and assign candidate nominations with photos and slogans.
+                Configure elective positions. You can nominate candidates now or skip and add them later in your dashboard.
+              </p>
+            </div>
+          </div>
+
+          {/* Optional Banner */}
+          <div className="p-3.5 rounded-lg bg-blue-50 border border-blue-200 text-blue-900 flex items-start gap-2.5">
+            <AlertCircle className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="font-bold text-xs">Candidates Nomination is 100% Optional</p>
+              <p className="text-[11px] text-blue-700 leading-relaxed">
+                You do not need to add candidates right now. You can skip candidate nomination and add, screen, or edit candidates anytime later from your ELCOM Admin Dashboard.
               </p>
             </div>
           </div>
@@ -716,7 +759,7 @@ export default function AdminCreateElectionPage() {
             ))}
           </div>
 
-          <div className="pt-4 border-t border-zinc-100 flex items-center justify-between">
+          <div className="pt-4 border-t border-zinc-100 flex flex-wrap items-center justify-between gap-3">
             <button
               type="button"
               onClick={() => setCurrentStep(2)}
@@ -724,15 +767,32 @@ export default function AdminCreateElectionPage() {
             >
               ← Back
             </button>
-            <button
-              type="button"
-              onClick={handleSubmitAll}
-              disabled={isLoading || posts.length === 0}
-              className="px-6 py-2.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 disabled:opacity-50 text-white font-bold transition flex items-center gap-2 shadow-xs"
-            >
-              <Sparkles className="w-4 h-4" />
-              <span>{isLoading ? "Provisioning Election & Portal..." : "Complete Setup & Get Student Link"}</span>
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={handleSubmitAll}
+                disabled={isLoading || posts.length === 0}
+                className="px-4 py-2.5 rounded-lg border border-zinc-300 bg-white hover:bg-zinc-50 text-zinc-800 font-bold transition flex items-center gap-1.5 shadow-xs"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                <span>Skip Candidates & Finish</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleSubmitAll}
+                disabled={isLoading || posts.length === 0}
+                className="px-6 py-2.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 disabled:opacity-50 text-white font-bold transition flex items-center gap-2 shadow-xs"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                <span>
+                  {isLoading
+                    ? "Provisioning Election & Portal..."
+                    : posts.some((p) => p.candidates.length > 0)
+                    ? "Complete Setup With Nominated Candidates"
+                    : "Complete Setup & Get Student Link"}
+                </span>
+              </button>
+            </div>
           </div>
         </div>
       )}
