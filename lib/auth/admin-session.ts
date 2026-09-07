@@ -24,7 +24,9 @@ export const AUTHORIZED_SYSTEM_ADMINS: Array<{
 }> = [
   {
     email: "superadmin@studelect.ng",
-    password: process.env.SUPERADMIN_PASSWORD || "superadmin2026",
+    password:
+      process.env.SUPERADMIN_PASSWORD ||
+      (process.env.NODE_ENV === "production" ? "" : "superadmin2026"),
     fullName: "Platform Super Administrator",
     role: "SUPER_ADMIN",
     institutionSlug: "unilag",

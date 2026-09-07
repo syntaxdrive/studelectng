@@ -4,7 +4,9 @@ import CryptoJS from "crypto-js";
 import { checkRateLimit, getClientIp } from "@/lib/security/rate-limiter";
 
 const SESSION_COOKIE_NAME = "studelect_admin_session";
-const SESSION_SECRET = process.env.BALLOT_SIGNING_SECRET || "studelect-nigeria-super-secure-session-key-2026";
+const SESSION_SECRET =
+  process.env.BALLOT_SIGNING_SECRET ||
+  (process.env.NODE_ENV === "production" ? "" : "studelect-dev-local-session-key");
 
 function decryptSessionToken(token: string) {
   try {

@@ -3,11 +3,16 @@
  * Direct REST interface with AbortController timeout on every request.
  */
 
-const SUPABASE_URL =
-  process.env.NEXT_PUBLIC_SUPABASE_URL || "https://lurbrcgeivofalftahhj.supabase.co";
-const SUPABASE_ANON_KEY =
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx1cmJyY2dlaXZvZmFsZnRhaGhqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY5NzAwMDQsImV4cCI6MjEwMjU0NjAwNH0.4B6-ub0B6m4uE3ilCtVjcQ1RYRy2a4Pz8Qwb1no1DTU";
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+
+if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+  if (typeof window === "undefined" && process.env.NODE_ENV !== "test") {
+    console.warn(
+      "[SECURITY CONFIG] NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY is missing from environment variables."
+    );
+  }
+}
 
 const FETCH_TIMEOUT_MS = 6000; // 6 seconds max per request
 
