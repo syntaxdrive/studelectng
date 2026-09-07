@@ -3,6 +3,7 @@
 import { authenticateAdmin } from "@/lib/auth/admin-session";
 import { setAdminSessionCookie, clearAdminSessionCookie, getAdminSession, AuthSession } from "@/lib/auth/session";
 import { redirect } from "next/navigation";
+import { checkRateLimit } from "@/lib/security/rate-limiter";
 
 export interface LoginInput {
   email: string;
@@ -11,6 +12,15 @@ export interface LoginInput {
 
 export async function loginAction(input: LoginInput) {
   try {
+    const cleanEmail = (input.email || "").trim().toLowerCase();
+    const limit = checkRateLimit(`login:${cleanEmail}`, 5, 15 * 60 * 1000);
+    if (!limit.allowed) {
+      return {
+        success: false,
+        message: `Too many failed login attempts for this account. Please wait ${Math.ceil(limit.retryAfterSeconds / 60)} minute(s) before trying again.`,
+      };
+    }
+
     const authResult = await authenticateAdmin(input.email, input.password);
 
     if (!authResult.success || !authResult.user) {

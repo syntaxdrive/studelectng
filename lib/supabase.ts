@@ -11,6 +11,19 @@ const SUPABASE_ANON_KEY =
 
 const FETCH_TIMEOUT_MS = 6000; // 6 seconds max per request
 
+function getHeaders(extra?: Record<string, string>): Record<string, string> {
+  const key =
+    (typeof window === "undefined" && process.env.SUPABASE_SERVICE_ROLE_KEY)
+      ? process.env.SUPABASE_SERVICE_ROLE_KEY
+      : SUPABASE_ANON_KEY;
+  return {
+    apikey: key,
+    Authorization: `Bearer ${key}`,
+    "Content-Type": "application/json",
+    ...extra,
+  };
+}
+
 /** Make a fetch with a hard timeout. Throws on timeout. */
 async function fetchWithTimeout(
   url: string,
@@ -114,14 +127,9 @@ export class SupabaseQueryBuilder {
         url.searchParams.append("limit", String(this.limitCount));
       }
 
-      const headers: Record<string, string> = {
-        apikey: SUPABASE_ANON_KEY,
-        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-        "Content-Type": "application/json",
-      };
-      if (this.isSingleResult) {
-        headers["Prefer"] = "return=representation";
-      }
+      const headers = getHeaders(
+        this.isSingleResult ? { Prefer: "return=representation" } : undefined
+      );
 
       const res = await fetchWithTimeout(url.toString(), {
         method: "GET",
@@ -157,12 +165,7 @@ export class SupabaseQueryBuilder {
       const url = `${SUPABASE_URL}/rest/v1/${this.table}`;
       const res = await fetchWithTimeout(url, {
         method: "POST",
-        headers: {
-          apikey: SUPABASE_ANON_KEY,
-          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-          "Content-Type": "application/json",
-          Prefer: "return=representation",
-        },
+        headers: getHeaders({ Prefer: "return=representation" }),
         body: JSON.stringify(values),
       });
 
@@ -189,12 +192,9 @@ export class SupabaseQueryBuilder {
       const url = `${SUPABASE_URL}/rest/v1/${this.table}`;
       const res = await fetchWithTimeout(url, {
         method: "POST",
-        headers: {
-          apikey: SUPABASE_ANON_KEY,
-          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-          "Content-Type": "application/json",
+        headers: getHeaders({
           Prefer: "resolution=merge-duplicates,return=representation",
-        },
+        }),
         body: JSON.stringify(values),
       });
 
@@ -246,12 +246,7 @@ export class SupabaseQueryBuilder {
 
           const res = await fetchWithTimeout(url.toString(), {
             method: "PATCH",
-            headers: {
-              apikey: SUPABASE_ANON_KEY,
-              Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-              "Content-Type": "application/json",
-              Prefer: "return=representation",
-            },
+            headers: getHeaders({ Prefer: "return=representation" }),
             body: JSON.stringify(values),
           });
 
@@ -305,11 +300,7 @@ export class SupabaseQueryBuilder {
 
           const res = await fetchWithTimeout(url.toString(), {
             method: "DELETE",
-            headers: {
-              apikey: SUPABASE_ANON_KEY,
-              Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-              "Content-Type": "application/json",
-            },
+            headers: getHeaders(),
           });
 
           if (!res.ok) {

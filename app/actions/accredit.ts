@@ -4,6 +4,7 @@ import { normalizeMatricNo } from "@/lib/matric-normalizer";
 import { evaluateVoterEligibility } from "@/lib/eligibility-engine";
 import { createBlindedBallotToken } from "@/lib/crypto";
 import { supabase } from "@/lib/supabase";
+import { checkRateLimit } from "@/lib/security/rate-limiter";
 
 export interface AccreditVoterInput {
   electionId: string;
@@ -19,6 +20,16 @@ export async function accreditVoterAction(input: AccreditVoterInput) {
       return {
         success: false,
         message: "Invalid Nigerian matriculation number format.",
+      };
+    }
+
+    // Rate limit PIN verification: max 5 attempts per 10 minutes per matric number
+    const rateLimitKey = `accredit:${norm.normalized}`;
+    const limit = checkRateLimit(rateLimitKey, 5, 10 * 60 * 1000);
+    if (!limit.allowed) {
+      return {
+        success: false,
+        message: `Too many failed or rapid PIN attempts for this account. Please wait ${limit.retryAfterSeconds} seconds before trying again.`,
       };
     }
 

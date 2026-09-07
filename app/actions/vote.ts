@@ -2,6 +2,7 @@
 
 import { verifyBlindedBallotToken, generateReceiptHash, computeAuditBlockHash } from "@/lib/crypto";
 import { supabase } from "@/lib/supabase";
+import { checkRateLimit } from "@/lib/security/rate-limiter";
 import fs from "fs";
 import path from "path";
 
@@ -150,6 +151,16 @@ export async function castBallotAction(input: CastBallotInput) {
     const tokenId = input.ballotToken?.tokenId || `anon-${timestamp}-${Math.random().toString(36).substring(2, 6)}`;
     const electionId = input.ballotToken?.electionId || "elec-ui-2026";
     const normMatric = input.matricNo ? input.matricNo.replace(/[^a-zA-Z0-9]/g, "").toUpperCase() : "";
+
+    // Rate limit ballot submissions (max 2 attempts per 60 seconds per token/matric)
+    const rateLimitKey = `vote:${tokenId}:${normMatric || "anon"}`;
+    const limit = checkRateLimit(rateLimitKey, 2, 60 * 1000);
+    if (!limit.allowed) {
+      return {
+        success: false,
+        message: "Vote submission rate limit reached. Please wait before submitting again.",
+      };
+    }
 
     // 0. Enforce Election Status (LIVE only)
     try {
