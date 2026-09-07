@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { getAdminSession } from "@/lib/auth/session";
-import { supabase, fetchWithCache } from "@/lib/supabase";
+import { supabase, fetchWithCache, invalidateCache } from "@/lib/supabase";
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
@@ -11,6 +11,49 @@ const DATA_DIR = path.join(process.cwd(), "data");
 const ORG_LICENSES_FILE = path.join(DATA_DIR, "org-licenses-store.json");
 const COMMISSIONER_ASSIGNMENTS_FILE = path.join(DATA_DIR, "commissioner-assignments.json");
 const DELETED_ORGS_FILE = path.join(DATA_DIR, "deleted-orgs-store.json");
+const DELETED_CAMPUSES_FILE = path.join(DATA_DIR, "deleted-campuses-store.json");
+
+function readDeletedCampusesStore(): string[] {
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+    if (!fs.existsSync(DELETED_CAMPUSES_FILE)) {
+      const defaultArchived = ["unilag", "unn", "oau", "abu", "futa", "uniben"];
+      try {
+        fs.writeFileSync(DELETED_CAMPUSES_FILE, JSON.stringify(defaultArchived, null, 2), "utf8");
+      } catch (_) {}
+      return defaultArchived;
+    }
+    return JSON.parse(fs.readFileSync(DELETED_CAMPUSES_FILE, "utf8"));
+  } catch {
+    return ["unilag", "unn", "oau", "abu", "futa", "uniben"];
+  }
+}
+
+function recordDeletedCampus(slugOrId: string) {
+  try {
+    const list = readDeletedCampusesStore();
+    const clean = (slugOrId || "").toLowerCase().trim().replace(/^inst-/, "");
+    if (clean && !list.includes(clean)) {
+      list.push(clean);
+      fs.writeFileSync(DELETED_CAMPUSES_FILE, JSON.stringify(list, null, 2), "utf8");
+    }
+  } catch (err) {
+    console.warn("recordDeletedCampus error:", err);
+  }
+}
+
+function unrecordDeletedCampus(slugOrId: string) {
+  try {
+    const list = readDeletedCampusesStore();
+    const clean = (slugOrId || "").toLowerCase().trim().replace(/^inst-/, "");
+    const filtered = list.filter((s) => s !== clean);
+    fs.writeFileSync(DELETED_CAMPUSES_FILE, JSON.stringify(filtered, null, 2), "utf8");
+  } catch (err) {
+    console.warn("unrecordDeletedCampus error:", err);
+  }
+}
 
 export interface DeletedOrgRecord {
   id: string;
@@ -78,9 +121,12 @@ function unrecordDeletedOrg(orgId: string, instSlug: string, orgSlug: string) {
 
 export interface CommissionerAssignment {
   email: string;
+  fullName?: string;
   orgId?: string;
+  orgSlug?: string;
   orgName?: string;
   institutionId?: string;
+  institutionSlug?: string;
   role?: string;
 }
 
@@ -172,9 +218,9 @@ export async function getSuperAdminTelemetryAction(): Promise<SuperAdminTelemetr
     let activeCommissionersCount = 0;
 
     try {
-      // 1. Count Institutions (zero-egress head query)
-      const instsRes = await supabase.from("institutions").select("id", { count: "exact", head: true });
-      totalInstitutions = instsRes?.count || 0;
+      // 1. Count Active Institutions (respecting deleted/archived campuses store)
+      const activeCampuses = await getSuperAdminCampusesAction();
+      totalInstitutions = activeCampuses.length;
 
       // 2. Count Active Elections
       const { data: elecs } = await supabase.from("elections").select("id, status");
@@ -207,30 +253,53 @@ export async function getSuperAdminTelemetryAction(): Promise<SuperAdminTelemetr
 }
 
 /**
- * Fetch all campuses from Supabase
+ * Fetch all active campuses from Supabase (filtering out archived/deleted seed campuses)
  */
 export async function getSuperAdminCampusesAction(): Promise<SuperAdminCampus[]> {
   try {
+    const deletedCampuses = readDeletedCampusesStore();
     const { data, error } = await supabase
       .from("institutions")
       .select("*")
       .order("name", { ascending: true });
 
     if (!error && data) {
-      return data.map((i: any) => ({
-        id: i.id,
-        name: i.name,
-        slug: i.slug,
-        code: i.code,
-        tagline: i.tagline || "",
-        logoUrl: i.logo_url || i.logoUrl || `/logos/${i.slug}.svg`,
-        createdAt: i.created_at,
-      }));
+      return data
+        .filter((i: any) => {
+          const cleanSlug = (i.slug || "").toLowerCase().trim();
+          const cleanId = (i.id || "").toLowerCase().trim().replace(/^inst-/, "");
+          return !deletedCampuses.includes(cleanSlug) && !deletedCampuses.includes(cleanId);
+        })
+        .map((i: any) => ({
+          id: i.id,
+          name: i.name,
+          slug: i.slug,
+          code: i.code,
+          tagline: i.tagline || "",
+          logoUrl: i.logo_url || i.logoUrl || `/logos/${i.slug}.svg`,
+          createdAt: i.created_at,
+        }));
     }
   } catch (err) {
     console.warn("Error fetching campuses:", err);
   }
   return [];
+}
+
+/**
+ * Restore archived starter campuses (UNILAG, UNN, OAU, etc.)
+ */
+export async function restoreCampusesAction() {
+  try {
+    if (fs.existsSync(DELETED_CAMPUSES_FILE)) {
+      fs.writeFileSync(DELETED_CAMPUSES_FILE, "[]", "utf8");
+    }
+    invalidateCache("superadmin:telemetry");
+    revalidatePath("/super-admin");
+    return { success: true, message: "All canonical campuses restored." };
+  } catch (err: any) {
+    return { success: false, message: err.message };
+  }
 }
 
 /**
@@ -247,10 +316,12 @@ export async function getSuperAdminCommissionersAction(): Promise<SuperAdminComm
       const { data: insts } = await supabase.from("institutions").select("id, name, code, slug");
       const { data: orgs } = await supabase.from("organizations").select("id, name, code, slug, institution_id");
       const assignments = readCommissionerAssignments();
+      const licenses = readOrgLicensesStore();
 
       return admins.map((a: any) => {
         const inst = (insts || []).find((i: any) => i.id === a.institution_id);
-        const assignment = assignments[a.email.toLowerCase()];
+        const emailLower = (a.email || "").toLowerCase().trim();
+        const assignment = assignments[emailLower];
 
         let orgName = "All Campus Elections";
         let orgId = undefined;
@@ -258,12 +329,36 @@ export async function getSuperAdminCommissionersAction(): Promise<SuperAdminComm
         if (assignment?.orgName) {
           orgName = assignment.orgName;
           orgId = assignment.orgId;
+        } else if (assignment?.orgId || assignment?.orgSlug) {
+          const target = assignment.orgId || assignment.orgSlug;
+          const matchedOrg = (orgs || []).find((o: any) => o.id === target || o.slug === target);
+          const matchedLic = licenses.find((l: any) => l.id === target || l.orgSlug === target);
+          if (matchedOrg) {
+            orgName = matchedOrg.name;
+            orgId = matchedOrg.id;
+          } else if (matchedLic) {
+            orgName = matchedLic.orgName;
+            orgId = matchedLic.id;
+          }
         } else if (a.role && a.role.includes(":")) {
           const parts = a.role.split(":");
           const matchedOrg = (orgs || []).find((o: any) => o.id === parts[1] || o.slug === parts[1]);
           if (matchedOrg) {
             orgName = matchedOrg.name;
             orgId = matchedOrg.id;
+          }
+        } else if (a.institution_id === "inst-ui") {
+          // If commissioner is at UI and no assignment, link to UI's active organization
+          const uiLic = licenses.find((l: any) => l.institutionSlug === "ui" && l.licenseStatus === "ACTIVE");
+          if (uiLic) {
+            orgName = uiLic.orgName;
+            orgId = uiLic.id;
+          } else {
+            const uiOrg = (orgs || []).find((o: any) => o.institution_id === "inst-ui");
+            if (uiOrg) {
+              orgName = uiOrg.name;
+              orgId = uiOrg.id;
+            }
           }
         }
 
@@ -287,6 +382,42 @@ export async function getSuperAdminCommissionersAction(): Promise<SuperAdminComm
     console.warn("Error fetching commissioners:", err);
   }
   return [];
+}
+
+/**
+ * SuperAdmin: Assign or reassign an Electoral Commissioner to an Organization
+ */
+export async function assignCommissionerOrgAction(input: {
+  commissionerEmail: string;
+  orgId: string;
+  orgName: string;
+  institutionId?: string;
+}) {
+  const session = await getAdminSession();
+  if (session && session.role !== "SUPER_ADMIN") {
+    return { success: false, message: "Unauthorized. SuperAdmin privilege required." };
+  }
+
+  try {
+    const cleanEmail = (input.commissionerEmail || "").toLowerCase().trim();
+    const assignments = readCommissionerAssignments();
+    assignments[cleanEmail] = {
+      ...(assignments[cleanEmail] || {}),
+      email: cleanEmail,
+      orgId: input.orgId,
+      orgName: input.orgName,
+      institutionId: input.institutionId || assignments[cleanEmail]?.institutionId || "inst-ui",
+    };
+    writeCommissionerAssignments(assignments);
+
+    revalidatePath("/super-admin");
+    return {
+      success: true,
+      message: `Assigned ${cleanEmail} to ${input.orgName}.`,
+    };
+  } catch (err: any) {
+    return { success: false, message: err.message || "Failed to assign organization." };
+  }
 }
 
 /**
@@ -332,6 +463,10 @@ export async function createInstitutionAction(input: {
   } catch (err: any) {
     console.warn("Supabase institution provision error.", err);
   }
+
+  unrecordDeletedCampus(cleanSlug);
+  unrecordDeletedCampus(newInst.id);
+  invalidateCache("superadmin:telemetry");
 
   revalidatePath("/super-admin");
   revalidatePath("/#campuses");
@@ -397,19 +532,21 @@ export async function deleteInstitutionAction(id: string) {
   }
 
   try {
+    recordDeletedCampus(id);
+
     const { error } = await supabase
       .from("institutions")
-      .update({ is_active: false }) // Or delete if needed
+      .update({ is_active: false })
       .eq("id", id);
 
     if (error) {
-      // Direct delete
       await supabase.from("institutions").delete().eq("id", id);
     }
   } catch (err) {
     console.warn("Delete campus error:", err);
   }
 
+  invalidateCache("superadmin:telemetry");
   revalidatePath("/super-admin");
   revalidatePath("/#campuses");
 
@@ -665,7 +802,9 @@ export async function getSuperAdminOrgLicensesAction(): Promise<SuperAdminOrgLic
         const instSlug = inst?.slug || org.institution_id.replace(/^inst-/, "");
         const instName = inst?.name || instSlug.toUpperCase();
 
-        const existingOverride = overrides.find((o) => o.id === org.id);
+        const existingOverride = overrides.find(
+          (o) => o.id === org.id || (o.orgSlug === org.slug && (!o.institutionSlug || o.institutionSlug === instSlug))
+        );
 
         // Find elections for this organization
         const orgElectionIds = (dbElections || [])
@@ -796,11 +935,11 @@ export async function getSuperAdminOrgLicensesAction(): Promise<SuperAdminOrgLic
 
 export async function toggleOrgActivationAction(id: string, activate: boolean) {
   const list = readOrgLicensesStore();
-  let index = list.findIndex((o) => o.id === id);
+  let index = list.findIndex((o) => o.id === id || o.orgSlug === id);
 
   if (index === -1) {
     const all = await getSuperAdminOrgLicensesAction();
-    const found = all.find((o) => o.id === id);
+    const found = all.find((o) => o.id === id || o.orgSlug === id);
     if (found) {
       list.push(found);
       index = list.length - 1;
@@ -815,20 +954,19 @@ export async function toggleOrgActivationAction(id: string, activate: boolean) {
     }
     writeOrgLicensesStore(list);
 
-    // Sync election status directly based on payment state
+    // Sync election status non-blocking in parallel
     const targetStatus = activate ? "LIVE" : "PAUSED";
     const instSlug = (org.institutionSlug || "").toLowerCase();
     const orgSlug = (org.orgSlug || "").toLowerCase();
 
-    try {
-      const { updateElectionStatusAction } = await import("./student-register");
-      await updateElectionStatusAction(`elec-${instSlug}-${orgSlug}-2026`, targetStatus);
-      await updateElectionStatusAction(`elec-${orgSlug}-2026`, targetStatus);
-      await updateElectionStatusAction(orgSlug, targetStatus);
-      await updateElectionStatusAction(`org-${instSlug}-${orgSlug}`, targetStatus);
-    } catch (err) {
-      console.warn("Failed to sync election status on toggle:", err);
-    }
+    import("./student-register").then(({ updateElectionStatusAction }) => {
+      Promise.allSettled([
+        updateElectionStatusAction(`elec-${instSlug}-${orgSlug}-2026`, targetStatus),
+        updateElectionStatusAction(`elec-${orgSlug}-2026`, targetStatus),
+        updateElectionStatusAction(orgSlug, targetStatus),
+        updateElectionStatusAction(`org-${instSlug}-${orgSlug}`, targetStatus),
+      ]).catch((err) => console.warn("Background status sync note:", err));
+    }).catch(() => {});
 
     revalidatePath("/super-admin");
     revalidatePath(`/${instSlug}/${orgSlug}`);
@@ -847,7 +985,7 @@ export async function toggleOrgActivationAction(id: string, activate: boolean) {
 
 export async function updateOrgLicenseAction(updated: SuperAdminOrgLicense) {
   const list = readOrgLicensesStore();
-  const index = list.findIndex((o) => o.id === updated.id);
+  const index = list.findIndex((o) => o.id === updated.id || o.orgSlug === updated.orgSlug);
   if (index >= 0) {
     list[index] = { ...list[index], ...updated };
   } else {
@@ -855,18 +993,19 @@ export async function updateOrgLicenseAction(updated: SuperAdminOrgLicense) {
   }
   writeOrgLicensesStore(list);
 
-  // Sync election status based on updated license state
+  // Sync election status non-blocking in parallel
   const targetStatus = updated.licenseStatus === "ACTIVE" ? "LIVE" : "PAUSED";
   const instSlug = (updated.institutionSlug || "").toLowerCase();
   const orgSlug = (updated.orgSlug || "").toLowerCase();
 
-  try {
-    const { updateElectionStatusAction } = await import("./student-register");
-    await updateElectionStatusAction(`elec-${instSlug}-${orgSlug}-2026`, targetStatus);
-    await updateElectionStatusAction(`elec-${orgSlug}-2026`, targetStatus);
-    await updateElectionStatusAction(orgSlug, targetStatus);
-    await updateElectionStatusAction(`org-${instSlug}-${orgSlug}`, targetStatus);
-  } catch (_) {}
+  import("./student-register").then(({ updateElectionStatusAction }) => {
+    Promise.allSettled([
+      updateElectionStatusAction(`elec-${instSlug}-${orgSlug}-2026`, targetStatus),
+      updateElectionStatusAction(`elec-${orgSlug}-2026`, targetStatus),
+      updateElectionStatusAction(orgSlug, targetStatus),
+      updateElectionStatusAction(`org-${instSlug}-${orgSlug}`, targetStatus),
+    ]).catch(() => {});
+  }).catch(() => {});
 
   revalidatePath("/super-admin");
   revalidatePath(`/${instSlug}/${orgSlug}`);
@@ -874,17 +1013,17 @@ export async function updateOrgLicenseAction(updated: SuperAdminOrgLicense) {
 
   return {
     success: true,
-    message: `License for ${updated.orgName} saved. Status is ${updated.licenseStatus} (${targetStatus === "LIVE" ? "Polls Live" : "Election Halted"}).`,
+    message: `License for ${updated.orgName} saved. Quota is ${updated.voterQuota} voters (Status: ${updated.licenseStatus}).`,
   };
 }
 
 export async function extendOrgQuotaAction(id: string, additionalVoters: number) {
   const list = readOrgLicensesStore();
-  let index = list.findIndex((o) => o.id === id);
+  let index = list.findIndex((o) => o.id === id || o.orgSlug === id);
 
   if (index === -1) {
     const all = await getSuperAdminOrgLicensesAction();
-    const found = all.find((o) => o.id === id);
+    const found = all.find((o) => o.id === id || o.orgSlug === id);
     if (found) {
       list.push(found);
       index = list.length - 1;

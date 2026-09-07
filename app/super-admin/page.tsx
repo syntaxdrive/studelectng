@@ -18,6 +18,8 @@ import {
   extendOrgQuotaAction,
   resetOrgBallotsAction,
   deleteWholeOrganizationAction,
+  assignCommissionerOrgAction,
+  restoreCampusesAction,
   SuperAdminTelemetry,
   SuperAdminCampus,
   SuperAdminCommissioner,
@@ -118,6 +120,11 @@ export default function SuperAdminDashboard() {
     role: "ELCOM_CHAIRMAN",
   });
 
+  // Assign Org to Commissioner Modal State
+  const [assigningCom, setAssigningCom] = useState<SuperAdminCommissioner | null>(null);
+  const [isAssignComModalOpen, setIsAssignComModalOpen] = useState(false);
+  const [selectedComOrgId, setSelectedComOrgId] = useState("");
+
   const loadData = async () => {
     setIsLoading(true);
     try {
@@ -146,24 +153,40 @@ export default function SuperAdminDashboard() {
     loadData();
   }, []);
 
-  // Quick Toggle Org Activation
+  // Quick Toggle Org Activation (0ms Optimistic UI)
   const handleToggleOrgActivation = async (orgId: string, currentStatus: string) => {
     const newStatusIsActive = currentStatus !== "ACTIVE";
+    const nextStatus: "ACTIVE" | "PENDING_PAYMENT" = newStatusIsActive ? "ACTIVE" : "PENDING_PAYMENT";
+
+    // 0ms Optimistic state update
+    setOrgLicenses((prev) =>
+      prev.map((o) => (o.id === orgId ? { ...o, licenseStatus: nextStatus } : o))
+    );
+
     const res = await toggleOrgActivationAction(orgId, newStatusIsActive);
     if (res.success) {
       setStatusMessage(res.message || "Status updated.");
-      await loadData();
+      setTimeout(() => setStatusMessage(null), 3000);
+    } else {
+      setOrgLicenses((prev) =>
+        prev.map((o) => (o.id === orgId ? { ...o, licenseStatus: currentStatus as any } : o))
+      );
+      setStatusMessage(res.message || "Failed to update status.");
       setTimeout(() => setStatusMessage(null), 4000);
     }
   };
 
-  // Quick Extend Quota (+250 / +500)
+  // Quick Extend Quota (+250 / +500) (0ms Optimistic UI)
   const handleExtendQuota = async (orgId: string, amount: number) => {
+    // 0ms Optimistic state update
+    setOrgLicenses((prev) =>
+      prev.map((o) => (o.id === orgId ? { ...o, voterQuota: (o.voterQuota || 0) + amount } : o))
+    );
+    setStatusMessage(`Quota expanded by +${amount} voters.`);
+
     const res = await extendOrgQuotaAction(orgId, amount);
     if (res.success) {
-      setStatusMessage(res.message || `Quota increased by +${amount} voters.`);
-      await loadData();
-      setTimeout(() => setStatusMessage(null), 4000);
+      setTimeout(() => setStatusMessage(null), 3000);
     }
   };
 
@@ -234,7 +257,7 @@ export default function SuperAdminDashboard() {
     setIsEditingOrgModalOpen(true);
   };
 
-  // Save Org License Edits
+  // Save Org License Edits (0ms Optimistic UI)
   const handleSaveOrgLicense = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingOrg) return;
@@ -242,7 +265,7 @@ export default function SuperAdminDashboard() {
 
     const updatedLicense: SuperAdminOrgLicense = {
       ...editingOrg,
-      licenseStatus: orgFormData.licenseStatus as any || editingOrg.licenseStatus,
+      licenseStatus: (orgFormData.licenseStatus as any) || editingOrg.licenseStatus,
       voterQuota: Number(orgFormData.voterQuota) || editingOrg.voterQuota,
       agreedAmountNgn: Number(orgFormData.agreedAmountNgn) || editingOrg.agreedAmountNgn,
       paymentProofNote: orgFormData.paymentProofNote || editingOrg.paymentProofNote,
@@ -250,13 +273,57 @@ export default function SuperAdminDashboard() {
       contactAdminPhone: orgFormData.contactAdminPhone || editingOrg.contactAdminPhone,
     };
 
+    // 0ms Optimistic update and instant modal close!
+    setOrgLicenses((prev) =>
+      prev.map((o) => (o.id === editingOrg.id ? updatedLicense : o))
+    );
+    setIsEditingOrgModalOpen(false);
+    setStatusMessage(`Saved quota: ${updatedLicense.voterQuota} voters (${updatedLicense.licenseStatus}).`);
+
     const res = await updateOrgLicenseAction(updatedLicense);
     setIsSubmitting(false);
 
     if (res.success) {
-      setIsEditingOrgModalOpen(false);
-      setStatusMessage(res.message || "Organization updated.");
-      await loadData();
+      setTimeout(() => setStatusMessage(null), 4000);
+    }
+  };
+
+  // Open Assign Commissioner Modal
+  const handleOpenAssignComModal = (com: SuperAdminCommissioner) => {
+    setAssigningCom(com);
+    setSelectedComOrgId(com.organizationId || (orgLicenses[0]?.id || ""));
+    setIsAssignComModalOpen(true);
+  };
+
+  // Save Commissioner Org Assignment (0ms Optimistic UI)
+  const handleSaveComAssignment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!assigningCom || !selectedComOrgId) return;
+
+    const chosenOrg = orgLicenses.find((o) => o.id === selectedComOrgId) || {
+      id: selectedComOrgId,
+      orgName: "Selected Organization",
+    };
+
+    // 0ms Optimistic update!
+    setCommissioners((prev) =>
+      prev.map((c) =>
+        c.id === assigningCom.id
+          ? { ...c, organization: chosenOrg.orgName, organizationId: chosenOrg.id }
+          : c
+      )
+    );
+    setIsAssignComModalOpen(false);
+    setStatusMessage(`Assigned ${assigningCom.name} to ${chosenOrg.orgName}.`);
+
+    const res = await assignCommissionerOrgAction({
+      commissionerEmail: assigningCom.email,
+      orgId: chosenOrg.id,
+      orgName: chosenOrg.orgName,
+      institutionId: assigningCom.institutionId,
+    });
+
+    if (res.success) {
       setTimeout(() => setStatusMessage(null), 4000);
     }
   };
@@ -936,13 +1003,22 @@ export default function SuperAdminDashboard() {
                     </td>
                     <td className="px-4 py-3 text-right">
                       {com.active && (
-                        <button
-                          type="button"
-                          onClick={() => handleRevokeCommissioner(com.id)}
-                          className="text-rose-600 hover:text-rose-800 font-bold"
-                        >
-                          Revoke Access
-                        </button>
+                        <div className="flex items-center justify-end gap-3">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenAssignComModal(com)}
+                            className="text-zinc-800 hover:text-zinc-950 font-bold hover:underline"
+                          >
+                            Assign Org
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleRevokeCommissioner(com.id)}
+                            className="text-rose-600 hover:text-rose-800 font-bold"
+                          >
+                            Revoke
+                          </button>
+                        </div>
                       )}
                     </td>
                   </tr>
@@ -1501,6 +1577,75 @@ export default function SuperAdminDashboard() {
                 <span>{isDeletingOrg ? "Erasing Organization..." : "Confirm & Delete Everything"}</span>
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Assign Organization to Commissioner Modal */}
+      {isAssignComModalOpen && assigningCom && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
+          <div className="bg-white rounded-2xl border border-zinc-200 shadow-xl max-w-md w-full p-6 space-y-5 text-xs">
+            <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
+              <div>
+                <span className="text-[10px] font-mono font-bold uppercase text-zinc-500">
+                  {assigningCom.institution}
+                </span>
+                <h3 className="text-base font-bold text-zinc-900 mt-0.5">Assign Student Organization</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAssignComModalOpen(false)}
+                className="text-zinc-400 hover:text-zinc-700"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-3 bg-zinc-50 rounded-xl border border-zinc-200 space-y-1">
+              <p className="font-bold text-zinc-900 text-sm">{assigningCom.name}</p>
+              <p className="font-mono text-zinc-500 text-[11px]">{assigningCom.email}</p>
+              <p className="text-zinc-500 text-[11px]">
+                Currently Assigned: <strong className="text-zinc-800">{assigningCom.organization || "All Campus Elections"}</strong>
+              </p>
+            </div>
+
+            <form onSubmit={handleSaveComAssignment} className="space-y-4">
+              <div>
+                <label className="block font-semibold uppercase text-zinc-700 mb-1 font-mono text-[11px]">
+                  Select Organization
+                </label>
+                <select
+                  value={selectedComOrgId}
+                  onChange={(e) => setSelectedComOrgId(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-lg border border-zinc-300 text-xs font-semibold bg-white"
+                  required
+                >
+                  <option value="">-- Choose Organization --</option>
+                  {orgLicenses.map((org) => (
+                    <option key={org.id} value={org.id}>
+                      {org.orgName} ({org.orgSlug.toUpperCase()} • {org.institutionName})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-zinc-100">
+                <button
+                  type="button"
+                  onClick={() => setIsAssignComModalOpen(false)}
+                  className="px-4 py-2 border rounded-lg text-zinc-700 hover:bg-zinc-50 font-medium"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={!selectedComOrgId}
+                  className="px-5 py-2 bg-zinc-900 text-white font-bold rounded-lg hover:bg-zinc-800 disabled:opacity-50"
+                >
+                  Confirm Assignment
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

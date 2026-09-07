@@ -53,7 +53,7 @@ export default function AdminCreateElectionPage() {
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4>(1);
 
   // Step 1: Campus & Commissioner State
-  const [selectedCampus, setSelectedCampus] = useState("unilag");
+  const [selectedCampus, setSelectedCampus] = useState("ui");
   const [commissionerName, setCommissionerName] = useState("");
   const [commissionerEmail, setCommissionerEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -62,6 +62,7 @@ export default function AdminCreateElectionPage() {
   const [orgName, setOrgName] = useState("");
   const [orgSlug, setOrgSlug] = useState("");
   const [orgType, setOrgType] = useState<"DEPARTMENT" | "FACULTY" | "SUG" | "HALL">("DEPARTMENT");
+  const [paymentPlan, setPaymentPlan] = useState<"MICRO_500" | "DEPT_1000" | "FACULTY_3000" | "SUG_UNLIMITED">("DEPT_1000");
   const [electionTitle, setElectionTitle] = useState("");
   const [academicSession, setAcademicSession] = useState("2025/2026");
   const [requireDues, setRequireDues] = useState(true);
@@ -195,6 +196,9 @@ export default function AdminCreateElectionPage() {
       orgName,
       orgSlug: orgSlug.toLowerCase().replace(/[^a-z0-9-]/g, ""),
       orgType,
+      paymentPlan,
+      voterQuota: paymentPlan === "MICRO_500" ? 500 : paymentPlan === "FACULTY_3000" ? 3000 : paymentPlan === "SUG_UNLIMITED" ? 10000 : 1000,
+      agreedAmountNgn: paymentPlan === "MICRO_500" ? 15000 : paymentPlan === "FACULTY_3000" ? 65000 : paymentPlan === "SUG_UNLIMITED" ? 150000 : 30000,
       electionTitle,
       academicSession,
       requireDuesPayment: requireDues,
@@ -527,6 +531,99 @@ export default function AdminCreateElectionPage() {
               className="w-full px-3.5 py-2.5 rounded-lg border border-zinc-300 focus:ring-1 focus:ring-zinc-900 focus:outline-none font-medium"
               required
             />
+          </div>
+
+          {/* Price Plan Selector */}
+          <div className="space-y-3 pt-2">
+            <div className="flex items-center justify-between">
+              <span className="font-semibold text-zinc-800 uppercase tracking-wider block text-[11px]">
+                Select Activation & Voter Capacity Plan:
+              </span>
+              <span className="text-[11px] text-zinc-500 font-medium">All platform features included in all plans</span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              {[
+                {
+                  id: "MICRO_500",
+                  name: "Micro Tier",
+                  price: "₦15,000",
+                  voters: "Up to 500 Voters",
+                  badge: "Small Depts & Halls",
+                  popular: false,
+                },
+                {
+                  id: "DEPT_1000",
+                  name: "Department Pro",
+                  price: "₦30,000",
+                  voters: "Up to 1,000 Voters",
+                  badge: "Most Popular",
+                  popular: true,
+                },
+                {
+                  id: "FACULTY_3000",
+                  name: "Faculty Pro",
+                  price: "₦65,000",
+                  voters: "Up to 3,000 Voters",
+                  badge: "Full Faculties",
+                  popular: false,
+                },
+                {
+                  id: "SUG_UNLIMITED",
+                  name: "SUG / Apex",
+                  price: "₦150,000+",
+                  voters: "3,000+ Unlimited",
+                  badge: "Campus-Wide",
+                  popular: false,
+                },
+              ].map((plan) => {
+                const isSelected = paymentPlan === plan.id;
+                return (
+                  <div
+                    key={plan.id}
+                    onClick={() => {
+                      setPaymentPlan(plan.id as any);
+                      if (plan.id === "SUG_UNLIMITED") setOrgType("SUG");
+                      else if (plan.id === "FACULTY_3000") setOrgType("FACULTY");
+                      else if (plan.id === "MICRO_500" && orgType === "SUG") setOrgType("DEPARTMENT");
+                    }}
+                    className={`p-3.5 rounded-xl border cursor-pointer transition relative flex flex-col justify-between ${
+                      isSelected
+                        ? "border-zinc-900 bg-zinc-900 text-white shadow-sm ring-2 ring-zinc-900"
+                        : "border-zinc-200 bg-white hover:border-zinc-400 text-zinc-900"
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span
+                          className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${
+                            isSelected
+                              ? "bg-zinc-800 text-zinc-200"
+                              : plan.popular
+                              ? "bg-blue-100 text-blue-800 font-bold"
+                              : "bg-zinc-100 text-zinc-600"
+                          }`}
+                        >
+                          {plan.badge}
+                        </span>
+                        {isSelected && <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
+                      </div>
+                      <p className={`font-bold text-sm ${isSelected ? "text-white" : "text-zinc-900"}`}>
+                        {plan.name}
+                      </p>
+                      <p className={`text-[11px] mt-0.5 ${isSelected ? "text-zinc-300" : "text-zinc-500"}`}>
+                        {plan.voters}
+                      </p>
+                    </div>
+                    <div className="pt-3 border-t border-zinc-200/40 mt-3">
+                      <p className={`text-base font-extrabold font-mono ${isSelected ? "text-white" : "text-zinc-900"}`}>
+                        {plan.price}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
 
           {/* Eligibility Toggles */}

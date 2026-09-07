@@ -47,7 +47,24 @@ export const CANONICAL_INSTITUTIONS: MockInstitution[] = [
   },
 ];
 
+function getDeletedCampuses(): string[] {
+  if (typeof window !== "undefined") {
+    return ["unilag", "unn", "oau", "abu", "futa", "uniben"];
+  }
+  try {
+    const fs = eval("require")("fs");
+    const path = eval("require")("path");
+    const file = path.join(process.cwd(), "data", "deleted-campuses-store.json");
+    if (fs.existsSync(file)) {
+      return JSON.parse(fs.readFileSync(file, "utf8"));
+    }
+  } catch {}
+  return ["unilag", "unn", "oau", "abu", "futa", "uniben"];
+}
+
 export async function getInstitutions(): Promise<MockInstitution[]> {
+  const deleted = getDeletedCampuses();
+
   try {
     const { data, error } = await supabase
       .from("institutions")
@@ -55,23 +72,31 @@ export async function getInstitutions(): Promise<MockInstitution[]> {
       .order("name", { ascending: true });
 
     if (!error && data && data.length > 0) {
-      return data.map((inst: any) => ({
-        id: inst.id,
-        name: inst.name,
-        slug: inst.slug,
-        code: inst.code,
-        tagline: inst.tagline || "Higher Education Institution",
-        logoUrl: inst.logo_url || inst.logoUrl || `/logos/${inst.slug}.svg`,
-      }));
+      return data
+        .filter((inst: any) => {
+          const cleanSlug = (inst.slug || "").toLowerCase().trim();
+          const cleanId = (inst.id || "").toLowerCase().trim().replace(/^inst-/, "");
+          return !deleted.includes(cleanSlug) && !deleted.includes(cleanId);
+        })
+        .map((inst: any) => ({
+          id: inst.id,
+          name: inst.name,
+          slug: inst.slug,
+          code: inst.code,
+          tagline: inst.tagline || "Higher Education Institution",
+          logoUrl: inst.logo_url || inst.logoUrl || `/logos/${inst.slug}.svg`,
+        }));
     }
   } catch (error) {
     // Fall through to canonical directory
   }
 
-  return CANONICAL_INSTITUTIONS.map((inst) => ({
-    ...inst,
-    logoUrl: inst.logoUrl || `/logos/${inst.slug}.svg`,
-  }));
+  return CANONICAL_INSTITUTIONS
+    .filter((inst) => !deleted.includes(inst.slug.toLowerCase()))
+    .map((inst) => ({
+      ...inst,
+      logoUrl: inst.logoUrl || `/logos/${inst.slug}.svg`,
+    }));
 }
 
 export async function getInstitutionBySlug(slug?: string): Promise<MockInstitution | null> {

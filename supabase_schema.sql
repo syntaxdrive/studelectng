@@ -286,6 +286,16 @@ CREATE POLICY "Public can update accreditations" ON public.voter_accreditations 
 -- Admin users management
 CREATE POLICY "Admins full access" ON public.admin_users FOR ALL USING (true);
 
+-- Portal provisioning policies
+CREATE POLICY "Public can insert organizations" ON public.organizations FOR INSERT WITH CHECK (true);
+CREATE POLICY "Public can update organizations" ON public.organizations FOR UPDATE USING (true);
+CREATE POLICY "Public can insert elections" ON public.elections FOR INSERT WITH CHECK (true);
+CREATE POLICY "Public can update elections" ON public.elections FOR UPDATE USING (true);
+CREATE POLICY "Public can insert posts" ON public.posts FOR INSERT WITH CHECK (true);
+CREATE POLICY "Public can update posts" ON public.posts FOR UPDATE USING (true);
+CREATE POLICY "Public can insert candidates" ON public.candidates FOR INSERT WITH CHECK (true);
+CREATE POLICY "Public can update candidates" ON public.candidates FOR UPDATE USING (true);
+
 -- =============================================================================
 -- 7. CANONICAL SEED DATA (Nigerian Universities & Starter Associations)
 -- =============================================================================

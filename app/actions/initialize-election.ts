@@ -25,6 +25,9 @@ export interface InitializeElectionInput {
   requireDuesPayment?: boolean;
   requireFullTimeOnly?: boolean;
   requireGoodDisciplinaryStanding?: boolean;
+  paymentPlan?: "MICRO_500" | "DEPT_1000" | "FACULTY_3000" | "SUG_UNLIMITED" | "CUSTOM";
+  voterQuota?: number;
+  agreedAmountNgn?: number;
   posts: Array<{
     title: string;
     maxSelections?: number;
@@ -77,12 +80,15 @@ export async function initializeElectionAndAccountAction(input: InitializeElecti
         } catch (_) {}
       }
       assignments[cleanEmail] = {
+        email: cleanEmail,
+        fullName: input.commissionerName.trim(),
+        institutionId,
+        institutionSlug: cleanInstSlug,
         orgId,
+        orgSlug: cleanOrgSlug,
+        orgName: input.orgName.trim(),
         electionId,
         role: "ELCOM_CHAIRMAN",
-        institutionSlug: cleanInstSlug,
-        orgSlug: cleanOrgSlug,
-        fullName: input.commissionerName.trim(),
       };
       fs.writeFileSync(assignmentsPath, JSON.stringify(assignments, null, 2), "utf8");
 
@@ -112,7 +118,7 @@ export async function initializeElectionAndAccountAction(input: InitializeElecti
       ];
       fs.writeFileSync(candidatesPath, JSON.stringify(candStore, null, 2), "utf8");
 
-      // 1c. Org License Store (provision 500 voter quota by default)
+      // 1c. Org License Store (provision quota based on selected tier)
       const licensesPath = path.join(DATA_DIR, "org-licenses-store.json");
       let licenses: any[] = [];
       if (fs.existsSync(licensesPath)) {
@@ -120,27 +126,50 @@ export async function initializeElectionAndAccountAction(input: InitializeElecti
           licenses = JSON.parse(fs.readFileSync(licensesPath, "utf8"));
         } catch (_) {}
       }
+
+      const plan = input.paymentPlan || (orgType === "SUG" ? "SUG_UNLIMITED" : orgType === "FACULTY" ? "FACULTY_3000" : "DEPT_1000");
+      const quota = input.voterQuota || (plan === "MICRO_500" ? 500 : plan === "FACULTY_3000" ? 3000 : plan === "SUG_UNLIMITED" ? 10000 : 1000);
+      const price = input.agreedAmountNgn || (plan === "MICRO_500" ? 15000 : plan === "FACULTY_3000" ? 65000 : plan === "SUG_UNLIMITED" ? 150000 : 30000);
+
       const existingLicenseIndex = licenses.findIndex(
-        (l: any) => l.institutionSlug === cleanInstSlug && l.orgSlug === cleanOrgSlug
+        (l: any) => l.id === orgId || (l.institutionSlug === cleanInstSlug && l.orgSlug === cleanOrgSlug)
       );
+
       const newLicense = {
-        id: `lic-${cleanInstSlug}-${cleanOrgSlug}`,
+        id: orgId,
         institutionSlug: cleanInstSlug,
         orgSlug: cleanOrgSlug,
-        institutionName: cleanInstSlug.toUpperCase() + " University",
-        orgName: input.orgName,
-        plan: "GROWTH",
-        voterQuota: 500,
+        institutionName: cleanInstSlug === "ui" ? "University of Ibadan" : (cleanInstSlug.toUpperCase() + " University"),
+        orgName: input.orgName.trim(),
+        orgType: orgType,
+        paymentPlan: plan,
+        voterQuota: quota,
+        agreedAmountNgn: price,
+        contactAdminName: input.commissionerName.trim(),
         registeredVotersCount: 0,
+        ballotsCastCount: 0,
         licenseStatus: "ACTIVE",
+        lastActivatedAt: new Date().toISOString(),
         createdAt: new Date().toISOString(),
       };
+
       if (existingLicenseIndex >= 0) {
         licenses[existingLicenseIndex] = newLicense;
       } else {
         licenses.push(newLicense);
       }
       fs.writeFileSync(licensesPath, JSON.stringify(licenses, null, 2), "utf8");
+
+      // 1d. Un-tombstone if previously deleted
+      const deletedOrgsPath = path.join(DATA_DIR, "deleted-orgs-store.json");
+      if (fs.existsSync(deletedOrgsPath)) {
+        try {
+          const raw = fs.readFileSync(deletedOrgsPath, "utf8");
+          const dList = JSON.parse(raw);
+          const filtered = (dList || []).filter((d: any) => d.id !== orgId && d.orgSlug !== cleanOrgSlug);
+          fs.writeFileSync(deletedOrgsPath, JSON.stringify(filtered, null, 2), "utf8");
+        } catch (_) {}
+      }
     } catch (localErr) {
       console.warn("Local storage cache write warning:", localErr);
     }
