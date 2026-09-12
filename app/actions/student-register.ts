@@ -503,10 +503,7 @@ export async function updateElectionStatusAction(
   writeElectionRulesStore(store);
 
   try {
-    await supabase.from("elections").upsert({
-      id: electionId,
-      status: status,
-    });
+    await supabase.from("elections").update({ status }).eq("id", electionId);
   } catch (_) {}
 
   revalidatePath("/", "layout");
@@ -607,25 +604,49 @@ function checkOrgPaymentLicenseStatus(orgSlug?: string, instSlug?: string): { is
       const raw = fs.readFileSync(licensesFile, "utf8");
       const list = JSON.parse(raw);
       if (Array.isArray(list) && list.length > 0) {
-        const cleanOrg = orgSlug.toLowerCase().trim();
-        const cleanInst = (instSlug || "").toLowerCase().trim();
+        const rawOrg = orgSlug.toLowerCase().trim();
+        const cleanInst = (instSlug || "").toLowerCase().trim().replace(/^inst-/, "");
+        
+        // Strip out prefixes / suffixes (elec-, org-, instSlug-, -2026)
+        const cleanOrg = rawOrg
+          .replace(/^elec-/, "")
+          .replace(/^org-/, "")
+          .replace(new RegExp(`^${cleanInst}-`, "i"), "")
+          .replace(/-2026$/, "")
+          .trim();
+
         const found = list.find((o: any) => {
-          const matchOrg = o.orgSlug?.toLowerCase() === cleanOrg || o.id?.toLowerCase().includes(cleanOrg);
-          const matchInst = !cleanInst || o.institutionSlug?.toLowerCase() === cleanInst || o.id?.toLowerCase().includes(cleanInst);
-          return matchOrg && matchInst;
+          const oSlug = (o.orgSlug || "").toLowerCase().trim();
+          const oId = (o.id || "").toLowerCase().trim();
+          const oInst = (o.institutionSlug || "").toLowerCase().trim().replace(/^inst-/, "");
+
+          const instMatches = !cleanInst || !oInst || oInst === cleanInst;
+          if (!instMatches) return false;
+
+          return (
+            oSlug === cleanOrg ||
+            oSlug === rawOrg ||
+            oId === cleanOrg ||
+            oId === rawOrg ||
+            oId === `org-${cleanInst}-${cleanOrg}` ||
+            (cleanOrg.length >= 3 && (oSlug.includes(cleanOrg) || cleanOrg.includes(oSlug)))
+          );
         });
+
         if (found) {
+          const isHalted = found.licenseStatus === "PENDING_PAYMENT" || found.licenseStatus === "LOCKED";
           return {
-            isHalted: found.licenseStatus !== "ACTIVE",
-            status: found.licenseStatus || "PENDING_PAYMENT",
+            isHalted,
+            status: found.licenseStatus || "ACTIVE",
           };
         }
       }
     }
   } catch (_) {}
 
-  // By default, if no active payment license has been approved by SuperAdmin, halt election
-  return { isHalted: true, status: "PENDING_PAYMENT" };
+  // By default, unless an organization is explicitly halted by SuperAdmin in org-licenses-store.json,
+  // allow the election to remain active so legitimate campus elections can proceed smoothly.
+  return { isHalted: false, status: "ACTIVE" };
 }
 
 /**

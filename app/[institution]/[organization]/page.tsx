@@ -251,9 +251,9 @@ export default function OrganizationPortalPage({
       try {
         const savedLogo = localStorage.getItem(`studelect_org_logo_${instSlug}`);
         if (savedLogo) setOrgLogoUrl(savedLogo);
-        const savedStatus = localStorage.getItem(`studelect_election_status_${instSlug}`);
+        const savedStatus = localStorage.getItem(`studelect_election_status_${instSlug}_${orgSlug}`);
         if (savedStatus) setElectionStatus(savedStatus);
-        const savedVisibility = localStorage.getItem(`studelect_results_visibility_${instSlug}`);
+        const savedVisibility = localStorage.getItem(`studelect_results_visibility_${instSlug}_${orgSlug}`);
         if (savedVisibility) setResultsVisibility(savedVisibility);
       } catch (_) {}
     }
@@ -293,10 +293,10 @@ export default function OrganizationPortalPage({
 
     // Instant local sync if admin is testing in another tab of same browser
     const onStorage = (e: StorageEvent) => {
-      if (e.key === `studelect_election_status_${instSlug}` && e.newValue) {
+      if (e.key === `studelect_election_status_${instSlug}_${orgSlug}` && e.newValue) {
         setElectionStatus(e.newValue);
       }
-      if (e.key === `studelect_results_visibility_${instSlug}` && e.newValue) {
+      if (e.key === `studelect_results_visibility_${instSlug}_${orgSlug}` && e.newValue) {
         setResultsVisibility(e.newValue);
       }
     };

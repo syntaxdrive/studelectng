@@ -19,15 +19,15 @@ function readDeletedCampusesStore(): string[] {
       fs.mkdirSync(DATA_DIR, { recursive: true });
     }
     if (!fs.existsSync(DELETED_CAMPUSES_FILE)) {
-      const defaultArchived = ["unilag", "unn", "oau", "abu", "futa", "uniben"];
+      // Default: no campuses archived — all are visible to students
       try {
-        fs.writeFileSync(DELETED_CAMPUSES_FILE, JSON.stringify(defaultArchived, null, 2), "utf8");
+        fs.writeFileSync(DELETED_CAMPUSES_FILE, JSON.stringify([], null, 2), "utf8");
       } catch (_) {}
-      return defaultArchived;
+      return [];
     }
     return JSON.parse(fs.readFileSync(DELETED_CAMPUSES_FILE, "utf8"));
   } catch {
-    return ["unilag", "unn", "oau", "abu", "futa", "uniben"];
+    return [];
   }
 }
 
@@ -802,9 +802,21 @@ export async function getSuperAdminOrgLicensesAction(): Promise<SuperAdminOrgLic
         const instSlug = inst?.slug || org.institution_id.replace(/^inst-/, "");
         const instName = inst?.name || instSlug.toUpperCase();
 
-        const existingOverride = overrides.find(
-          (o) => o.id === org.id || (o.orgSlug === org.slug && (!o.institutionSlug || o.institutionSlug === instSlug))
-        );
+        const cleanInst = instSlug.toLowerCase().trim().replace(/^inst-/, "");
+        const cleanSlug = (org.slug || "").toLowerCase().trim();
+        const cleanOrgId = (org.id || "").toLowerCase().trim();
+
+        const existingOverride = overrides.find((o) => {
+          const oId = (o.id || "").toLowerCase().trim();
+          const oSlug = (o.orgSlug || "").toLowerCase().trim();
+          const oInst = (o.institutionSlug || "").toLowerCase().trim().replace(/^inst-/, "");
+
+          if (oId && (oId === cleanOrgId || oId === `org-${cleanInst}-${cleanSlug}`)) return true;
+          if (oSlug && cleanSlug && oSlug === cleanSlug) {
+            if (!oInst || !cleanInst || oInst === cleanInst) return true;
+          }
+          return false;
+        });
 
         // Find elections for this organization
         const orgElectionIds = (dbElections || [])
@@ -900,7 +912,7 @@ export async function getSuperAdminOrgLicensesAction(): Promise<SuperAdminOrgLic
           orgName: org.name,
           orgType: org.org_type || "DEPARTMENT",
           voterQuota: existingOverride?.voterQuota || defaultQuota,
-          licenseStatus: existingOverride?.licenseStatus || "PENDING_PAYMENT",
+          licenseStatus: existingOverride?.licenseStatus || "ACTIVE",
           paymentPlan: existingOverride?.paymentPlan || (defaultPlan as any),
           agreedAmountNgn: existingOverride?.agreedAmountNgn || defaultPrice,
           paymentProofNote: existingOverride?.paymentProofNote || undefined,
@@ -934,69 +946,120 @@ export async function getSuperAdminOrgLicensesAction(): Promise<SuperAdminOrgLic
 }
 
 export async function toggleOrgActivationAction(id: string, activate: boolean) {
-  const list = readOrgLicensesStore();
-  let index = list.findIndex((o) => o.id === id || o.orgSlug === id);
+  let list = readOrgLicensesStore();
 
-  if (index === -1) {
+  // ── Step 1: Find the org entry by id OR orgSlug ─────────────────────────────
+  // The UI passes the DB UUID as `id`, but the JSON store may have stored the
+  // old "org-ui-nesa" string-id. We must match by orgSlug as a fallback.
+  let orgEntry = list.find((o) => o.id === id);
+  if (!orgEntry) {
+    orgEntry = list.find((o) => o.orgSlug === id);
+  }
+
+  // ── Step 2: If still not found, pull from DB-merged action ──────────────────
+  if (!orgEntry) {
     const all = await getSuperAdminOrgLicensesAction();
     const found = all.find((o) => o.id === id || o.orgSlug === id);
     if (found) {
-      list.push(found);
-      index = list.length - 1;
+      orgEntry = found;
     }
   }
 
-  if (index >= 0) {
-    const org = list[index];
-    org.licenseStatus = activate ? "ACTIVE" : "PENDING_PAYMENT";
-    if (activate) {
-      org.lastActivatedAt = new Date().toISOString();
-    }
-    writeOrgLicensesStore(list);
-
-    // Sync election status non-blocking in parallel
-    const targetStatus = activate ? "LIVE" : "PAUSED";
-    const instSlug = (org.institutionSlug || "").toLowerCase();
-    const orgSlug = (org.orgSlug || "").toLowerCase();
-
-    import("./student-register").then(({ updateElectionStatusAction }) => {
-      Promise.allSettled([
-        updateElectionStatusAction(`elec-${instSlug}-${orgSlug}-2026`, targetStatus),
-        updateElectionStatusAction(`elec-${orgSlug}-2026`, targetStatus),
-        updateElectionStatusAction(orgSlug, targetStatus),
-        updateElectionStatusAction(`org-${instSlug}-${orgSlug}`, targetStatus),
-      ]).catch((err) => console.warn("Background status sync note:", err));
-    }).catch(() => {});
-
-    revalidatePath("/super-admin");
-    revalidatePath(`/${instSlug}/${orgSlug}`);
-    revalidatePath(`/${instSlug}/admin`);
-
-    return {
-      success: true,
-      newStatus: org.licenseStatus,
-      message: activate
-        ? `${org.orgName}: Marked ACTIVE (PAID). Polling resumed live on campus.`
-        : `${org.orgName}: Marked UNPAID. Polling immediately HALTED until payment is verified.`,
-    };
+  if (!orgEntry) {
+    return { success: false, message: "Organization not found in licenses store." };
   }
-  return { success: false, message: "Organization not found" };
+
+  // ── Step 3: DEDUP — remove ALL entries for this org before writing ───────────
+  // This prevents the case where old string-id entries ("org-ui-nesa") AND new
+  // UUID entries coexist. On next read, find() returns the first match which
+  // may be the old stale PENDING_PAYMENT entry — causing the toggle to revert.
+  const cleanOrgSlug = (orgEntry.orgSlug || "").toLowerCase().trim();
+  const cleanInstSlug = (orgEntry.institutionSlug || "").toLowerCase().trim();
+  list = list.filter((o) => {
+    const slug = (o.orgSlug || "").toLowerCase().trim();
+    const inst = (o.institutionSlug || "").toLowerCase().trim();
+    const sameOrg = slug === cleanOrgSlug && (!cleanInstSlug || !inst || inst === cleanInstSlug);
+    return !sameOrg;
+  });
+
+  // ── Step 4: Write a single, clean, updated entry ─────────────────────────────
+  const updatedEntry: SuperAdminOrgLicense = {
+    ...orgEntry,
+    id, // use the id passed in (DB UUID or slug — whatever the UI knows)
+    licenseStatus: activate ? "ACTIVE" : "PENDING_PAYMENT",
+    lastActivatedAt: activate ? new Date().toISOString() : orgEntry.lastActivatedAt,
+  };
+  list.push(updatedEntry);
+  writeOrgLicensesStore(list);
+
+  // ── Step 5: Sync election status directly in Supabase and rules store ───────
+  const targetStatus = activate ? "LIVE" : "PAUSED";
+  const instSlug = cleanInstSlug;
+  const orgSlug = cleanOrgSlug;
+
+  try {
+    const { updateElectionStatusAction } = await import("./student-register");
+    await Promise.allSettled([
+      updateElectionStatusAction(`elec-${instSlug}-${orgSlug}-2026`, targetStatus),
+      updateElectionStatusAction(`elec-${orgSlug}-2026`, targetStatus),
+      updateElectionStatusAction(orgSlug, targetStatus),
+      updateElectionStatusAction(`org-${instSlug}-${orgSlug}`, targetStatus),
+      updateElectionStatusAction(`elec-${instSlug}-2026`, targetStatus),
+    ]);
+  } catch (err) {
+    console.warn("Status sync note:", err);
+  }
+
+  // Also update Supabase elections table directly
+  try {
+    const aliases = [
+      `elec-${instSlug}-${orgSlug}-2026`,
+      `elec-${orgSlug}-2026`,
+      `elec-${instSlug}-2026`,
+    ];
+    for (const a of aliases) {
+      await supabase.from("elections").update({ status: targetStatus }).eq("id", a);
+    }
+    if (orgEntry.id) {
+      await supabase.from("elections").update({ status: targetStatus }).eq("organization_id", orgEntry.id);
+    }
+  } catch (_) {}
+
+  revalidatePath("/super-admin");
+  revalidatePath(`/${instSlug}/${orgSlug}`);
+  revalidatePath(`/${instSlug}/admin`);
+
+  return {
+    success: true,
+    newStatus: updatedEntry.licenseStatus,
+    message: activate
+      ? `${updatedEntry.orgName}: Marked ACTIVE (PAID). Students can now log in and vote.`
+      : `${updatedEntry.orgName}: Marked UNPAID. Student login and voting are immediately suspended.`,
+  };
 }
 
 export async function updateOrgLicenseAction(updated: SuperAdminOrgLicense) {
-  const list = readOrgLicensesStore();
-  const index = list.findIndex((o) => o.id === updated.id || o.orgSlug === updated.orgSlug);
-  if (index >= 0) {
-    list[index] = { ...list[index], ...updated };
-  } else {
-    list.push(updated);
-  }
+  let list = readOrgLicensesStore();
+
+  // Dedup: remove ALL entries matching this org (by orgSlug + institutionSlug)
+  // so stale string-id entries don't shadow the updated record on next read.
+  const cleanOrgSlug = (updated.orgSlug || "").toLowerCase().trim();
+  const cleanInstSlug = (updated.institutionSlug || "").toLowerCase().trim();
+  list = list.filter((o) => {
+    const slug = (o.orgSlug || "").toLowerCase().trim();
+    const inst = (o.institutionSlug || "").toLowerCase().trim();
+    const sameOrg = slug === cleanOrgSlug && (!cleanInstSlug || !inst || inst === cleanInstSlug);
+    return !sameOrg;
+  });
+
+  // Push the single authoritative updated entry
+  list.push(updated);
   writeOrgLicensesStore(list);
 
   // Sync election status non-blocking in parallel
   const targetStatus = updated.licenseStatus === "ACTIVE" ? "LIVE" : "PAUSED";
-  const instSlug = (updated.institutionSlug || "").toLowerCase();
-  const orgSlug = (updated.orgSlug || "").toLowerCase();
+  const instSlug = cleanInstSlug;
+  const orgSlug = cleanOrgSlug;
 
   import("./student-register").then(({ updateElectionStatusAction }) => {
     Promise.allSettled([
@@ -1013,34 +1076,46 @@ export async function updateOrgLicenseAction(updated: SuperAdminOrgLicense) {
 
   return {
     success: true,
-    message: `License for ${updated.orgName} saved. Quota is ${updated.voterQuota} voters (Status: ${updated.licenseStatus}).`,
+    message: `License for ${updated.orgName} saved. Quota: ${updated.voterQuota} voters · Status: ${updated.licenseStatus}.`,
   };
 }
 
 export async function extendOrgQuotaAction(id: string, additionalVoters: number) {
-  const list = readOrgLicensesStore();
-  let index = list.findIndex((o) => o.id === id || o.orgSlug === id);
+  let list = readOrgLicensesStore();
 
-  if (index === -1) {
+  // Find the org entry by id, then by orgSlug, then from DB
+  let orgEntry = list.find((o) => o.id === id);
+  if (!orgEntry) orgEntry = list.find((o) => o.orgSlug === id);
+  if (!orgEntry) {
     const all = await getSuperAdminOrgLicensesAction();
     const found = all.find((o) => o.id === id || o.orgSlug === id);
-    if (found) {
-      list.push(found);
-      index = list.length - 1;
-    }
+    if (found) orgEntry = found;
   }
 
-  if (index >= 0) {
-    list[index].voterQuota = (list[index].voterQuota || 500) + additionalVoters;
-    writeOrgLicensesStore(list);
-    revalidatePath("/super-admin");
-    return {
-      success: true,
-      newQuota: list[index].voterQuota,
-      message: `Voter quota expanded to ${list[index].voterQuota} voters.`,
-    };
+  if (!orgEntry) {
+    return { success: false, message: "Organization not found" };
   }
-  return { success: false, message: "Organization not found" };
+
+  // Dedup then write single updated entry
+  const cleanOrgSlug = (orgEntry.orgSlug || "").toLowerCase().trim();
+  const cleanInstSlug = (orgEntry.institutionSlug || "").toLowerCase().trim();
+  list = list.filter((o) => {
+    const slug = (o.orgSlug || "").toLowerCase().trim();
+    const inst = (o.institutionSlug || "").toLowerCase().trim();
+    return !(slug === cleanOrgSlug && (!cleanInstSlug || !inst || inst === cleanInstSlug));
+  });
+
+  const newQuota = (orgEntry.voterQuota || 500) + additionalVoters;
+  const updatedEntry: SuperAdminOrgLicense = { ...orgEntry, id, voterQuota: newQuota };
+  list.push(updatedEntry);
+  writeOrgLicensesStore(list);
+  revalidatePath("/super-admin");
+
+  return {
+    success: true,
+    newQuota,
+    message: `Voter quota expanded to ${newQuota} voters.`,
+  };
 }
 
 export async function resetOrgBallotsAction(instSlug: string, orgSlug: string) {

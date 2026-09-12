@@ -1,7 +1,7 @@
 {
   "unilag": {
     "electionId": "unilag",
-    "status": "PAUSED",
+    "status": "LIVE",
     "requireDuesPayment": true,
     "requireGoodDisciplinaryStanding": true,
     "requireFullTimeOnly": false,

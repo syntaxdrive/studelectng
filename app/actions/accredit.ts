@@ -140,7 +140,13 @@ export async function accreditVoterAction(input: AccreditVoterInput) {
     };
     try {
       const { getElectionRulesAction } = await import("./student-register");
-      const fetched = await getElectionRulesAction(input.electionId);
+      const instSlug = (student.institution_id || "").replace(/^inst-/, "").toLowerCase();
+      const orgSlug = input.electionId
+        .toLowerCase()
+        .replace(/^elec-/, "")
+        .replace(new RegExp(`^${instSlug}-`, "i"), "")
+        .replace(/-2026$/, "");
+      const fetched = await getElectionRulesAction(input.electionId, instSlug, orgSlug);
       if (fetched) {
         rules = fetched;
       }
@@ -150,7 +156,9 @@ export async function accreditVoterAction(input: AccreditVoterInput) {
     if (rules.status === "PAUSED") {
       return {
         success: false,
-        message: "Voting has been temporarily paused by the Electoral Commission (ELCOM). Please wait until polls are resumed.",
+        message: rules.isPaymentHalted
+          ? "Voting is currently paused awaiting Platform Administrator license clearance. Please contact your ELCOM executive."
+          : "Voting has been temporarily paused by the Electoral Commission (ELCOM). Please wait until polls are resumed.",
       };
     }
     if (rules.status === "CONCLUDED") {
