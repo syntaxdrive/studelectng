@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import Link from "next/link";
-import { Building2, Lock, ShieldCheck, User, LogOut, LayoutDashboard, Zap } from "lucide-react";
+import { Building2, Lock, ShieldCheck, LayoutDashboard, Zap } from "lucide-react";
 import { getAdminSession } from "@/lib/auth/session";
-import { logoutAction } from "@/app/actions/auth";
+import LogoutButton from "@/app/_components/LogoutButton";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://studelect.ng"),
@@ -80,71 +80,70 @@ export default async function RootLayout({
       <body className="min-h-screen flex flex-col bg-zinc-50/50 text-zinc-900 font-sans">
         {/* Sleek Minimalist Conditional Navbar */}
         <header className="border-b border-zinc-200 bg-white/80 backdrop-blur-md sticky top-0 z-50 print:hidden">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-14 flex items-center justify-between">
-            <Link href="/" className="flex items-center gap-2.5">
+          <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-14 flex items-center justify-between gap-2">
+            {/* Logo — always visible, never shrinks */}
+            <Link href="/" className="flex items-center gap-2 flex-shrink-0">
               <img
                 src="/studelect-mark.jpg"
                 alt="StudElect Emblem"
                 className="h-8 w-8 rounded-lg object-cover shadow-xs"
               />
-              <span className="text-sm font-bold tracking-tight text-zinc-900">
+              <span className="text-sm font-bold tracking-tight text-zinc-900 hidden xs:inline sm:inline">
                 Stud<span className="text-blue-600">Elect</span>
               </span>
             </Link>
 
-            <nav className="flex items-center gap-2 sm:gap-4 text-xs font-medium">
+            <nav className="flex items-center gap-1 sm:gap-2 text-xs font-medium min-w-0">
+              {/* Campuses — icon only on mobile, icon+text on sm+ */}
               <Link
                 href="/#campuses"
-                className="px-3 py-1.5 rounded-md text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 transition flex items-center gap-1.5"
+                className="p-1.5 sm:px-3 sm:py-1.5 rounded-md text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 transition flex items-center gap-1.5 flex-shrink-0"
+                title="Campuses"
               >
-                <Building2 className="w-3.5 h-3.5 text-zinc-500" />
-                <span>Campuses</span>
+                <Building2 className="w-4 h-4 text-zinc-500 flex-shrink-0" />
+                <span className="hidden sm:inline">Campuses</span>
               </Link>
 
+              {/* Pricing — icon only on mobile */}
               <Link
                 href="/pricing"
-                className="px-3 py-1.5 rounded-md text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 transition flex items-center gap-1.5"
+                className="p-1.5 sm:px-3 sm:py-1.5 rounded-md text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 transition flex items-center gap-1.5 flex-shrink-0"
+                title="Pricing"
               >
-                <Zap className="w-3.5 h-3.5 text-blue-600" />
-                <span>Pricing</span>
+                <Zap className="w-4 h-4 text-blue-600 flex-shrink-0" />
+                <span className="hidden sm:inline">Pricing</span>
               </Link>
 
               {session ? (
                 /* Authenticated Admin View */
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1 sm:gap-2 min-w-0">
                   <Link
                     href={
                       session.role === "SUPER_ADMIN"
                         ? "/super-admin"
                         : `/${session.institutionSlug || "unilag"}/admin`
                     }
-                    className="px-3 py-1.5 rounded-md bg-zinc-100 border border-zinc-200 hover:bg-zinc-200 text-zinc-800 transition flex items-center gap-1.5"
+                    className="px-2 py-1.5 sm:px-3 rounded-md bg-zinc-100 border border-zinc-200 hover:bg-zinc-200 text-zinc-800 transition flex items-center gap-1.5 min-w-0 max-w-[160px] sm:max-w-none"
+                    title="Dashboard"
                   >
-                    <LayoutDashboard className="w-3.5 h-3.5 text-zinc-700" />
-                    <span className="font-semibold">{session.fullName.split(" ")[0]}</span>
-                    <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-zinc-900 text-white">
+                    <LayoutDashboard className="w-3.5 h-3.5 text-zinc-700 flex-shrink-0" />
+                    <span className="font-semibold truncate">{session.fullName.split(" ")[0]}</span>
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-900 text-white flex-shrink-0 hidden xs:inline-flex sm:inline-flex">
                       {session.role === "SUPER_ADMIN" ? "SUPER" : "ELCOM"}
                     </span>
                   </Link>
 
-                  <form action={logoutAction}>
-                    <button
-                      type="submit"
-                      className="p-1.5 rounded-md hover:bg-zinc-100 text-zinc-500 hover:text-red-600 transition"
-                      title="Sign Out"
-                    >
-                      <LogOut className="w-4 h-4" />
-                    </button>
-                  </form>
+                  {/* Logout — instant client-side optimistic redirect */}
+                  <LogoutButton />
                 </div>
               ) : (
                 /* Unauthenticated Public View */
                 <Link
                   href="/admin/login"
-                  className="px-3 py-1.5 rounded-md bg-zinc-900 text-white hover:bg-zinc-800 transition font-semibold flex items-center gap-1.5 shadow-xs"
+                  className="px-2.5 py-1.5 sm:px-3 rounded-md bg-zinc-900 text-white hover:bg-zinc-800 transition font-semibold flex items-center gap-1.5 shadow-xs flex-shrink-0"
                 >
-                  <Lock className="w-3.5 h-3.5" />
-                  <span>Admin Sign In</span>
+                  <Lock className="w-3.5 h-3.5 flex-shrink-0" />
+                  <span className="hidden xs:inline sm:inline">Admin Sign In</span>
                 </Link>
               )}
             </nav>

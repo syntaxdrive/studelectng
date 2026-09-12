@@ -1,1 +1,22 @@
-{}
+{
+  "ayomidetiamiyu93@gmail.com": {
+    "email": "ayomidetiamiyu93@gmail.com",
+    "fullName": "Tiamiyu Ayomide Esther",
+    "institutionId": "inst-ui",
+    "institutionSlug": "ui",
+    "orgId": "org-ui-nesa",
+    "orgSlug": "nesa",
+    "orgName": "Nigerian Economics Students' Association (NESA)",
+    "role": "ELCOM_CHAIRMAN"
+  },
+  "oyasordaniel@gmail.com": {
+    "email": "oyasordaniel@gmail.com",
+    "fullName": "Daniel Oyasor",
+    "institutionId": "inst-ui",
+    "institutionSlug": "ui",
+    "orgId": "org-ui-nesa",
+    "orgSlug": "nesa",
+    "orgName": "Nigerian Economics Students' Association (NESA)",
+    "role": "ELCOM_CHAIRMAN"
+  }
+}

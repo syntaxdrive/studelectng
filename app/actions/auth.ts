@@ -2,7 +2,6 @@
 
 import { authenticateAdmin } from "@/lib/auth/admin-session";
 import { setAdminSessionCookie, clearAdminSessionCookie, getAdminSession, AuthSession } from "@/lib/auth/session";
-import { redirect } from "next/navigation";
 import { checkRateLimit } from "@/lib/security/rate-limiter";
 
 export interface LoginInput {
@@ -61,7 +60,8 @@ export async function loginAction(input: LoginInput) {
 
 export async function logoutAction() {
   await clearAdminSessionCookie();
-  redirect("/admin/login");
+  // Navigation is handled client-side by LogoutButton for instant UX.
+  // This action only clears the server-side session cookie.
 }
 
 export async function getCurrentUserSession(): Promise<AuthSession | null> {

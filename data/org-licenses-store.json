@@ -1,1 +1,19 @@
-[]
+[
+  {
+    "id": "org-ui-nesa",
+    "institutionSlug": "ui",
+    "institutionName": "University of Ibadan",
+    "orgSlug": "nesa",
+    "orgName": "Nigerian Economics Students' Association (NESA)",
+    "orgType": "FACULTY",
+    "voterQuota": 1000,
+    "licenseStatus": "ACTIVE",
+    "paymentPlan": "DEPT_1000",
+    "agreedAmountNgn": 30000,
+    "contactAdminName": "Tiamiyu Ayomide Esther",
+    "contactAdminPhone": "2349164221215",
+    "registeredVotersCount": 7,
+    "ballotsCastCount": 0,
+    "lastActivatedAt": "2026-09-07T21:26:15.615Z"
+  }
+]

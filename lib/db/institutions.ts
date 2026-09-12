@@ -48,8 +48,10 @@ export const CANONICAL_INSTITUTIONS: MockInstitution[] = [
 ];
 
 function getDeletedCampuses(): string[] {
+  // Client-side: never filter campuses — the public directory shows all active campuses.
+  // SuperAdmin delete/restore updates the JSON file server-side only.
   if (typeof window !== "undefined") {
-    return ["unilag", "unn", "oau", "abu", "futa", "uniben"];
+    return [];
   }
   try {
     const fs = eval("require")("fs");
@@ -59,7 +61,8 @@ function getDeletedCampuses(): string[] {
       return JSON.parse(fs.readFileSync(file, "utf8"));
     }
   } catch {}
-  return ["unilag", "unn", "oau", "abu", "futa", "uniben"];
+  // Default: show all campuses
+  return [];
 }
 
 export async function getInstitutions(): Promise<MockInstitution[]> {
