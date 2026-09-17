@@ -8,6 +8,7 @@ import {
   deleteInstitutionAction,
   revokeCommissionerAction,
   createCommissionerAction,
+  resetCommissionerPasswordAction,
   createOrganizationAction,
   getSuperAdminTelemetryAction,
   getSuperAdminCampusesAction,
@@ -52,6 +53,10 @@ import {
   DollarSign,
   AlertCircle,
   FileSpreadsheet,
+  Eye,
+  EyeOff,
+  Mail,
+  Copy,
 } from "lucide-react";
 
 export default function SuperAdminDashboard() {
@@ -124,6 +129,21 @@ export default function SuperAdminDashboard() {
   const [assigningCom, setAssigningCom] = useState<SuperAdminCommissioner | null>(null);
   const [isAssignComModalOpen, setIsAssignComModalOpen] = useState(false);
   const [selectedComOrgId, setSelectedComOrgId] = useState("");
+
+  // Password reveal state for commissioners table
+  const [revealedPasswords, setRevealedPasswords] = useState<Set<string>>(new Set());
+  const togglePasswordReveal = (comId: string) => {
+    setRevealedPasswords((prev) => {
+      const next = new Set(prev);
+      next.has(comId) ? next.delete(comId) : next.add(comId);
+      return next;
+    });
+  };
+
+  // Copy text to clipboard helper
+  const copyToClipboard = async (text: string) => {
+    try { await navigator.clipboard.writeText(text); } catch (_) {}
+  };
 
   const loadData = async () => {
     setIsLoading(true);
@@ -436,6 +456,20 @@ export default function SuperAdminDashboard() {
       setStatusMessage(res.message || "Commissioner revoked.");
       await loadData();
       setTimeout(() => setStatusMessage(null), 4000);
+    }
+  };
+
+  const handleResetCommissionerPassword = async (com: SuperAdminCommissioner) => {
+    const newPwd = prompt(`Set a new password for ${com.name} (${com.email}):`, "");
+    if (!newPwd || !newPwd.trim()) return;
+    const res = await resetCommissionerPasswordAction(com.email, newPwd.trim());
+    if (res.success) {
+      setStatusMessage(`Password reset for ${com.email}. New password: ${res.newPassword}`);
+      await loadData();
+      setTimeout(() => setStatusMessage(null), 8000);
+    } else {
+      setStatusMessage(res.message || "Reset failed.");
+      setTimeout(() => setStatusMessage(null), 5000);
     }
   };
 
@@ -974,64 +1008,138 @@ export default function SuperAdminDashboard() {
             </button>
           </div>
 
-          <div className="bg-white rounded-2xl border border-zinc-200 shadow-xs overflow-hidden">
-            <table className="w-full text-xs text-left">
+          <div className="bg-white rounded-2xl border border-zinc-200 shadow-xs overflow-x-auto">
+            <table className="w-full text-xs text-left min-w-[780px]">
               <thead className="bg-zinc-50 border-b border-zinc-200 text-[11px] uppercase tracking-wider text-zinc-500 font-mono">
                 <tr>
                   <th className="px-4 py-3">Commissioner</th>
-                  <th className="px-4 py-3">Assigned Campus</th>
-                  <th className="px-4 py-3">Assigned Organization</th>
+                  <th className="px-4 py-3">Campus</th>
+                  <th className="px-4 py-3">Organization</th>
                   <th className="px-4 py-3">Role</th>
+                  <th className="px-4 py-3">Password</th>
                   <th className="px-4 py-3">Status</th>
                   <th className="px-4 py-3 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100">
-                {commissioners.map((com) => (
-                  <tr key={com.id} className="hover:bg-zinc-50/50 transition">
-                    <td className="px-4 py-3">
-                      <span className="font-bold text-zinc-900 block">{com.name}</span>
-                      <span className="text-zinc-500 font-mono text-[11px]">{com.email}</span>
-                    </td>
-                    <td className="px-4 py-3 font-medium text-zinc-700">{com.institution}</td>
-                    <td className="px-4 py-3">
-                      <span className="font-medium text-zinc-800 block">{com.organization || "All Campus Elections"}</span>
-                      {com.organizationId && (
-                        <span className="text-zinc-400 font-mono text-[10px]">{com.organizationId}</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 font-mono text-[11px]">{com.role}</td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                          com.active ? "bg-emerald-50 text-emerald-800 border border-emerald-200" : "bg-rose-50 text-rose-800"
-                        }`}
-                      >
-                        {com.active ? "Active" : "Revoked"}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      {com.active && (
-                        <div className="flex items-center justify-end gap-3">
-                          <button
-                            type="button"
-                            onClick={() => handleOpenAssignComModal(com)}
-                            className="text-zinc-800 hover:text-zinc-950 font-bold hover:underline"
+                {commissioners.map((com) => {
+                  const isRevealed = revealedPasswords.has(com.id);
+                  const hasPassword = !!com.plainPassword;
+
+                  // Build pre-written email
+                  const adminUrl = `https://studelect.ng/${(com.institutionId || "ui").replace("inst-", "")}/admin`;
+                  const emailSubject = encodeURIComponent(`StudElect – Your ELCOM Admin Access (${com.organization || ""})`);
+                  const emailBody = encodeURIComponent(
+                    `Hello ${com.name},\n\nYour Electoral Commissioner (ELCOM) admin account has been set up on StudElect.\n\n` +
+                    `Organisation: ${com.organization || "Your Organisation"}\n` +
+                    `Login URL: ${adminUrl}\n` +
+                    `Email: ${com.email}\n` +
+                    `Password: ${com.plainPassword || "(contact superadmin for password)"}\n\n` +
+                    `Please log in and change your password after first login.\n\n` +
+                    `If you have any questions, reply to this email or contact the SuperAdmin.\n\n` +
+                    `– StudElect Platform`
+                  );
+                  const mailtoLink = `mailto:${com.email}?subject=${emailSubject}&body=${emailBody}`;
+
+                  return (
+                    <tr key={com.id} className="hover:bg-zinc-50/50 transition">
+                      <td className="px-4 py-3">
+                        <span className="font-bold text-zinc-900 block">{com.name}</span>
+                        <span className="text-zinc-500 font-mono text-[11px]">{com.email}</span>
+                      </td>
+                      <td className="px-4 py-3 font-medium text-zinc-700">{com.institution}</td>
+                      <td className="px-4 py-3">
+                        <span className="font-medium text-zinc-800 block">{com.organization || "All Campus Elections"}</span>
+                        {com.organizationId && (
+                          <span className="text-zinc-400 font-mono text-[10px]">{com.organizationId}</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 font-mono text-[11px]">{com.role}</td>
+
+                      {/* Password column */}
+                      <td className="px-4 py-3">
+                        {hasPassword ? (
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-mono text-[11px] text-zinc-800 select-all">
+                              {isRevealed ? com.plainPassword : "••••••••"}
+                            </span>
+                            <button
+                              type="button"
+                              title={isRevealed ? "Hide password" : "Reveal password"}
+                              onClick={() => togglePasswordReveal(com.id)}
+                              className="p-0.5 text-zinc-400 hover:text-zinc-700 transition"
+                            >
+                              {isRevealed ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                            </button>
+                            {isRevealed && (
+                              <button
+                                type="button"
+                                title="Copy password"
+                                onClick={() => copyToClipboard(com.plainPassword!)}
+                                className="p-0.5 text-zinc-400 hover:text-zinc-700 transition"
+                              >
+                                <Copy className="w-3 h-3" />
+                              </button>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-zinc-400 text-[11px] italic">Not stored</span>
+                        )}
+                      </td>
+
+                      <td className="px-4 py-3">
+                        <span
+                          className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                            com.active ? "bg-emerald-50 text-emerald-800 border border-emerald-200" : "bg-rose-50 text-rose-800"
+                          }`}
+                        >
+                          {com.active ? "Active" : "Revoked"}
+                        </span>
+                      </td>
+
+                      <td className="px-4 py-3 text-right">
+                        <div className="flex items-center justify-end gap-2 flex-wrap">
+                          {/* Pre-written Email button */}
+                          <a
+                            href={mailtoLink}
+                            title={`Send credentials email to ${com.email}`}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-zinc-100 hover:bg-zinc-200 text-zinc-700 font-bold text-[11px] transition"
                           >
-                            Assign Org
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleRevokeCommissioner(com.id)}
-                            className="text-rose-600 hover:text-rose-800 font-bold"
-                          >
-                            Revoke
-                          </button>
+                            <Mail className="w-3 h-3" />
+                            <span>Email</span>
+                          </a>
+
+                          {com.active && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => handleOpenAssignComModal(com)}
+                                className="text-zinc-800 hover:text-zinc-950 font-bold hover:underline text-[11px]"
+                              >
+                                Assign Org
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleResetCommissionerPassword(com)}
+                                className="text-amber-600 hover:text-amber-800 font-bold text-[11px]"
+                                title="Set a new password for this admin"
+                              >
+                                Reset Pwd
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleRevokeCommissioner(com.id)}
+                                className="text-rose-600 hover:text-rose-800 font-bold text-[11px]"
+                              >
+                                Revoke
+                              </button>
+                            </>
+                          )}
                         </div>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

@@ -128,6 +128,7 @@ export interface CommissionerAssignment {
   institutionId?: string;
   institutionSlug?: string;
   role?: string;
+  plainPassword?: string;
 }
 
 function readCommissionerAssignments(): Record<string, CommissionerAssignment> {
@@ -204,6 +205,7 @@ export interface SuperAdminCommissioner {
   role: string;
   active: boolean;
   createdAt?: string;
+  plainPassword?: string;
 }
 
 /**
@@ -375,6 +377,7 @@ export async function getSuperAdminCommissionersAction(): Promise<SuperAdminComm
           role: cleanRole,
           active: a.is_active !== false,
           createdAt: a.created_at,
+          plainPassword: assignment?.plainPassword || undefined,
         };
       });
     }
@@ -582,6 +585,38 @@ export async function revokeCommissionerAction(commissionerId: string) {
 }
 
 /**
+ * SuperAdmin: Reset Commissioner Password
+ */
+export async function resetCommissionerPasswordAction(commissionerEmail: string, newPassword: string) {
+  const session = await getAdminSession();
+  if (session && session.role !== "SUPER_ADMIN") {
+    return { success: false, message: "Unauthorized. SuperAdmin privilege required." };
+  }
+
+  const cleanEmail = commissionerEmail.trim().toLowerCase();
+  const newHash = crypto.createHash("sha256").update(newPassword.trim()).digest("hex");
+
+  try {
+    await supabase
+      .from("admin_users")
+      .update({ password_hash: newHash })
+      .eq("email", cleanEmail);
+
+    // Also update the stored plain password in assignments
+    const assignments = readCommissionerAssignments();
+    if (assignments[cleanEmail]) {
+      assignments[cleanEmail].plainPassword = newPassword.trim();
+      writeCommissionerAssignments(assignments);
+    }
+
+    revalidatePath("/super-admin");
+    return { success: true, message: `Password reset for ${cleanEmail}.`, newPassword: newPassword.trim() };
+  } catch (err: any) {
+    return { success: false, message: err.message || "Failed to reset password." };
+  }
+}
+
+/**
  * SuperAdmin: Provision New Commissioner Directly
  */
 export async function createCommissionerAction(input: {
@@ -634,10 +669,12 @@ export async function createCommissionerAction(input: {
     const assignments = readCommissionerAssignments();
     assignments[cleanEmail] = {
       email: cleanEmail,
+      fullName: input.fullName.trim(),
       institutionId: input.institutionId,
       orgId: assignedOrgId,
       orgName: orgName,
       role: baseRole,
+      plainPassword: defaultPassword,
     };
     writeCommissionerAssignments(assignments);
 
