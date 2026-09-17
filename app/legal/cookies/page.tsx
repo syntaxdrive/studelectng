@@ -1,7 +1,7 @@
-"use client";
-
 import Link from "next/link";
 import { Cookie, ArrowLeft, ShieldCheck, Lock } from "lucide-react";
+
+export const dynamic = "force-static";
 
 export default function CookiePolicyPage() {
   return (

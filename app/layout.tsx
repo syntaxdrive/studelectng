@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Building2, Lock, ShieldCheck, LayoutDashboard, Zap } from "lucide-react";
 import { getAdminSession } from "@/lib/auth/session";
 import LogoutButton from "@/app/_components/LogoutButton";
+import PolicyConsentBanner from "@/app/_components/PolicyConsentBanner";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://studelect.com.ng"),
@@ -206,6 +207,9 @@ export default async function RootLayout({
             </div>
           </div>
         </footer>
+
+        {/* Global Policy Update & Cookie Consent Banner */}
+        <PolicyConsentBanner />
       </body>
     </html>
   );

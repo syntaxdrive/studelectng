@@ -1,5 +1,3 @@
-"use client";
-
 import Link from "next/link";
 import {
   ShieldCheck,
@@ -9,7 +7,10 @@ import {
   Database,
   Globe,
   Mail,
+  Bell,
 } from "lucide-react";
+
+export const dynamic = "force-static";
 
 export default function PrivacyPolicyPage() {
   return (
@@ -35,21 +36,37 @@ export default function PrivacyPolicyPage() {
               <ShieldCheck className="w-5 h-5 text-zinc-700" />
             </div>
             <span className="text-xs font-mono text-zinc-400 uppercase tracking-widest">
-              Legal
+              Legal &amp; Privacy Compliance
             </span>
           </div>
           <h1 className="text-2xl font-bold text-zinc-900 tracking-tight mb-2">
             Privacy Policy
           </h1>
           <p className="text-xs text-zinc-400 font-mono mb-3">
-            Last updated: September 2026
+            Effective Date: September 17, 2026 &bull; Version 2.1
           </p>
-          <p className="text-sm text-zinc-500 leading-relaxed">
+          <p className="text-sm text-zinc-500 leading-relaxed mb-6">
             StudElect is committed to protecting the privacy and data rights of
             every student, administrator, and institution on our platform. This
             policy explains what data we collect, why we collect it, and how it
-            is stored and protected.
+            is stored and protected under the Nigeria Data Protection Regulation (NDPR).
           </p>
+
+          {/* Policy Revision & Update Notice */}
+          <div id="policy-changes" className="p-4 rounded-xl bg-blue-50/70 border border-blue-200 text-blue-950 space-y-2">
+            <div className="flex items-center gap-2 font-bold text-xs uppercase tracking-wider text-blue-900">
+              <Bell className="w-4 h-4 text-blue-600 flex-shrink-0" />
+              <span>Policy Update Notice (Effective September 17, 2026)</span>
+            </div>
+            <p className="text-xs text-blue-900/80 leading-relaxed">
+              We have updated our Privacy Policy to clarify data retention periods, student PIN security, and cryptographic auditability:
+            </p>
+            <ul className="list-disc pl-4 text-xs text-blue-900/80 space-y-1">
+              <li><strong>Zero Commercial Data Sale:</strong> We strictly confirm StudElect does not sell, license, or monetize student voter information or use cookies for advertising tracking.</li>
+              <li><strong>Session-Bound Voter Records:</strong> Matriculation numbers and voter records are retained for the duration of the active academic session.</li>
+              <li><strong>Cryptographic Audit Trails:</strong> Anonymous zero-knowledge ballot hashes and audit ledger entries are archived for 5 years strictly for electoral integrity.</li>
+            </ul>
+          </div>
         </div>
 
         <div className="space-y-10">

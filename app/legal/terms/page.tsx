@@ -1,5 +1,3 @@
-"use client";
-
 import Link from "next/link";
 import {
   Scale,
@@ -7,7 +5,10 @@ import {
   AlertTriangle,
   FileText,
   ShieldCheck,
+  Bell,
 } from "lucide-react";
+
+export const dynamic = "force-static";
 
 export default function TermsOfServicePage() {
   return (
@@ -33,20 +34,36 @@ export default function TermsOfServicePage() {
               <Scale className="w-5 h-5 text-zinc-700" />
             </div>
             <span className="text-xs font-mono text-zinc-400 uppercase tracking-widest">
-              Legal
+              Legal &amp; Institutional Governance
             </span>
           </div>
           <h1 className="text-2xl font-bold text-zinc-900 tracking-tight mb-2">
             Terms of Service
           </h1>
           <p className="text-xs text-zinc-400 font-mono mb-3">
-            Last updated: September 2026
+            Effective Date: September 17, 2026 &bull; Version 2.1
           </p>
-          <p className="text-sm text-zinc-500 leading-relaxed">
+          <p className="text-sm text-zinc-500 leading-relaxed mb-6">
             These Terms of Service govern your use of the StudElect platform.
             Please read them carefully before using the platform as a student
             voter, ELCOM administrator, or institutional representative.
           </p>
+
+          {/* Terms Revision & Update Notice */}
+          <div id="policy-changes" className="p-4 rounded-xl bg-blue-50/70 border border-blue-200 text-blue-950 space-y-2">
+            <div className="flex items-center gap-2 font-bold text-xs uppercase tracking-wider text-blue-900">
+              <Bell className="w-4 h-4 text-blue-600 flex-shrink-0" />
+              <span>Terms of Service Revision Notice (Effective September 17, 2026)</span>
+            </div>
+            <p className="text-xs text-blue-900/80 leading-relaxed">
+              We have updated our platform terms to establish transparent operational rules for student electoral integrity:
+            </p>
+            <ul className="list-disc pl-4 text-xs text-blue-900/80 space-y-1">
+              <li><strong>Voter Quotas &amp; Licensing:</strong> Established clear guidelines for department and faculty voter roll capacity quotas.</li>
+              <li><strong>One-Student-One-Vote Enforcement:</strong> Attempting to vote multiple times, share voter PINs, or forge matriculation credentials violates platform rules and will be reported to university disciplinary committees.</li>
+              <li><strong>Audit Adjudication Window:</strong> Electoral commissions have a 14-day post-election window to review certified cryptographic hash tallies.</li>
+            </ul>
+          </div>
         </div>
 
         <div className="space-y-10">
