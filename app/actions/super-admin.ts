@@ -753,6 +753,8 @@ export async function createOrganizationAction(input: {
     writeOrgLicensesStore(list);
     unrecordDeletedOrg(orgId, instSlug, cleanSlug);
 
+    await persistOrgLicenseToSupabase(newLicense);
+
     revalidatePath("/super-admin");
     return {
       success: true,
@@ -792,6 +794,102 @@ function writeOrgLicensesStore(licenses: SuperAdminOrgLicense[]) {
   }
 }
 
+async function persistOrgLicenseToSupabase(license: SuperAdminOrgLicense) {
+  try {
+    const cleanOrgSlug = (license.orgSlug || "").toLowerCase().trim();
+    const cleanInstSlug = (license.institutionSlug || "").toLowerCase().trim().replace(/^inst-/, "");
+    const orgId = license.id || `org-${cleanInstSlug}-${cleanOrgSlug}`;
+
+    const cleanLicense = {
+      ...license,
+      voterQuota: Number(license.voterQuota) || 1000,
+      licenseStatus: license.licenseStatus || "ACTIVE",
+      updatedAt: new Date().toISOString(),
+    };
+
+    // 1. Find the election record(s) matching this organization
+    const { data: elections } = await supabase
+      .from("elections")
+      .select("id, organization_id, multi_sig_approvals")
+      .or(`organization_id.eq.${orgId},organization_id.eq.org-${cleanInstSlug}-${cleanOrgSlug}`);
+
+    let updatedAny = false;
+    if (elections && elections.length > 0) {
+      for (const e of elections) {
+        const existingApprovals =
+          e.multi_sig_approvals && typeof e.multi_sig_approvals === "object"
+            ? e.multi_sig_approvals
+            : {};
+        await supabase
+          .from("elections")
+          .update({
+            multi_sig_approvals: {
+              ...existingApprovals,
+              license: cleanLicense,
+            },
+          })
+          .eq("id", e.id);
+        updatedAny = true;
+      }
+    }
+
+    if (!updatedAny) {
+      // 2. Try alias IDs
+      const aliasIds = [
+        `elec-${cleanInstSlug}-${cleanOrgSlug}-2026`,
+        `elec-${cleanOrgSlug}-2026`,
+      ];
+      for (const aliasId of aliasIds) {
+        const { data: el } = await supabase
+          .from("elections")
+          .select("id, multi_sig_approvals")
+          .eq("id", aliasId)
+          .maybeSingle();
+
+        if (el) {
+          const existingApprovals =
+            el.multi_sig_approvals && typeof el.multi_sig_approvals === "object"
+              ? el.multi_sig_approvals
+              : {};
+          await supabase
+            .from("elections")
+            .update({
+              multi_sig_approvals: {
+                ...existingApprovals,
+                license: cleanLicense,
+              },
+            })
+            .eq("id", el.id);
+          updatedAny = true;
+        }
+      }
+    }
+
+    // 3. Fallback: if no election row exists, upsert one so license config persists on Vercel
+    if (!updatedAny) {
+      const elecId = `elec-${cleanInstSlug}-${cleanOrgSlug}-2026`;
+      await supabase.from("elections").upsert({
+        id: elecId,
+        organization_id: orgId,
+        title: `${license.orgName || cleanOrgSlug.toUpperCase()} 2026/2027 Elections`,
+        academic_session: "2025/2026",
+        description: `Elections for ${license.orgName || cleanOrgSlug.toUpperCase()}`,
+        status: license.licenseStatus === "ACTIVE" ? "LIVE" : "PAUSED",
+        results_visibility: "LIVE",
+        auth_mode: "PIN_SLIP",
+        require_dues_payment: true,
+        require_full_time_only: true,
+        require_good_disciplinary_standing: true,
+        starts_at: new Date().toISOString(),
+        ends_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        multi_sig_approvals: { license: cleanLicense },
+      });
+    }
+  } catch (err) {
+    console.warn("persistOrgLicenseToSupabase error:", err);
+  }
+}
+
 export async function getSuperAdminOrgLicensesAction(): Promise<SuperAdminOrgLicense[]> {
   try {
     const [
@@ -805,7 +903,7 @@ export async function getSuperAdminOrgLicensesAction(): Promise<SuperAdminOrgLic
       supabase.from("organizations").select("*").order("name", { ascending: true }),
       supabase.from("institutions").select("id, name, slug, code"),
       supabase.from("students").select("id, institution_id, department, faculty, hall_of_residence, portal_pin"),
-      supabase.from("elections").select("id, organization_id"),
+      supabase.from("elections").select("id, organization_id, multi_sig_approvals"),
       supabase.from("voter_accreditations").select("id, election_id, student_id"),
       supabase.from("ballots").select("id, election_id"),
     ]);
@@ -856,9 +954,21 @@ export async function getSuperAdminOrgLicensesAction(): Promise<SuperAdminOrgLic
         });
 
         // Find elections for this organization
-        const orgElectionIds = (dbElections || [])
-          .filter((e: any) => e.organization_id === org.id)
-          .map((e: any) => e.id);
+        const orgElections = (dbElections || []).filter(
+          (e: any) =>
+            e.organization_id === org.id ||
+            e.organization_id === `org-${cleanInst}-${cleanSlug}` ||
+            e.id === `elec-${cleanInst}-${cleanSlug}-2026` ||
+            e.id === `elec-${cleanSlug}-2026`
+        );
+        const orgElectionIds = orgElections.map((e: any) => e.id);
+
+        // Supabase-persisted license config
+        const dbLicenseConfig = (
+          orgElections.find(
+            (e: any) => e.multi_sig_approvals && (e.multi_sig_approvals as any).license
+          )?.multi_sig_approvals as any
+        )?.license as Partial<SuperAdminOrgLicense> | undefined;
 
         // Accredited voters for this organization's elections
         const accreditedStudentIds = new Set(
@@ -873,6 +983,8 @@ export async function getSuperAdminOrgLicensesAction(): Promise<SuperAdminOrgLic
           (org.code || "").toUpperCase(),
           (org.slug || "").slice(0, 3).toUpperCase(),
           (org.code || "").slice(0, 3).toUpperCase(),
+          (org.slug || "").slice(0, 2).toUpperCase(),
+          (org.code || "").slice(0, 2).toUpperCase(),
         ].filter((p: string) => p.length >= 2);
 
         // Real registered voter count strictly for this organization
@@ -882,7 +994,7 @@ export async function getSuperAdminOrgLicensesAction(): Promise<SuperAdminOrgLic
           // 1. Explicitly accredited for this organization's election
           if (accreditedStudentIds.has(s.id)) return true;
 
-          // 2. Explicit PIN prefix match (e.g. NES-..., NACO-..., SUG-...)
+          // 2. Explicit PIN prefix match (e.g. NES-..., NE-..., NACO-..., SUG-...)
           const pin = (s.portal_pin || "").toUpperCase();
           if (pin && orgPrefixes.some((p: string) => pin.startsWith(p + "-") || (p.length >= 3 && pin.startsWith(p)))) {
             return true;
@@ -890,16 +1002,18 @@ export async function getSuperAdminOrgLicensesAction(): Promise<SuperAdminOrgLic
 
           const dept = (s.department || "").toLowerCase().trim();
           const fac = (s.faculty || "").toLowerCase().trim();
+          const cleanFac = fac.replace(/faculty of\s*/i, "").trim();
           const orgName = (org.name || "").toLowerCase().trim();
           const orgSlug = (org.slug || "").toLowerCase().trim();
           const orgCode = (org.code || "").toLowerCase().trim();
 
-          // 3. Departmental association: student's department must strictly match
-          if (org.org_type === "DEPARTMENT" && dept) {
+          // 3. Departmental or Faculty association:
+          // Match if student's dept or faculty relates to the organization
+          if (dept) {
             if (
               orgName.includes(dept) ||
               dept.includes(orgSlug) ||
-              dept.includes(orgCode) ||
+              (orgCode && dept.includes(orgCode)) ||
               orgSlug === dept ||
               orgCode === dept
             ) {
@@ -907,20 +1021,21 @@ export async function getSuperAdminOrgLicensesAction(): Promise<SuperAdminOrgLic
             }
           }
 
-          // 4. Faculty association: student's faculty must strictly match
-          if (org.org_type === "FACULTY" && fac) {
+          if (fac || cleanFac) {
             if (
+              orgName.includes(cleanFac) ||
               orgName.includes(fac) ||
+              cleanFac.includes(orgSlug) ||
               fac.includes(orgSlug) ||
-              fac.includes(orgCode) ||
+              orgSlug === cleanFac ||
               orgSlug === fac ||
-              orgCode === fac
+              (orgCode && (cleanFac.includes(orgCode) || fac.includes(orgCode)))
             ) {
               return true;
             }
           }
 
-          // 5. Hall of Residence: student's hall must strictly match
+          // 4. Hall of Residence: student's hall must strictly match
           if (org.org_type === "HALL" && s.hall_of_residence) {
             const hall = (s.hall_of_residence || "").toLowerCase().trim();
             if (orgName.includes(hall) || hall.includes(orgSlug) || hall.includes(orgCode)) {
@@ -928,7 +1043,6 @@ export async function getSuperAdminOrgLicensesAction(): Promise<SuperAdminOrgLic
             }
           }
 
-          // Note: Newly created orgs with 0 registrations/accreditations/matching departments accurately evaluate to false
           return false;
         });
 
@@ -948,16 +1062,16 @@ export async function getSuperAdminOrgLicensesAction(): Promise<SuperAdminOrgLic
           orgSlug: org.slug,
           orgName: org.name,
           orgType: org.org_type || "DEPARTMENT",
-          voterQuota: existingOverride?.voterQuota || defaultQuota,
-          licenseStatus: existingOverride?.licenseStatus || "ACTIVE",
-          paymentPlan: existingOverride?.paymentPlan || (defaultPlan as any),
-          agreedAmountNgn: existingOverride?.agreedAmountNgn || defaultPrice,
-          paymentProofNote: existingOverride?.paymentProofNote || undefined,
-          contactAdminName: existingOverride?.contactAdminName || undefined,
-          contactAdminPhone: existingOverride?.contactAdminPhone || undefined,
+          voterQuota: Number(dbLicenseConfig?.voterQuota) || existingOverride?.voterQuota || defaultQuota,
+          licenseStatus: (dbLicenseConfig?.licenseStatus as any) || existingOverride?.licenseStatus || "ACTIVE",
+          paymentPlan: dbLicenseConfig?.paymentPlan || existingOverride?.paymentPlan || (defaultPlan as any),
+          agreedAmountNgn: Number(dbLicenseConfig?.agreedAmountNgn) || existingOverride?.agreedAmountNgn || defaultPrice,
+          paymentProofNote: dbLicenseConfig?.paymentProofNote || existingOverride?.paymentProofNote || undefined,
+          contactAdminName: dbLicenseConfig?.contactAdminName || existingOverride?.contactAdminName || undefined,
+          contactAdminPhone: dbLicenseConfig?.contactAdminPhone || existingOverride?.contactAdminPhone || undefined,
           registeredVotersCount: registeredCount,
           ballotsCastCount: ballotsCount,
-          lastActivatedAt: existingOverride?.lastActivatedAt || org.created_at,
+          lastActivatedAt: dbLicenseConfig?.lastActivatedAt || existingOverride?.lastActivatedAt || org.created_at,
         };
       });
 
@@ -1028,6 +1142,7 @@ export async function toggleOrgActivationAction(id: string, activate: boolean) {
   };
   list.push(updatedEntry);
   writeOrgLicensesStore(list);
+  await persistOrgLicenseToSupabase(updatedEntry);
 
   // ── Step 5: Sync election status directly in Supabase and rules store ───────
   const targetStatus = activate ? "LIVE" : "PAUSED";
@@ -1093,6 +1208,9 @@ export async function updateOrgLicenseAction(updated: SuperAdminOrgLicense) {
   list.push(updated);
   writeOrgLicensesStore(list);
 
+  // Persist to Supabase so it survives on Vercel production serverless
+  await persistOrgLicenseToSupabase(updated);
+
   // Sync election status non-blocking in parallel
   const targetStatus = updated.licenseStatus === "ACTIVE" ? "LIVE" : "PAUSED";
   const instSlug = cleanInstSlug;
@@ -1147,6 +1265,9 @@ export async function extendOrgQuotaAction(id: string, additionalVoters: number)
   const updatedEntry: SuperAdminOrgLicense = { ...orgEntry, id, voterQuota: newQuota };
   list.push(updatedEntry);
   writeOrgLicensesStore(list);
+
+  // Persist to Supabase so it survives on Vercel production
+  await persistOrgLicenseToSupabase(updatedEntry);
 
   invalidateCache();
   revalidatePath("/super-admin");
