@@ -70,6 +70,55 @@ export async function accreditVoterAction(input: AccreditVoterInput) {
       };
     }
 
+    // Check if this student has been promoted to an administrator / polling agent
+    const { getPromotedAdminDetails } = await import("./promote-student");
+    const adminDetails = await getPromotedAdminDetails(
+      student.id,
+      student.matric_no,
+      norm.normalized,
+      student.email
+    );
+
+    if (adminDetails && adminDetails.isAdmin) {
+      const cleanInstSlug = (adminDetails.institutionSlug || student.institution_id || "inst-ui")
+        .replace(/^inst-/, "")
+        .toLowerCase();
+      const adminEmail = adminDetails.email || student.email || `${norm.normalized.toLowerCase()}@${cleanInstSlug}.edu.ng`;
+      const adminRole = adminDetails.role || "POLLING_AGENT";
+      const sessionRole = adminRole === "SUPER_ADMIN" ? "SUPER_ADMIN" : "ELCOM_ADMIN";
+
+      try {
+        const { setAdminSessionCookie } = await import("@/lib/auth/session");
+        await setAdminSessionCookie({
+          userId: adminDetails.adminId || `admin-${student.id}`,
+          email: adminEmail,
+          fullName: student.full_name,
+          role: sessionRole,
+          institutionId: student.institution_id || `inst-${cleanInstSlug}`,
+          institutionSlug: cleanInstSlug,
+          expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
+        });
+      } catch (sessionErr) {
+        console.warn("Notice setting admin session cookie in accredit:", sessionErr);
+      }
+
+      return {
+        success: true,
+        isAdmin: true,
+        adminRole,
+        redirectUrl: `/${cleanInstSlug}/admin`,
+        message: `Welcome Officer ${student.full_name}! Administrator privileges recognized. Redirecting to Electoral Admin Dashboard...`,
+        student: {
+          id: student.id,
+          matricNo: student.matric_no,
+          fullName: student.full_name,
+          faculty: student.faculty || "Faculty of Science",
+          department: student.department || "General Studies",
+          level: Number(student.level) || 100,
+        },
+      };
+    }
+
     // 3. Check if already voted in this election cycle
     let alreadyVoted = false;
     let pastReceiptHash: string | undefined;

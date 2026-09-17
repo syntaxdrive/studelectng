@@ -152,3 +152,71 @@ export async function toggleStudentAdminRoleAction(input: ToggleStudentAdminInpu
     };
   }
 }
+
+/**
+ * Check if a student record belongs to an authorized admin or promoted officer.
+ */
+export async function getPromotedAdminDetails(
+  studentId: string,
+  matricNo: string,
+  normalizedMatric: string,
+  email?: string
+): Promise<{
+  isAdmin: boolean;
+  role?: string;
+  adminId?: string;
+  email?: string;
+  institutionSlug?: string;
+} | null> {
+  const normMatric = (normalizedMatric || "").trim().toUpperCase();
+  const cleanMatric = (matricNo || "").toLowerCase().trim();
+  const cleanEmail = (email || "").toLowerCase().trim();
+
+  // 1. Check local persistent store
+  try {
+    const list = readPromotedAdminsStore();
+    const match = list.find((p: any) => {
+      if (p.id && (p.id === studentId || p.id === `admin-${studentId}`)) return true;
+      if (p.normalizedMatric && p.normalizedMatric.trim().toUpperCase() === normMatric) return true;
+      if (p.matricNo && p.matricNo.toLowerCase().trim() === cleanMatric) return true;
+      if (cleanEmail && p.email && p.email.toLowerCase().trim() === cleanEmail) return true;
+      return false;
+    });
+    if (match) {
+      return {
+        isAdmin: true,
+        role: match.role || "POLLING_AGENT",
+        adminId: match.id || `admin-${studentId}`,
+        email: match.email,
+        institutionSlug: match.institutionSlug,
+      };
+    }
+  } catch (_) {}
+
+  // 2. Check Supabase admin_users table
+  try {
+    const orClauses = [`id.eq.admin-${studentId}`, `id.eq.${studentId}`];
+    if (cleanEmail && cleanEmail.includes("@")) {
+      orClauses.push(`email.eq.${cleanEmail}`);
+    }
+    const { data: dbAdmin } = await supabase
+      .from("admin_users")
+      .select("*")
+      .or(orClauses.join(","))
+      .eq("is_active", true)
+      .maybeSingle();
+
+    if (dbAdmin) {
+      const instSlug = (dbAdmin.institution_id || "inst-ui").replace(/^inst-/, "").toLowerCase();
+      return {
+        isAdmin: true,
+        role: dbAdmin.role || "POLLING_AGENT",
+        adminId: dbAdmin.id,
+        email: dbAdmin.email,
+        institutionSlug: instSlug,
+      };
+    }
+  } catch (_) {}
+
+  return null;
+}

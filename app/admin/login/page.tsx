@@ -82,11 +82,11 @@ export default function AdminLoginPage() {
 
           <div>
             <label className="block font-semibold uppercase text-zinc-700 mb-1">
-              Official Email Address
+              Official Email Address or Matric No
             </label>
             <input
-              type="email"
-              placeholder="e.g. elcom@nacos.unilag.edu.ng or admin email"
+              type="text"
+              placeholder="e.g. elcom@ui.edu.ng or Matric No (e.g. 219080)"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="w-full px-3.5 py-2.5 rounded-lg border border-zinc-300 focus:ring-1 focus:ring-zinc-900 focus:outline-none font-medium"
@@ -96,16 +96,19 @@ export default function AdminLoginPage() {
 
           <div>
             <label className="block font-semibold uppercase text-zinc-700 mb-1">
-              Password
+              Password or Voter PIN
             </label>
             <input
               type="password"
-              placeholder="••••••••••••"
+              placeholder="Password or Voter PIN"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="w-full px-3.5 py-2.5 rounded-lg border border-zinc-300 focus:ring-1 focus:ring-zinc-900 focus:outline-none font-mono"
               required
             />
+            <p className="text-[11px] text-zinc-400 mt-1">
+              Promoted Polling Agents &amp; ELCOM Officers can sign in using their Matric Number &amp; Voter Access PIN, or password (<code>elcom2026</code>).
+            </p>
           </div>
 
           <button

@@ -131,6 +131,15 @@ export default function VotingPage({
       return;
     }
 
+    // Promoted Polling Agent / ELCOM Admin: redirect to Admin Dashboard
+    if ((res as any).isAdmin) {
+      const targetUrl = (res as any).redirectUrl || `/${resolvedParams.institution || "ui"}/admin`;
+      if (typeof window !== "undefined") {
+        window.location.href = targetUrl;
+      }
+      return;
+    }
+
     setAuthenticatedStudent({
       matricNo: res.student!.matricNo,
       normalizedMatric: res.student!.matricNo.replace(/[^a-zA-Z0-9]/g, "").toUpperCase(),

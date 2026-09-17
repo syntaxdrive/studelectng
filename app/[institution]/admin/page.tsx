@@ -183,6 +183,7 @@ export default function InstitutionAdminPage({
   const [roleFilter, setRoleFilter] = useState<"ALL" | "ADMIN" | "STUDENT">("STUDENT");
   const [revealedPins, setRevealedPins] = useState<Set<string>>(new Set());
   const [voterSearch, setVoterSearch] = useState("");
+  const [currentAdminUser, setCurrentAdminUser] = useState<any | null>(null);
 
   // New Post Modal State
   const [isAddPostModalOpen, setIsAddPostModalOpen] = useState(false);
@@ -268,8 +269,11 @@ export default function InstitutionAdminPage({
       if (!detectedOrg) {
         try {
           const session = await getCurrentUserSession();
-          if (session?.orgId) {
-            detectedOrg = session.orgId.replace(/^org-[^-]+-/, "").toLowerCase().trim();
+          if (session) {
+            setCurrentAdminUser(session);
+            if (session.orgId) {
+              detectedOrg = session.orgId.replace(/^org-[^-]+-/, "").toLowerCase().trim();
+            }
           }
         } catch (_) {}
       }
@@ -280,6 +284,14 @@ export default function InstitutionAdminPage({
     }
     resolveActiveOrg();
   }, [instSlug]);
+
+  const handleAdminSignOut = async () => {
+    try {
+      const { logoutAction } = await import("@/app/actions/auth");
+      await logoutAction();
+    } catch (_) {}
+    window.location.href = `/${instSlug}`;
+  };
 
   // Load organization license metadata
   const loadLicense = async (targetOrg?: string) => {
@@ -1029,6 +1041,26 @@ export default function InstitutionAdminPage({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {currentAdminUser && (
+            <div className="px-3 py-1.5 rounded-lg bg-zinc-900 text-white text-xs flex items-center gap-2 shadow-xs border border-zinc-700">
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
+              <div className="flex items-center gap-1.5">
+                <span className="font-bold">{currentAdminUser.fullName}</span>
+                <span className="text-[10px] text-zinc-400 font-mono uppercase px-1.5 py-0.5 rounded bg-zinc-800 border border-zinc-750">
+                  {currentAdminUser.role?.replace(/_/g, " ") || "OFFICER"}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={handleAdminSignOut}
+                className="ml-1 pl-2 border-l border-zinc-700 text-zinc-400 hover:text-white transition text-[11px] font-semibold"
+                title="Sign out of administration"
+              >
+                Sign Out
+              </button>
+            </div>
+          )}
+
           <label className="px-3.5 py-2 rounded-lg border border-zinc-300 hover:bg-zinc-100 text-zinc-700 text-xs font-semibold cursor-pointer transition flex items-center gap-1.5 shadow-xs">
             <ImageIcon className="w-3.5 h-3.5 text-zinc-600" />
             <span>Upload Org DP</span>

@@ -474,6 +474,18 @@ export default function OrganizationPortalPage({
       return;
     }
 
+    // Promoted Polling Agent / ELCOM Admin: redirect to Admin Dashboard
+    if ((res as any).isAdmin) {
+      try {
+        sessionStorage.removeItem(sessionKey);
+      } catch (_) {}
+      const targetUrl = (res as any).redirectUrl || `/${instSlug}/admin`;
+      if (typeof window !== "undefined") {
+        window.location.href = targetUrl;
+      }
+      return;
+    }
+
     const studentData = {
       matricNo: res.student!.matricNo,
       normalizedMatric: res.student!.matricNo.replace(/[^a-zA-Z0-9]/g, "").toUpperCase(),
