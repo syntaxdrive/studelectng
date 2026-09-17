@@ -899,14 +899,33 @@ export async function getSuperAdminOrgLicensesAction(): Promise<SuperAdminOrgLic
       { data: dbElections },
       { data: dbAccreditations },
       { data: dbBallots },
+      { data: dbAdmins },
     ] = await Promise.all([
       supabase.from("organizations").select("*").order("name", { ascending: true }),
       supabase.from("institutions").select("id, name, slug, code"),
-      supabase.from("students").select("id, institution_id, department, faculty, hall_of_residence, portal_pin"),
+      supabase.from("students").select("id, institution_id, department, faculty, hall_of_residence, portal_pin, email, matric_no"),
       supabase.from("elections").select("id, organization_id, multi_sig_approvals"),
       supabase.from("voter_accreditations").select("id, election_id, student_id"),
       supabase.from("ballots").select("id, election_id"),
+      supabase.from("admin_users").select("id, email"),
     ]);
+
+    const adminEmailSet = new Set((dbAdmins || []).map((a: any) => (a.email || "").toLowerCase().trim()).filter(Boolean));
+    const adminIdSet = new Set((dbAdmins || []).map((a: any) => a.id).filter(Boolean));
+
+    try {
+      const pPath = path.join(DATA_DIR, "promoted-admins-store.json");
+      if (fs.existsSync(pPath)) {
+        const pList = JSON.parse(fs.readFileSync(pPath, "utf8"));
+        if (Array.isArray(pList)) {
+          pList.forEach((p: any) => {
+            if (p.email) adminEmailSet.add(p.email.toLowerCase().trim());
+            if (p.id) adminIdSet.add(p.id);
+            if (p.matricNo) adminEmailSet.add(p.matricNo.toLowerCase().trim());
+          });
+        }
+      }
+    } catch (_) {}
 
     const overrides = readOrgLicensesStore();
     const deletedOrgs = readDeletedOrgsStore();
@@ -1046,7 +1065,19 @@ export async function getSuperAdminOrgLicensesAction(): Promise<SuperAdminOrgLic
           return false;
         });
 
-        const registeredCount = orgStudents.length;
+        // Strictly exclude administrators so org admins do NOT consume or reduce voter quota allocation
+        const nonAdminOrgStudents = orgStudents.filter((s: any) => {
+          const sEmail = (s.email || "").toLowerCase().trim();
+          const sMatric = (s.matric_no || "").toLowerCase().trim();
+          return (
+            !adminEmailSet.has(sEmail) &&
+            !adminEmailSet.has(sMatric) &&
+            !adminIdSet.has(s.id) &&
+            !adminIdSet.has(`admin-${s.id}`)
+          );
+        });
+
+        const registeredCount = nonAdminOrgStudents.length;
         const ballotsCount = (dbBallots || []).filter((b: any) =>
           orgElectionIds.includes(b.election_id)
         ).length;

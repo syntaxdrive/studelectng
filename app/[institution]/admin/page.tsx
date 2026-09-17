@@ -180,7 +180,7 @@ export default function InstitutionAdminPage({
   const [levelFilter, setLevelFilter] = useState<number | "ALL">("ALL");
   const [duesFilter, setDuesFilter] = useState<"ALL" | "PAID" | "UNPAID">("ALL");
   const [statusFilter, setStatusFilter] = useState<"ALL" | "ACTIVE" | "DISABLED">("ALL");
-  const [roleFilter, setRoleFilter] = useState<"ALL" | "ADMIN" | "STUDENT">("ALL");
+  const [roleFilter, setRoleFilter] = useState<"ALL" | "ADMIN" | "STUDENT">("STUDENT");
   const [revealedPins, setRevealedPins] = useState<Set<string>>(new Set());
   const [voterSearch, setVoterSearch] = useState("");
 
@@ -504,6 +504,7 @@ export default function InstitutionAdminPage({
 
     if (!confirm(confirmText)) return;
 
+    // Optimistic state update
     setVoterRoll((prev) =>
       prev.map((s) => (s.id === student.id ? { ...s, isAdmin: !isCurrentlyAdmin } : s))
     );
@@ -512,15 +513,19 @@ export default function InstitutionAdminPage({
       institutionSlug: instSlug,
       matricNo: student.matricNo,
       isAdmin: !isCurrentlyAdmin,
-      adminRole: "POLLING_OFFICER",
+      adminRole: "POLLING_AGENT",
+      orgSlug: activeOrgSlug,
     });
 
     if (res.success) {
       setAdminActionMessage(res.message);
-      loadVoterRoll();
+      await loadVoterRoll();
     } else {
       setAdminActionMessage(res.message || "Failed to update admin role.");
-      loadVoterRoll();
+      // Rollback on error
+      setVoterRoll((prev) =>
+        prev.map((s) => (s.id === student.id ? { ...s, isAdmin: isCurrentlyAdmin } : s))
+      );
     }
     setTimeout(() => setAdminActionMessage(null), 7000);
   };
@@ -725,13 +730,14 @@ export default function InstitutionAdminPage({
     return matchSearch && matchLevel && matchDues && matchStatus && matchRole;
   });
 
-  // Stats
-  const totalVoters = voterRoll.length;
-  const duesPaidCount = voterRoll.filter((s) => s.duesPaid).length;
-  const activeCount = voterRoll.filter((s) => s.disciplinaryStatus === "GOOD_STANDING").length;
+  // Stats - strictly exclude administrators so they do not reduce voter quota allocation
+  const studentVoters = voterRoll.filter((s) => !s.isAdmin);
+  const totalVoters = studentVoters.length;
+  const duesPaidCount = studentVoters.filter((s) => s.duesPaid).length;
+  const activeCount = studentVoters.filter((s) => s.disciplinaryStatus === "GOOD_STANDING").length;
   const adminCount = voterRoll.filter((s) => s.isAdmin).length;
   const levelCounts: Record<number, number> = { 100: 0, 200: 0, 300: 0, 400: 0, 500: 0 };
-  voterRoll.forEach((s) => {
+  studentVoters.forEach((s) => {
     if (levelCounts[s.level] !== undefined) levelCounts[s.level]++;
   });
   const maxLevelCount = Math.max(...Object.values(levelCounts), 1);
@@ -2239,7 +2245,8 @@ export default function InstitutionAdminPage({
           {/* Quota Usage Banner */}
           {(() => {
             const quota = orgLicenseInfo?.voterQuota || 1000;
-            const used = voterRoll.length;
+            // Org admins and polling agents are strictly excluded so they do not consume voter quota allocation
+            const used = studentVoters.length;
             const remaining = quota - used;
             const pct = Math.min(100, Math.round((used / quota) * 100));
             const isNearLimit = remaining <= 50;
@@ -2248,10 +2255,11 @@ export default function InstitutionAdminPage({
                 <div className="flex-1 space-y-1.5">
                   <div className="flex items-center justify-between">
                     <span className={`font-bold font-mono uppercase text-[11px] ${isNearLimit ? "text-amber-700" : "text-zinc-700"}`}>
-                      Voter Quota: {used.toLocaleString()} / {quota.toLocaleString()} registered
+                      Voter Quota: {used.toLocaleString()} / {quota.toLocaleString()} student voters registered
                     </span>
                     <span className={`font-mono text-[11px] font-semibold ${isNearLimit ? "text-amber-600" : "text-zinc-500"}`}>
                       {remaining > 0 ? `${remaining.toLocaleString()} slots remaining` : "Quota full"}
+                      {adminCount > 0 && <span className="ml-1.5 text-zinc-400 font-normal font-sans text-[10px]">({adminCount} admin{adminCount > 1 ? "s" : ""} exempt from quota)</span>}
                     </span>
                   </div>
                   <div className="w-full bg-zinc-200 rounded-full h-1.5 overflow-hidden">
@@ -2462,19 +2470,23 @@ export default function InstitutionAdminPage({
                 </div>
 
                 <div className="flex items-center gap-1.5">
-                  <span className="text-[11px] font-semibold text-zinc-500 uppercase">Role:</span>
-                  {(["ALL", "ADMIN", "STUDENT"] as const).map((rf) => (
+                  <span className="text-[11px] font-semibold text-zinc-500 uppercase">View:</span>
+                  {(["STUDENT", "ADMIN", "ALL"] as const).map((rf) => (
                     <button
                       key={rf}
                       type="button"
                       onClick={() => setRoleFilter(rf)}
                       className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition ${
                         roleFilter === rf
-                          ? "bg-blue-600 text-white"
+                          ? "bg-zinc-900 text-white"
                           : "bg-white border border-zinc-200 text-zinc-600 hover:bg-zinc-100"
                       }`}
                     >
-                      {rf === "ALL" ? "All" : rf === "ADMIN" ? "🛡️ Admins Only" : "Students"}
+                      {rf === "STUDENT"
+                        ? `🎓 Registered Voters (${studentVoters.length})`
+                        : rf === "ADMIN"
+                        ? `🛡️ Electoral Officers & Admins (${adminCount})`
+                        : `All Records (${voterRoll.length})`}
                     </button>
                   ))}
                 </div>

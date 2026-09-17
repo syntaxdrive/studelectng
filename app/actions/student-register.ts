@@ -368,9 +368,10 @@ export async function getOrgVoterRollAction(institutionSlug: string, orgSlug?: s
         });
       }
 
-      // Check which students are enrolled in admin_users
+      // Check which students are enrolled in admin_users or promoted-admins-store
       let adminEmailMap = new Map<string, any>();
       let adminIdSet = new Set<string>();
+      let adminMatricMap = new Map<string, any>();
       try {
         const { data: adminUsers } = await supabase
           .from("admin_users")
@@ -383,9 +384,30 @@ export async function getOrgVoterRollAction(institutionSlug: string, orgSlug?: s
         });
       } catch (_) {}
 
+      // Also check local persistent promoted-admins-store for instant resilience
+      try {
+        const pPath = path.join(DATA_DIR, "promoted-admins-store.json");
+        if (fs.existsSync(pPath)) {
+          const pList = JSON.parse(fs.readFileSync(pPath, "utf8"));
+          if (Array.isArray(pList)) {
+            pList.forEach((p: any) => {
+              if (p.email) adminEmailMap.set(p.email.toLowerCase().trim(), p);
+              if (p.id) adminIdSet.add(p.id);
+              if (p.matricNo) adminMatricMap.set(p.matricNo.toLowerCase().trim(), p);
+              if (p.normalizedMatric) adminMatricMap.set(p.normalizedMatric.toLowerCase().trim(), p);
+            });
+          }
+        }
+      } catch (_) {}
+
       const students = filteredData.map((s: any) => {
         const sEmail = (s.email || "").toLowerCase().trim();
-        const adminEntry = adminEmailMap.get(sEmail) || (adminIdSet.has(`admin-${s.id}`) ? { role: "POLLING_AGENT" } : null);
+        const sMatric = (s.matric_no || "").toLowerCase().trim();
+        const adminEntry =
+          adminEmailMap.get(sEmail) ||
+          adminMatricMap.get(sMatric) ||
+          (adminIdSet.has(s.id) ? { role: "POLLING_AGENT" } : null) ||
+          (adminIdSet.has(`admin-${s.id}`) ? { role: "POLLING_AGENT" } : null);
         const isAdmin = !!adminEntry;
 
         return {
