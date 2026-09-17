@@ -97,6 +97,36 @@ export async function registerStudentAccountAction(input: StudentRegisterInput) 
     };
   }
 
+  const cleanEmail = (input.email || "").trim().toLowerCase();
+  if (!cleanEmail) {
+    return {
+      success: false,
+      message: "Email address is compulsory. Please enter your valid email address to register.",
+    };
+  }
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(cleanEmail)) {
+    return {
+      success: false,
+      message: "Please enter a valid email address (e.g. name@example.com).",
+    };
+  }
+
+  const cleanPhone = (input.phoneNumber || "").trim();
+  if (!cleanPhone) {
+    return {
+      success: false,
+      message: "Phone / WhatsApp number is compulsory. Please enter your active phone number.",
+    };
+  }
+  const phoneDigits = cleanPhone.replace(/[\s\-\(\)\+]/g, "");
+  if (phoneDigits.length < 10) {
+    return {
+      success: false,
+      message: "Please enter a valid phone or WhatsApp number (minimum 10 digits).",
+    };
+  }
+
   const cleanInstSlug = (input.institutionSlug || "ui").toLowerCase().trim();
   const orgCode = (input.orgSlug || "ST").substring(0, 4).toUpperCase();
   const generatedPin = generateSingleVoterPin(orgCode);

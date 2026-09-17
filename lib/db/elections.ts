@@ -47,9 +47,9 @@ export async function getElectionsByInstitution(institutionSlug?: string): Promi
                 requireGoodDisciplinaryStanding: e.require_good_disciplinary_standing !== false,
                 startsAt: e.starts_at || new Date().toISOString(),
                 endsAt: e.ends_at || new Date(Date.now() + 7 * 86400000).toISOString(),
-                totalRegisteredVoters: 1200,
-                totalAccreditedVoters: 640,
-                totalBallotsCast: 580,
+                totalRegisteredVoters: 0,
+                totalAccreditedVoters: 0,
+                totalBallotsCast: 0,
                 posts: [],
               };
             });

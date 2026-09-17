@@ -5,7 +5,7 @@ import Link from "next/link";
 import { getInstitutionBySlug, CANONICAL_INSTITUTIONS } from "@/lib/db/institutions";
 import { MOCK_ELECTIONS, MOCK_STUDENTS, MockElection, MockStudent, MockPost, MockCandidate } from "@/lib/mock-data";
 import { accreditVoterAction } from "@/app/actions/accredit";
-import { castBallotAction } from "@/app/actions/vote";
+import { castBallotAction, getElectionBallotCountAction } from "@/app/actions/vote";
 import {
   registerStudentAccountAction,
   lookupStudentStatusAction,
@@ -120,6 +120,7 @@ export default function OrganizationPortalPage({
   const [regLoading, setRegLoading] = useState(false);
   const [regError, setRegError] = useState<string | null>(null);
   const [regSuccessPin, setRegSuccessPin] = useState<string | null>(null);
+  const [realBallotsCast, setRealBallotsCast] = useState<number>(0);
   const [elcomContact, setElcomContact] = useState<{
     name: string;
     email: string;
@@ -190,9 +191,9 @@ export default function OrganizationPortalPage({
         requireGoodDisciplinaryStanding: true,
         startsAt: "2026-09-01T08:00:00.000Z",
         endsAt: "2026-09-01T18:00:00.000Z",
-        totalRegisteredVoters: 1200,
-        totalAccreditedVoters: 640,
-        totalBallotsCast: 580,
+        totalRegisteredVoters: 0,
+        totalAccreditedVoters: 0,
+        totalBallotsCast: 0,
         posts: MOCK_ELECTIONS[0]?.posts || [],
       }
     );
@@ -270,6 +271,32 @@ export default function OrganizationPortalPage({
     }
     loadInst();
   }, [instSlug, orgSlug, currentOrg.dept]);
+
+  // ── Sync Live Ballot Count from Server ───────────────────────────────────
+  useEffect(() => {
+    let isMounted = true;
+    async function loadBallotCount() {
+      try {
+        const res = await getElectionBallotCountAction(
+          election.id || `elec-${instSlug}-${orgSlug}-2026`,
+          orgSlug,
+          instSlug
+        );
+        if (isMounted && res.success && typeof res.count === "number") {
+          setRealBallotsCast(res.count);
+        }
+      } catch (_) {}
+    }
+    loadBallotCount();
+    const interval = setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      loadBallotCount();
+    }, 10000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [election.id, instSlug, orgSlug]);
 
   // ── Sync Live Election Status & Visibility in Real-Time ──────────────────
   useEffect(() => {
@@ -511,6 +538,7 @@ export default function OrganizationPortalPage({
       setReceiptCode(res.receipt.receiptCode);
       setCastTimestamp(res.receipt.timestamp);
       setVoteStep("RECEIPT");
+      setRealBallotsCast((prev) => prev + 1);
 
       try {
         sessionStorage.setItem(
@@ -534,6 +562,29 @@ export default function OrganizationPortalPage({
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setRegError(null);
+
+    const cleanEmail = regEmail.trim().toLowerCase();
+    if (!cleanEmail) {
+      setRegError("Email address is compulsory. Please enter your email.");
+      return;
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(cleanEmail)) {
+      setRegError("Please enter a valid email address (e.g. name@example.com).");
+      return;
+    }
+
+    const cleanPhone = regPhone.trim();
+    if (!cleanPhone) {
+      setRegError("Phone / WhatsApp number is compulsory. Please enter your active phone number.");
+      return;
+    }
+    const phoneDigits = cleanPhone.replace(/[\s\-\(\)\+]/g, "");
+    if (phoneDigits.length < 10) {
+      setRegError("Please enter a valid phone number (minimum 10 digits).");
+      return;
+    }
+
     setRegLoading(true);
 
     const res = await registerStudentAccountAction({
@@ -543,8 +594,8 @@ export default function OrganizationPortalPage({
       fullName: regFullName.trim(),
       department: regDept,
       level: regLevel,
-      email: regEmail.trim() || undefined,
-      phoneNumber: regPhone.trim() || undefined,
+      email: cleanEmail,
+      phoneNumber: cleanPhone,
     });
 
     setRegLoading(false);
@@ -1670,10 +1721,11 @@ export default function OrganizationPortalPage({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block font-semibold uppercase text-zinc-700 mb-1">
-                      Email Address <span className="text-zinc-400 normal-case font-normal">(optional)</span>
+                      Email Address <span className="text-red-500">*</span>
                     </label>
                     <input
                       type="email"
+                      required
                       placeholder="e.g. adebayo@example.com"
                       value={regEmail}
                       onChange={(e) => setRegEmail(e.target.value)}
@@ -1682,10 +1734,11 @@ export default function OrganizationPortalPage({
                   </div>
                   <div>
                     <label className="block font-semibold uppercase text-zinc-700 mb-1">
-                      Phone / WhatsApp <span className="text-zinc-400 normal-case font-normal">(optional)</span>
+                      Phone / WhatsApp <span className="text-red-500">*</span>
                     </label>
                     <input
                       type="tel"
+                      required
                       placeholder="e.g. 08012345678"
                       value={regPhone}
                       onChange={(e) => setRegPhone(e.target.value)}
@@ -1795,7 +1848,7 @@ export default function OrganizationPortalPage({
                   </h2>
                 </div>
                 <span className="px-2.5 py-1 rounded bg-zinc-100 text-zinc-800 font-mono text-[11px] font-medium">
-                  {election.totalBallotsCast} Ballots Verified & Cast
+                  {realBallotsCast} {realBallotsCast === 1 ? "Ballot" : "Ballots"} Verified & Cast
                 </span>
               </div>
 

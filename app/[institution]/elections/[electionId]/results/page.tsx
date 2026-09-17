@@ -20,12 +20,19 @@ export default function ElectionResultsPage({
   const resolvedParams = use(params);
   const election =
     MOCK_ELECTIONS.find((e) => e.id === resolvedParams.electionId) ||
-    MOCK_ELECTIONS[0];
+    MOCK_ELECTIONS[0] || {
+      id: resolvedParams.electionId,
+      title: "Election Results",
+      orgName: "General Elections",
+      totalRegisteredVoters: 0,
+      totalBallotsCast: 0,
+      posts: [],
+    };
 
-  const turnoutPercentage = (
-    (election.totalBallotsCast / election.totalRegisteredVoters) *
-    100
-  ).toFixed(1);
+  const turnoutPercentage =
+    (election?.totalRegisteredVoters || 0) > 0
+      ? (((election?.totalBallotsCast || 0) / election.totalRegisteredVoters) * 100).toFixed(1)
+      : "0.0";
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-8">

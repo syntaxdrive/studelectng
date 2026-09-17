@@ -478,3 +478,42 @@ export async function getRealtimeElectionTelemetryAction(
     };
   }
 }
+
+/**
+ * Lightweight real-time ballot count lookup for voter dashboard
+ */
+export async function getElectionBallotCountAction(
+  electionId: string,
+  orgSlug?: string,
+  instSlug?: string
+): Promise<{ success: boolean; count: number }> {
+  try {
+    const cleanInst = (instSlug || "ui").toLowerCase().trim();
+    const cleanOrg = (orgSlug || "").toLowerCase().trim();
+
+    // Check Supabase ballots table directly
+    const targetIds = [
+      electionId,
+      `elec-${cleanInst}-${cleanOrg}-2026`,
+      `elec-${cleanOrg}-2026`,
+      `elec-${cleanInst}-2026`,
+    ].filter(Boolean);
+
+    const { count, error } = await supabase
+      .from("ballots")
+      .select("id", { count: "exact", head: true })
+      .in("election_id", targetIds);
+
+    if (!error && typeof count === "number") {
+      return { success: true, count };
+    }
+
+    // Fallback to local store
+    const localBallots = readBallotsStore();
+    const matched = localBallots.filter((b: any) => targetIds.includes(b.electionId));
+    return { success: true, count: matched.length };
+  } catch (_) {
+    return { success: true, count: 0 };
+  }
+}
+
