@@ -1,6 +1,6 @@
 import { MetadataRoute } from "next";
 
-const BASE_URL = "https://studelect.ng";
+const BASE_URL = "https://studelect.com.ng";
 
 // Known campus slugs — expanded dynamically in production
 const CAMPUS_SLUGS = ["ui", "unilag", "oau", "unn", "abu", "futa", "uniben"];

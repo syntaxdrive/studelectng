@@ -1027,7 +1027,7 @@ export default function SuperAdminDashboard() {
                   const hasPassword = !!com.plainPassword;
 
                   // Build pre-written email
-                  const adminUrl = `https://studelect.ng/${(com.institutionId || "ui").replace("inst-", "")}/admin`;
+                  const adminUrl = `https://studelect.com.ng/${(com.institutionId || "ui").replace("inst-", "")}/admin`;
                   const emailSubject = encodeURIComponent(`StudElect – Your ELCOM Admin Access (${com.organization || ""})`);
                   const emailBody = encodeURIComponent(
                     `Hello ${com.name},\n\nYour Electoral Commissioner (ELCOM) admin account has been set up on StudElect.\n\n` +

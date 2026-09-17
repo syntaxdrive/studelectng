@@ -24,7 +24,7 @@ export default async function HomePage() {
   const institutions = await getInstitutions();
   const whatsappNumber = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || "2349164221215";
   const whatsappUrl = `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(
-    "*STUDENT ELECTION INQUIRY*\n\nHello SuperAdmin, I am reaching out from StudElect.ng. I am an ELCOM Chairman / Student Union Executive and would like to inquire about activating our upcoming campus election."
+    "*STUDENT ELECTION INQUIRY*\n\nHello SuperAdmin, I am reaching out from StudElect.com.ng. I am an ELCOM Chairman / Student Union Executive and would like to inquire about activating our upcoming campus election."
   )}`;
 
   return (

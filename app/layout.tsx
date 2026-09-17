@@ -6,7 +6,7 @@ import { getAdminSession } from "@/lib/auth/session";
 import LogoutButton from "@/app/_components/LogoutButton";
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://studelect.ng"),
+  metadataBase: new URL("https://studelect.com.ng"),
   title: {
     default: "StudElect • Secure Student Elections for Nigerian Universities",
     template: "%s • StudElect",
@@ -23,7 +23,7 @@ export const metadata: Metadata = {
     "secure student voting",
     "Nigerian university election system",
   ],
-  authors: [{ name: "StudElect", url: "https://studelect.ng" }],
+  authors: [{ name: "StudElect", url: "https://studelect.com.ng" }],
   creator: "StudElect Nigeria",
   publisher: "StudElect Nigeria",
   robots: {
@@ -34,7 +34,7 @@ export const metadata: Metadata = {
   openGraph: {
     type: "website",
     locale: "en_NG",
-    url: "https://studelect.ng",
+    url: "https://studelect.com.ng",
     siteName: "StudElect",
     title: "StudElect • Secure Student Elections for Nigerian Universities",
     description:
@@ -64,7 +64,7 @@ export const metadata: Metadata = {
     google: "REPLACE_WITH_GOOGLE_SEARCH_CONSOLE_TOKEN",
   },
   alternates: {
-    canonical: "https://studelect.ng",
+    canonical: "https://studelect.com.ng",
   },
 };
 
@@ -168,7 +168,7 @@ export default async function RootLayout({
                 <p className="text-xs text-zinc-500 leading-relaxed max-w-xs">
                   Nigeria's cryptographically secure student election platform. Multi-campus. Real-time audit trails. Zero paper ballots.
                 </p>
-                <p className="text-[11px] text-zinc-400 font-mono">privacy@studelect.ng</p>
+                <p className="text-[11px] text-zinc-400 font-mono">privacy@studelect.com.ng</p>
               </div>
 
               {/* Platform */}
@@ -189,7 +189,7 @@ export default async function RootLayout({
                   <li><Link href="/legal/privacy" className="hover:text-zinc-900 transition">Privacy Policy</Link></li>
                   <li><Link href="/legal/terms" className="hover:text-zinc-900 transition">Terms of Service</Link></li>
                   <li><Link href="/legal/cookies" className="hover:text-zinc-900 transition">Cookie Policy</Link></li>
-                  <li><a href="mailto:legal@studelect.ng" className="hover:text-zinc-900 transition">Contact Legal</a></li>
+                  <li><a href="mailto:legal@studelect.com.ng" className="hover:text-zinc-900 transition">Contact Legal</a></li>
                 </ul>
               </div>
             </div>

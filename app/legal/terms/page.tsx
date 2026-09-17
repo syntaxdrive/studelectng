@@ -309,10 +309,10 @@ export default function TermsOfServicePage() {
               </p>
               <p className="font-mono text-xs text-zinc-400">
                 <a
-                  href="mailto:legal@studelect.ng"
+                  href="mailto:legal@studelect.com.ng"
                   className="text-zinc-600 hover:text-zinc-900 transition"
                 >
-                  legal@studelect.ng
+                  legal@studelect.com.ng
                 </a>
               </p>
             </div>
@@ -322,7 +322,7 @@ export default function TermsOfServicePage() {
         {/* Footer note */}
         <div className="mt-12 pt-6 border-t border-zinc-100">
           <p className="text-[11px] text-zinc-400 text-center font-mono">
-            StudElect Nigeria · studelect.ng · Governed by Nigerian Law
+            StudElect Nigeria · studelect.com.ng · Governed by Nigerian Law
           </p>
         </div>
       </div>

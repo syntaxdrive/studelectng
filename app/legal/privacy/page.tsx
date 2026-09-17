@@ -77,10 +77,10 @@ export default function PrivacyPolicyPage() {
               <p className="font-mono text-xs text-zinc-400">
                 Data Protection Contact:{" "}
                 <a
-                  href="mailto:privacy@studelect.ng"
+                  href="mailto:privacy@studelect.com.ng"
                   className="text-zinc-600 hover:text-zinc-900 transition"
                 >
-                  privacy@studelect.ng
+                  privacy@studelect.com.ng
                 </a>
               </p>
             </div>
@@ -283,10 +283,10 @@ export default function PrivacyPolicyPage() {
                 To exercise these rights, contact your institution's ELCOM
                 directly or email us at{" "}
                 <a
-                  href="mailto:privacy@studelect.ng"
+                  href="mailto:privacy@studelect.com.ng"
                   className="text-zinc-700 underline hover:text-zinc-900 transition"
                 >
-                  privacy@studelect.ng
+                  privacy@studelect.com.ng
                 </a>
                 .
               </p>
@@ -336,10 +336,10 @@ export default function PrivacyPolicyPage() {
               </p>
               <p className="font-mono text-xs text-zinc-400">
                 <a
-                  href="mailto:privacy@studelect.ng"
+                  href="mailto:privacy@studelect.com.ng"
                   className="text-zinc-600 hover:text-zinc-900 transition"
                 >
-                  privacy@studelect.ng
+                  privacy@studelect.com.ng
                 </a>
               </p>
               <p>
@@ -353,7 +353,7 @@ export default function PrivacyPolicyPage() {
         {/* Footer note */}
         <div className="mt-12 pt-6 border-t border-zinc-100">
           <p className="text-[11px] text-zinc-400 text-center font-mono">
-            StudElect Nigeria · studelect.ng · NDPR Compliant
+            StudElect Nigeria · studelect.com.ng · NDPR Compliant
           </p>
         </div>
       </div>

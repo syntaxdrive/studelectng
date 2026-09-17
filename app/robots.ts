@@ -19,6 +19,6 @@ export default function robots(): MetadataRoute.Robots {
         disallow: ["/*/admin", "/*/admin/"],
       },
     ],
-    sitemap: "https://studelect.ng/sitemap.xml",
+    sitemap: "https://studelect.com.ng/sitemap.xml",
   };
 }

@@ -133,7 +133,7 @@ export default function InitializeElectionPage({
       const fullUrl =
         typeof window !== "undefined"
           ? `${window.location.origin}/${instSlug}/${computedOrgSlug}`
-          : `https://studelect.ng/${instSlug}/${computedOrgSlug}`;
+          : `https://studelect.com.ng/${instSlug}/${computedOrgSlug}`;
       setGeneratedStudentUrl(fullUrl);
       setCurrentStep(4);
     } else {

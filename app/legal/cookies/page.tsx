@@ -112,7 +112,7 @@ export default function CookiePolicyPage() {
                       value:
                         "7 days, or immediately on logout (whichever comes first)",
                     },
-                    { label: "Scope", value: "studelect.ng domain only" },
+                    { label: "Scope", value: "studelect.com.ng domain only" },
                   ].map(({ label, value }) => (
                     <div key={label} className="flex gap-3 text-xs">
                       <span className="w-24 flex-shrink-0 font-medium text-zinc-600">
@@ -249,10 +249,10 @@ export default function CookiePolicyPage() {
               </p>
               <p className="font-mono text-xs text-zinc-400">
                 <a
-                  href="mailto:privacy@studelect.ng"
+                  href="mailto:privacy@studelect.com.ng"
                   className="text-zinc-600 hover:text-zinc-900 transition"
                 >
-                  privacy@studelect.ng
+                  privacy@studelect.com.ng
                 </a>
               </p>
             </div>
@@ -262,7 +262,7 @@ export default function CookiePolicyPage() {
         {/* Footer note */}
         <div className="mt-12 pt-6 border-t border-zinc-100">
           <p className="text-[11px] text-zinc-400 text-center font-mono">
-            StudElect Nigeria · studelect.ng · Zero tracking. Zero ads.
+            StudElect Nigeria · studelect.com.ng · Zero tracking. Zero ads.
           </p>
         </div>
       </div>

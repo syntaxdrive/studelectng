@@ -4069,7 +4069,7 @@ export default function InstitutionAdminPage({
 
           <div className="flex items-center justify-between text-[8px] font-mono text-zinc-500 border-t border-zinc-200 pt-2">
             <span>Generated via StudElect Cryptographic Engine</span>
-            <span>Tamper-evident verification at: studelect.ng/verify</span>
+            <span>Tamper-evident verification at: studelect.com.ng/verify</span>
             <span>Printed on: {new Date().toLocaleString("en-NG")}</span>
           </div>
         </div>
