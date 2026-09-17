@@ -775,7 +775,7 @@ export async function updateElectionStatusAction(
   store[electionId] = current;
 
   // Sync alias keys (e.g. "ui" from "elec-ui-2026", "nesa" from "elec-nesa-2026")
-  const parts = electionId.toLowerCase().split("-").filter(p => p !== "elec" && p !== "2026");
+  const parts = electionId.toLowerCase().split("-").filter((p) => p !== "elec" && p !== "2026");
   for (const part of parts) {
     store[part] = { ...current, electionId: part };
     store[`elec-${part}-2026`] = { ...current, electionId: `elec-${part}-2026` };
@@ -784,14 +784,83 @@ export async function updateElectionStatusAction(
   writeElectionRulesStore(store);
 
   try {
-    await supabase.from("elections").update({ status }).eq("id", electionId);
-  } catch (_) {}
+    let targetElecId = electionId;
+    const { data: directElec } = await supabase
+      .from("elections")
+      .select("id, status, multi_sig_approvals")
+      .eq("id", targetElecId)
+      .maybeSingle();
 
+    let existingElec = directElec;
+    if (!existingElec) {
+      const aliases = [
+        electionId,
+        `elec-${electionId}-2026`,
+        electionId.replace(/^elec-/, "").replace(/-2026$/, ""),
+      ];
+      for (const a of aliases) {
+        const { data: found } = await supabase
+          .from("elections")
+          .select("id, status, multi_sig_approvals")
+          .eq("id", a)
+          .maybeSingle();
+        if (found) {
+          existingElec = found;
+          targetElecId = found.id;
+          break;
+        }
+      }
+      if (!existingElec) {
+        const { data: fallback } = await supabase
+          .from("elections")
+          .select("id, status, multi_sig_approvals")
+          .limit(1)
+          .maybeSingle();
+        if (fallback) {
+          existingElec = fallback;
+          targetElecId = fallback.id;
+        }
+      }
+    }
+
+    const currentApprovals = existingElec?.multi_sig_approvals || {};
+    const updatedApprovals = {
+      ...currentApprovals,
+      operationalStatus: status,
+      statusUpdatedAt: new Date().toISOString(),
+    };
+
+    const isPostgresEnum = ["DRAFT", "ACCREDITATION_OPEN", "LIVE", "CONCLUDED"].includes(status);
+    const updatePayload: Record<string, any> = {
+      multi_sig_approvals: updatedApprovals,
+    };
+    if (isPostgresEnum) {
+      updatePayload.status = status;
+    }
+
+    const { error: patchError } = await supabase
+      .from("elections")
+      .update(updatePayload)
+      .eq("id", targetElecId);
+
+    if (patchError) {
+      console.error("Supabase updateElectionStatusAction error:", patchError);
+    }
+  } catch (err) {
+    console.error("updateElectionStatusAction exception:", err);
+  }
+
+  invalidateCache();
   revalidatePath("/", "layout");
   return {
     success: true,
     status,
-    message: `Election status updated to ${status}.`,
+    message:
+      status === "PAUSED"
+        ? "Voting has been temporarily paused. Student voting booths are now locked."
+        : status === "CONCLUDED"
+        ? "Election officially concluded. Polls are permanently closed."
+        : `Election status updated to ${status}.`,
   };
 }
 
@@ -817,7 +886,7 @@ export async function updateResultsVisibilityAction(
   current.resultsVisibility = visibility;
   store[electionId] = current;
 
-  const parts = electionId.toLowerCase().split("-").filter(p => p !== "elec" && p !== "2026");
+  const parts = electionId.toLowerCase().split("-").filter((p) => p !== "elec" && p !== "2026");
   for (const part of parts) {
     store[part] = { ...current, electionId: part };
     store[`elec-${part}-2026`] = { ...current, electionId: `elec-${part}-2026` };
@@ -826,20 +895,41 @@ export async function updateResultsVisibilityAction(
   writeElectionRulesStore(store);
 
   try {
-    await supabase.from("elections").upsert({
-      id: electionId,
-      results_visibility: visibility,
-    });
-  } catch (_) {}
+    let targetElecId = electionId;
+    const { data: directElec } = await supabase
+      .from("elections")
+      .select("id")
+      .eq("id", targetElecId)
+      .maybeSingle();
 
+    if (!directElec) {
+      const { data: fallbackElec } = await supabase
+        .from("elections")
+        .select("id")
+        .limit(1)
+        .maybeSingle();
+      if (fallbackElec) {
+        targetElecId = fallbackElec.id;
+      }
+    }
+
+    await supabase
+      .from("elections")
+      .update({ results_visibility: visibility })
+      .eq("id", targetElecId);
+  } catch (err) {
+    console.error("updateResultsVisibilityAction exception:", err);
+  }
+
+  invalidateCache();
   revalidatePath("/", "layout");
   return {
     success: true,
     visibility,
     message:
       visibility === "LIVE"
-        ? "Election results have been released to the public!"
-        : "Election results have been withheld / sealed.",
+        ? "Election results unsealed. Real-time ballot standings and candidate vote tallies are now published."
+        : "Election results withheld. Live candidate standings are sealed from the student voting booth.",
   };
 }
 
@@ -870,6 +960,7 @@ export async function updateElectionRulesAction(rules: ElectionRulesState) {
     });
   } catch (_) {}
 
+  invalidateCache();
   revalidatePath("/", "layout");
   return { success: true, message: "Election rules and voting restrictions saved successfully." };
 }
@@ -940,30 +1031,127 @@ export async function getElectionRulesAction(
 ): Promise<ElectionRulesState> {
   const store = readElectionRulesStore();
 
-  const candidates = [
-    electionId,
-    institutionSlug,
-    organizationSlug,
-    institutionSlug ? `elec-${institutionSlug}-2026` : null,
-    organizationSlug ? `elec-${organizationSlug}-2026` : null,
-    institutionSlug && organizationSlug ? `elec-${institutionSlug}-${organizationSlug}-2026` : null,
-  ].filter(Boolean) as string[];
+  const candidates = Array.from(
+    new Set(
+      [
+        institutionSlug && organizationSlug
+          ? `elec-${institutionSlug}-${organizationSlug}-2026`
+          : null,
+        electionId,
+        organizationSlug ? `elec-${organizationSlug}-2026` : null,
+        institutionSlug ? `elec-${institutionSlug}-2026` : null,
+        electionId ? electionId.replace(/^elec-/, "").replace(/-2026$/, "") : null,
+        organizationSlug,
+        institutionSlug,
+      ].filter(Boolean) as string[]
+    )
+  );
 
   let baseRules: ElectionRulesState | null = null;
 
-  // 1. Direct match on any candidate key
-  for (const c of candidates) {
-    if (store[c]) {
-      baseRules = store[c];
-      break;
+  // 1. Cloud First: Query Supabase for authoritative live state
+  try {
+    for (const c of candidates) {
+      const { data } = await supabase
+        .from("elections")
+        .select("*")
+        .eq("id", c)
+        .maybeSingle();
+
+      if (data) {
+        const effectiveStatus =
+          (data.multi_sig_approvals as any)?.operationalStatus ||
+          data.status ||
+          "LIVE";
+        const effectiveVisibility =
+          data.results_visibility || "SEALED_UNTIL_CLOSE";
+
+        baseRules = {
+          electionId: data.id || electionId,
+          status: effectiveStatus,
+          requireDuesPayment: data.require_dues_payment !== false,
+          requireGoodDisciplinaryStanding:
+            data.require_good_disciplinary_standing !== false,
+          requireFullTimeOnly: !!data.require_full_time_only,
+          requireSessionRegistration: data.require_session_registration !== false,
+          requireWhitelistMatch: !!(data as any).require_whitelist_match,
+          allowedLevels: [100, 200, 300, 400, 500],
+          authMode: data.auth_mode || "PIN_SLIP",
+          resultsVisibility: effectiveVisibility,
+        };
+
+        // Keep local store in sync with cloud
+        store[electionId] = baseRules;
+        if (data.id) store[data.id] = baseRules;
+        writeElectionRulesStore(store);
+        break;
+      }
     }
-    if (store[c.toLowerCase()]) {
-      baseRules = store[c.toLowerCase()];
-      break;
+
+    // Secondary Supabase match by institution slug if candidates didn't match directly
+    if (!baseRules && institutionSlug) {
+      const cleanInst = institutionSlug.toLowerCase().trim();
+      const { data: instElections } = await supabase
+        .from("elections")
+        .select("*")
+        .ilike("id", `%${cleanInst}%`)
+        .limit(5);
+
+      if (instElections && instElections.length > 0) {
+        const cleanOrg = (organizationSlug || "").toLowerCase().trim();
+        const matchedElec = cleanOrg
+          ? instElections.find((e: any) =>
+              e.id.toLowerCase().includes(cleanOrg)
+            ) || instElections[0]
+          : instElections[0];
+
+        if (matchedElec) {
+          const effectiveStatus =
+            (matchedElec.multi_sig_approvals as any)?.operationalStatus ||
+            matchedElec.status ||
+            "LIVE";
+          const effectiveVisibility =
+            matchedElec.results_visibility || "SEALED_UNTIL_CLOSE";
+
+          baseRules = {
+            electionId: matchedElec.id || electionId,
+            status: effectiveStatus,
+            requireDuesPayment: matchedElec.require_dues_payment !== false,
+            requireGoodDisciplinaryStanding:
+              matchedElec.require_good_disciplinary_standing !== false,
+            requireFullTimeOnly: !!matchedElec.require_full_time_only,
+            requireSessionRegistration:
+              matchedElec.require_session_registration !== false,
+            requireWhitelistMatch: !!(matchedElec as any).require_whitelist_match,
+            allowedLevels: [100, 200, 300, 400, 500],
+            authMode: matchedElec.auth_mode || "PIN_SLIP",
+            resultsVisibility: effectiveVisibility,
+          };
+          store[electionId] = baseRules;
+          if (matchedElec.id) store[matchedElec.id] = baseRules;
+          writeElectionRulesStore(store);
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("Supabase getElectionRulesAction error, falling back to local cache:", err);
+  }
+
+  // 2. Fallback to local store if Supabase was unreachable or returned nothing
+  if (!baseRules) {
+    for (const c of candidates) {
+      if (store[c]) {
+        baseRules = store[c];
+        break;
+      }
+      if (store[c.toLowerCase()]) {
+        baseRules = store[c.toLowerCase()];
+        break;
+      }
     }
   }
 
-  // 2. Fuzzy / alias match across keys in store
+  // 3. Fuzzy / alias match across keys in store
   if (!baseRules) {
     for (const c of candidates) {
       const cleanC = c.toLowerCase();
@@ -976,38 +1164,6 @@ export async function getElectionRulesAction(
       }
       if (baseRules) break;
     }
-  }
-
-  // 3. Query Supabase
-  if (!baseRules) {
-    try {
-      for (const c of candidates) {
-        const { data } = await supabase
-          .from("elections")
-          .select("*")
-          .eq("id", c)
-          .maybeSingle();
-
-        if (data) {
-          const res: ElectionRulesState = {
-            electionId,
-            status: data.status || "LIVE",
-            requireDuesPayment: data.require_dues_payment !== false,
-            requireGoodDisciplinaryStanding: data.require_good_disciplinary_standing !== false,
-            requireFullTimeOnly: !!data.require_full_time_only,
-            requireSessionRegistration: data.require_session_registration !== false,
-            requireWhitelistMatch: !!(data as any).require_whitelist_match,
-            allowedLevels: [100, 200, 300, 400, 500],
-            authMode: data.auth_mode || "PIN_SLIP",
-            resultsVisibility: data.results_visibility || "SEALED_UNTIL_CLOSE",
-          };
-          store[electionId] = res;
-          writeElectionRulesStore(store);
-          baseRules = res;
-          break;
-        }
-      }
-    } catch (_) {}
   }
 
   // 4. Default fallback: SEALED_UNTIL_CLOSE

@@ -251,7 +251,7 @@ export default function InstitutionAdminPage({
 
   useEffect(() => {
     async function loadRules() {
-      const res = await getElectionRulesAction(electionId);
+      const res = await getElectionRulesAction(electionId, instSlug, activeOrgSlug);
       if (res) setElectionRules(res);
     }
     loadRules();
@@ -633,6 +633,9 @@ export default function InstitutionAdminPage({
     setElectionRules((prev) => ({ ...prev, status: newStatus }));
     try {
       localStorage.setItem(`studelect_election_status_${instSlug}`, newStatus);
+      if (activeOrgSlug) {
+        localStorage.setItem(`studelect_election_status_${instSlug}_${activeOrgSlug}`, newStatus);
+      }
     } catch (_) {}
 
     const res = await updateElectionStatusAction(electionId, newStatus);
@@ -652,6 +655,9 @@ export default function InstitutionAdminPage({
     setElectionRules((prev) => ({ ...prev, resultsVisibility: newVisibility }));
     try {
       localStorage.setItem(`studelect_results_visibility_${instSlug}`, newVisibility);
+      if (activeOrgSlug) {
+        localStorage.setItem(`studelect_results_visibility_${instSlug}_${activeOrgSlug}`, newVisibility);
+      }
     } catch (_) {}
 
     const res = await updateResultsVisibilityAction(electionId, newVisibility);

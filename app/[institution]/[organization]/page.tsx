@@ -355,10 +355,18 @@ export default function OrganizationPortalPage({
 
     // Instant local sync if admin is testing in another tab of same browser
     const onStorage = (e: StorageEvent) => {
-      if (e.key === `studelect_election_status_${instSlug}_${orgSlug}` && e.newValue) {
+      if (
+        (e.key === `studelect_election_status_${instSlug}_${orgSlug}` ||
+          e.key === `studelect_election_status_${instSlug}`) &&
+        e.newValue
+      ) {
         setElectionStatus(e.newValue);
       }
-      if (e.key === `studelect_results_visibility_${instSlug}_${orgSlug}` && e.newValue) {
+      if (
+        (e.key === `studelect_results_visibility_${instSlug}_${orgSlug}` ||
+          e.key === `studelect_results_visibility_${instSlug}`) &&
+        e.newValue
+      ) {
         setResultsVisibility(e.newValue);
       }
     };

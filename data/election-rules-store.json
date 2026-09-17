@@ -52,7 +52,7 @@
   },
   "ui": {
     "electionId": "ui",
-    "status": "CONCLUDED",
+    "status": "LIVE",
     "requireDuesPayment": true,
     "requireGoodDisciplinaryStanding": true,
     "requireFullTimeOnly": false,
@@ -69,7 +69,7 @@
   },
   "elec-ui-2026": {
     "electionId": "elec-ui-2026",
-    "status": "CONCLUDED",
+    "status": "LIVE",
     "requireDuesPayment": true,
     "requireGoodDisciplinaryStanding": true,
     "requireFullTimeOnly": false,
