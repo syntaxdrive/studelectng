@@ -27,6 +27,9 @@ import {
   updateResultsVisibilityAction,
   getElectionAuditLogsAction,
   getOrgLicenseInfoAction,
+  saveElectorateWhitelistAction,
+  getElectorateWhitelistAction,
+  clearElectorateWhitelistAction,
   ElectionRulesState,
 } from "@/app/actions/student-register";
 import {
@@ -224,11 +227,25 @@ export default function InstitutionAdminPage({
     requireGoodDisciplinaryStanding: true,
     requireFullTimeOnly: false,
     requireSessionRegistration: true,
+    requireWhitelistMatch: false,
     allowedLevels: [100, 200, 300, 400, 500],
     authMode: "PIN_SLIP",
     resultsVisibility: "LIVE",
   });
   const [isSavingRules, setIsSavingRules] = useState(false);
+
+  // Electorate Whitelist State
+  const [whitelistCount, setWhitelistCount] = useState<number>(0);
+  const [isUploadingWhitelist, setIsUploadingWhitelist] = useState(false);
+  const [whitelistMessage, setWhitelistMessage] = useState<string | null>(null);
+
+  const loadWhitelistData = async (orgToUse?: string) => {
+    const org = orgToUse || activeOrgSlug || "nesa";
+    const res = await getElectorateWhitelistAction(instSlug, org);
+    if (res?.success) {
+      setWhitelistCount(res.count);
+    }
+  };
 
   useEffect(() => {
     async function loadRules() {
@@ -236,7 +253,8 @@ export default function InstitutionAdminPage({
       if (res) setElectionRules(res);
     }
     loadRules();
-  }, [electionId]);
+    loadWhitelistData();
+  }, [electionId, activeOrgSlug, instSlug]);
 
   useEffect(() => {
     async function resolveActiveOrg() {
@@ -512,6 +530,84 @@ export default function InstitutionAdminPage({
     setIsSavingRules(false);
     setAdminActionMessage(res.message || "Election rules saved successfully.");
     setTimeout(() => setAdminActionMessage(null), 4000);
+  };
+
+  const handleWhitelistUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploadingWhitelist(true);
+    setWhitelistMessage("Reading student spreadsheet roster...");
+
+    try {
+      const parseResult = await parseExcelOrCsvFile(file);
+      if (!parseResult.success || !parseResult.rows || parseResult.rows.length === 0) {
+        setWhitelistMessage(parseResult.message || "Failed to parse spreadsheet file.");
+        setIsUploadingWhitelist(false);
+        return;
+      }
+
+      setWhitelistMessage(`Whitelisting ${parseResult.rows.length} student matric numbers...`);
+      const org = activeOrgSlug || "nesa";
+      const res = await saveElectorateWhitelistAction(
+        instSlug,
+        org,
+        parseResult.rows.map((r) => ({
+          matricNo: r.matricNo,
+          fullName: r.fullName,
+          department: r.department,
+          level: r.level,
+        })),
+        "REPLACE"
+      );
+
+      if (res.success) {
+        setWhitelistCount(res.count);
+        setWhitelistMessage(res.message);
+        setAdminActionMessage(`Electorate Whitelist updated: ${res.count} students pre-authorized.`);
+        setTimeout(() => setAdminActionMessage(null), 5000);
+      } else {
+        setWhitelistMessage(res.message || "Failed to save whitelist.");
+      }
+    } catch (err: any) {
+      setWhitelistMessage(err.message || "Error processing whitelist file.");
+    } finally {
+      setIsUploadingWhitelist(false);
+      e.target.value = "";
+    }
+  };
+
+  const handleClearWhitelist = async () => {
+    if (
+      !confirm(
+        "Are you sure you want to clear the electorate whitelist? If strict whitelist match is ON, no students will be able to register."
+      )
+    )
+      return;
+    const org = activeOrgSlug || "nesa";
+    const res = await clearElectorateWhitelistAction(instSlug, org);
+    if (res.success) {
+      setWhitelistCount(0);
+      setWhitelistMessage("Whitelist cleared successfully.");
+      setAdminActionMessage("Electorate whitelist cleared.");
+      setTimeout(() => setAdminActionMessage(null), 4000);
+    }
+  };
+
+  const downloadWhitelistSample = () => {
+    const csvContent =
+      "data:text/csv;charset=utf-8," +
+      "matric_no,full_name,department,level\n" +
+      "21/52HA045,Adebayo Chukwuma Olawale,Economics,300\n" +
+      "22/52HA012,Fatima Abubakar Bello,Economics,200\n" +
+      "20/52HA099,Emmanuel Chinedu Okafor,Economics,400\n";
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `studelect_whitelist_template_${instSlug}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const handleUpdateElectionStatus = async (
@@ -2089,6 +2185,30 @@ export default function InstitutionAdminPage({
                   className="hidden"
                 />
               </label>
+
+              <label
+                className="px-3.5 py-2 rounded-lg border border-zinc-300 hover:bg-zinc-50 text-zinc-800 text-xs font-semibold cursor-pointer transition flex items-center gap-1.5 shadow-xs"
+                title="Upload Pre-Authorized Electorate Whitelist for Registration Gating"
+              >
+                {isUploadingWhitelist ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Whitelisting...</span>
+                  </>
+                ) : (
+                  <>
+                    <Users className="w-3.5 h-3.5 text-zinc-600" />
+                    <span>Import Whitelist ({whitelistCount})</span>
+                  </>
+                )}
+                <input
+                  type="file"
+                  accept=".xlsx,.xls,.csv"
+                  onChange={handleWhitelistUpload}
+                  disabled={isUploadingWhitelist}
+                  className="hidden"
+                />
+              </label>
             </div>
           </div>
 
@@ -2659,6 +2779,109 @@ export default function InstitutionAdminPage({
                     className="hidden"
                   />
                 </label>
+              </div>
+            </div>
+
+            {/* Rule 0: Strict Electorate Whitelist Verification */}
+            <div className="p-5 rounded-2xl bg-white border border-zinc-200 shadow-xs space-y-4">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex items-start gap-3">
+                  <div className="p-2.5 rounded-xl bg-zinc-100 text-zinc-900 border border-zinc-200 flex-shrink-0">
+                    <Users className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-bold text-zinc-900 text-sm">Strict Electorate Whitelist Match</h3>
+                      <span className="px-2 py-0.5 rounded-full bg-zinc-100 text-zinc-800 text-[10px] font-mono font-bold">
+                        {whitelistCount} {whitelistCount === 1 ? "Student" : "Students"} Whitelisted
+                      </span>
+                    </div>
+                    <p className="text-xs text-zinc-500 mt-0.5">
+                      Restrict student self-registration strictly to matriculation numbers on the pre-authorized electorate roster.
+                    </p>
+                  </div>
+                </div>
+
+                <label className="relative inline-flex items-center cursor-pointer flex-shrink-0">
+                  <input
+                    type="checkbox"
+                    checked={!!electionRules.requireWhitelistMatch}
+                    onChange={(e) =>
+                      setElectionRules((prev) => ({ ...prev, requireWhitelistMatch: e.target.checked }))
+                    }
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-zinc-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-zinc-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-zinc-900"></div>
+                </label>
+              </div>
+
+              <div
+                className={`p-3 rounded-xl text-xs flex items-center gap-2 ${
+                  electionRules.requireWhitelistMatch
+                    ? "bg-zinc-100 text-zinc-900 border border-zinc-200"
+                    : "bg-zinc-50 text-zinc-600 border border-zinc-200"
+                }`}
+              >
+                <span className="font-bold">
+                  {electionRules.requireWhitelistMatch ? "Active Policy:" : "Open Registration:"}
+                </span>
+                <span>
+                  {electionRules.requireWhitelistMatch
+                    ? "Only students whose matric numbers appear on the uploaded roster can register for a PIN."
+                    : "Any valid matriculation number can register and receive a voter PIN."}
+                </span>
+              </div>
+
+              {/* Whitelist File Upload & Management Controls */}
+              <div className="pt-2 border-t border-zinc-100 flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <label className="px-3.5 py-2 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold cursor-pointer transition flex items-center gap-1.5 shadow-xs">
+                    {isUploadingWhitelist ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        <span>Whitelisting...</span>
+                      </>
+                    ) : (
+                      <>
+                        <UploadCloud className="w-3.5 h-3.5" />
+                        <span>Upload Whitelist (CSV / Excel)</span>
+                      </>
+                    )}
+                    <input
+                      type="file"
+                      accept=".xlsx,.xls,.csv"
+                      onChange={handleWhitelistUpload}
+                      disabled={isUploadingWhitelist}
+                      className="hidden"
+                    />
+                  </label>
+
+                  <button
+                    type="button"
+                    onClick={downloadWhitelistSample}
+                    className="px-3 py-2 rounded-lg border border-zinc-300 hover:bg-zinc-50 text-zinc-700 text-xs font-semibold transition flex items-center gap-1.5 shadow-xs"
+                    title="Download Sample CSV Template"
+                  >
+                    <Download className="w-3.5 h-3.5 text-zinc-500" />
+                    <span>Download Template</span>
+                  </button>
+
+                  {whitelistCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={handleClearWhitelist}
+                      className="px-3 py-2 rounded-lg border border-red-200 hover:bg-red-50 text-red-600 text-xs font-semibold transition flex items-center gap-1"
+                    >
+                      <span>Clear Whitelist</span>
+                    </button>
+                  )}
+                </div>
+
+                {whitelistMessage && (
+                  <p className="text-[11px] text-zinc-600 font-medium italic">
+                    {whitelistMessage}
+                  </p>
+                )}
               </div>
             </div>
 

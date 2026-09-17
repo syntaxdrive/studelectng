@@ -10,6 +10,7 @@ import {
   registerStudentAccountAction,
   lookupStudentStatusAction,
   getElectionRulesAction,
+  getOrgPublicContactAction,
 } from "@/app/actions/student-register";
 import { getElectionPostsAndCandidatesAction } from "@/app/actions/candidates";
 import { useLiveElection } from "@/lib/hooks/use-live-election";
@@ -37,6 +38,9 @@ import {
   Users,
   FileText,
   MessageSquare,
+  X,
+  Mail,
+  Phone,
 } from "lucide-react";
 
 export default function OrganizationPortalPage({
@@ -116,6 +120,13 @@ export default function OrganizationPortalPage({
   const [regLoading, setRegLoading] = useState(false);
   const [regError, setRegError] = useState<string | null>(null);
   const [regSuccessPin, setRegSuccessPin] = useState<string | null>(null);
+  const [elcomContact, setElcomContact] = useState<{
+    name: string;
+    email: string;
+    phone?: string;
+    role?: string;
+    orgName?: string;
+  } | null>(null);
 
 
   // Dynamic Association Names
@@ -309,6 +320,19 @@ export default function OrganizationPortalPage({
       window.removeEventListener("storage", onStorage);
     };
   }, [election.id, instSlug, orgSlug]);
+
+  // ── ELCOM Public Contact Loader ─────────────────────────────────────────────
+  useEffect(() => {
+    let isMounted = true;
+    getOrgPublicContactAction(instSlug, orgSlug).then((res) => {
+      if (isMounted && res?.success && res.contact) {
+        setElcomContact(res.contact);
+      }
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, [instSlug, orgSlug]);
 
   // ── Session Persistence (Prevent logout on page reload) ─────────────────────
   const sessionKey = `studelect_voter_session_${instSlug}_${orgSlug}`;
@@ -532,6 +556,28 @@ export default function OrganizationPortalPage({
     } else {
       setRegError(res.message || "Registration failed.");
     }
+  };
+
+  const handleProceedToVoteFromPin = () => {
+    if (regMatric) setMatricInput(regMatric.trim());
+    if (regSuccessPin) setPinInput(regSuccessPin);
+    setRegSuccessPin(null);
+    setRegFullName("");
+    setRegMatric("");
+    setRegEmail("");
+    setRegPhone("");
+    setRegError(null);
+    setActiveTab("VOTE");
+    setVoteStep("LOGIN");
+  };
+
+  const handleRegisterAnotherStudent = () => {
+    setRegSuccessPin(null);
+    setRegFullName("");
+    setRegMatric("");
+    setRegEmail("");
+    setRegPhone("");
+    setRegError(null);
   };
 
 
@@ -801,6 +847,49 @@ export default function OrganizationPortalPage({
                     Don't have a PIN? Click here to activate your student voter profile →
                   </button>
                 </div>
+
+                {elcomContact && (
+                  <div className="pt-3 border-t border-zinc-100">
+                    <div className="p-3.5 rounded-xl bg-zinc-50 border border-zinc-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-left">
+                      <div className="space-y-0.5">
+                        <div className="flex items-center gap-1.5 text-zinc-900 font-semibold text-[11px]">
+                          <ShieldCheck className="w-3.5 h-3.5 text-zinc-600 flex-shrink-0" />
+                          <span>Need Accreditation or PIN Assistance?</span>
+                        </div>
+                        <p className="text-[11px] text-zinc-500">
+                          Assigned Commissioner: <strong className="text-zinc-800">{elcomContact.name}</strong>
+                          {elcomContact.role ? ` (${elcomContact.role})` : ""}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        {elcomContact.phone && (
+                          <a
+                            href={`https://wa.me/${elcomContact.phone.replace(/[^0-9]/g, "")}?text=${encodeURIComponent(
+                              `Hello, I am a voter for ${currentOrg.name} and need assistance with voter accreditation/PIN.`
+                            )}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] inline-flex items-center gap-1 transition shadow-xs"
+                          >
+                            <MessageSquare className="w-3 h-3" />
+                            <span>WhatsApp</span>
+                          </a>
+                        )}
+                        {elcomContact.email && (
+                          <a
+                            href={`mailto:${elcomContact.email}?subject=${encodeURIComponent(
+                              `${currentOrg.name} Voter Support Inquiry`
+                            )}`}
+                            className="px-2.5 py-1.5 rounded-lg border border-zinc-300 hover:bg-zinc-100 text-zinc-700 font-bold text-[11px] inline-flex items-center gap-1 transition shadow-xs"
+                          >
+                            <Mail className="w-3 h-3" />
+                            <span>Email</span>
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Cleared Candidates Preview Under Login Form */}
@@ -1406,14 +1495,25 @@ export default function OrganizationPortalPage({
 
                   {/* Header — dark, clean, no emoji */}
                   <div className="bg-zinc-900 px-6 py-5 text-white">
-                    <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-lg bg-white/10 flex items-center justify-center flex-shrink-0">
-                        <ShieldCheck className="w-5 h-5 text-white" />
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-9 h-9 rounded-lg bg-white/10 flex items-center justify-center flex-shrink-0">
+                          <ShieldCheck className="w-5 h-5 text-white" />
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-mono uppercase tracking-widest text-zinc-400">Voter Accreditation</p>
+                          <h2 className="text-sm font-bold leading-tight">Profile Activated</h2>
+                        </div>
                       </div>
-                      <div>
-                        <p className="text-[10px] font-mono uppercase tracking-widest text-zinc-400">Voter Accreditation</p>
-                        <h2 className="text-sm font-bold leading-tight">Profile Activated</h2>
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setRegSuccessPin(null)}
+                        className="w-8 h-8 rounded-lg bg-white/10 hover:bg-white/20 text-zinc-300 hover:text-white flex items-center justify-center transition"
+                        title="Close Overlay"
+                        aria-label="Close PIN overlay"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
                     </div>
                     <p className="text-xs text-zinc-400 mt-3 leading-relaxed">
                       {currentOrg.name}
@@ -1485,21 +1585,29 @@ export default function OrganizationPortalPage({
 
                     {/* PIN recovery note */}
                     <div className="text-[11px] text-zinc-500 border-t border-zinc-100 pt-3">
-                      Lost your PIN? Contact your ELCOM administrator or polling officer to reset and re-issue your PIN.
+                      Lost your PIN? Contact your ELCOM administrator ({elcomContact?.name || "ELCOM Officer"}) to reset and re-issue your PIN.
                     </div>
 
-                    {/* Proceed CTA */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveTab("VOTE");
-                        setVoteStep("LOGIN");
-                      }}
-                      className="w-full py-3 rounded-xl bg-zinc-900 text-white font-bold hover:bg-zinc-800 transition text-xs flex items-center justify-center gap-2"
-                    >
-                      <Vote className="w-4 h-4" />
-                      I have saved my PIN — Proceed to Vote
-                    </button>
+                    {/* Proceed CTA & Register Another Student */}
+                    <div className="space-y-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={handleProceedToVoteFromPin}
+                        className="w-full py-3 rounded-xl bg-zinc-900 text-white font-bold hover:bg-zinc-800 transition text-xs flex items-center justify-center gap-2 shadow-xs"
+                      >
+                        <Vote className="w-4 h-4" />
+                        <span>I have saved my PIN — Proceed to Vote</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleRegisterAnotherStudent}
+                        className="w-full py-2.5 rounded-xl border border-zinc-300 text-zinc-700 hover:text-zinc-900 hover:bg-zinc-50 font-semibold transition text-xs flex items-center justify-center gap-2"
+                      >
+                        <UserPlus className="w-3.5 h-3.5" />
+                        <span>Register Another Student</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1597,6 +1705,58 @@ export default function OrganizationPortalPage({
               </form>
             )}
           </div>
+
+          {/* ELCOM Accreditation Desk Contact Card */}
+          {elcomContact && (
+            <div className="p-4 rounded-xl bg-zinc-50 border border-zinc-200 text-xs space-y-2.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-zinc-700" />
+                  <span className="font-bold text-zinc-900">Electoral Commission Accreditation Desk</span>
+                </div>
+                {elcomContact?.role && (
+                  <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-zinc-200 text-zinc-700 font-semibold">
+                    {elcomContact.role}
+                  </span>
+                )}
+              </div>
+              <p className="text-zinc-600 text-[11px] leading-relaxed">
+                Only matriculated students recognized by {currentOrg.name} are eligible to register. If your registration is blocked due to the electorate whitelist or eligibility screening, contact your assigned ELCOM commissioner:
+              </p>
+              <div className="flex flex-wrap items-center gap-3 pt-1 text-xs">
+                {elcomContact?.name && (
+                  <span className="font-semibold text-zinc-800 flex items-center gap-1.5">
+                    <User className="w-3.5 h-3.5 text-zinc-500" />
+                    {elcomContact.name}
+                  </span>
+                )}
+                {elcomContact?.phone && (
+                  <a
+                    href={`https://wa.me/${elcomContact.phone.replace(/[^0-9]/g, "")}?text=${encodeURIComponent(
+                      `Hello, I am a student attempting to register for the ${currentOrg.name} election and need accreditation assistance.`
+                    )}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-emerald-700 hover:text-emerald-800 font-semibold flex items-center gap-1 bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-200 transition"
+                  >
+                    <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>WhatsApp: {elcomContact.phone}</span>
+                  </a>
+                )}
+                {elcomContact?.email && (
+                  <a
+                    href={`mailto:${elcomContact.email}?subject=${encodeURIComponent(
+                      `${currentOrg.name} Voter Accreditation Inquiry`
+                    )}`}
+                    className="text-zinc-700 hover:text-zinc-900 font-semibold flex items-center gap-1 bg-zinc-100 px-2.5 py-1 rounded-md border border-zinc-200 transition"
+                  >
+                    <Mail className="w-3.5 h-3.5 text-zinc-500" />
+                    <span>{elcomContact.email}</span>
+                  </a>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       )}
 

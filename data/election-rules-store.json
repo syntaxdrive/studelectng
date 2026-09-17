@@ -52,7 +52,24 @@
   },
   "ui": {
     "electionId": "ui",
-    "status": "LIVE",
+    "status": "CONCLUDED",
+    "requireDuesPayment": true,
+    "requireGoodDisciplinaryStanding": true,
+    "requireFullTimeOnly": false,
+    "requireSessionRegistration": true,
+    "allowedLevels": [
+      100,
+      200,
+      300,
+      400,
+      500
+    ],
+    "authMode": "PIN_SLIP",
+    "resultsVisibility": "LIVE"
+  },
+  "elec-ui-2026": {
+    "electionId": "elec-ui-2026",
+    "status": "CONCLUDED",
     "requireDuesPayment": true,
     "requireGoodDisciplinaryStanding": true,
     "requireFullTimeOnly": false,

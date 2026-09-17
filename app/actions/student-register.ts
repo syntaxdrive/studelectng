@@ -104,6 +104,32 @@ export async function registerStudentAccountAction(input: StudentRegisterInput) 
   const dept = (input.department || "General Studies").trim();
 
   try {
+    // 0. Strict Whitelist Enforcement Check (if enabled by ELCOM)
+    const cleanOrgSlug = (input.orgSlug || "nesa").toLowerCase().trim();
+    const electionId = (input as any).electionId || `elec-${cleanInstSlug}-${cleanOrgSlug}-2026`;
+    const rules = await getElectionRulesAction(electionId, cleanInstSlug, cleanOrgSlug);
+
+    let matchedWhitelist: WhitelistEntry | undefined;
+    if (rules?.requireWhitelistMatch) {
+      const whitelist = readWhitelistStore(cleanInstSlug, cleanOrgSlug);
+      matchedWhitelist = whitelist.find((w) => w.normalizedMatric === norm.normalized);
+
+      if (!matchedWhitelist) {
+        const contactRes = await getOrgPublicContactAction(cleanInstSlug, cleanOrgSlug);
+        const contact = contactRes?.contact;
+        const contactDetail = contact?.phone
+          ? ` (${contact.name} • WhatsApp: ${contact.phone})`
+          : contact?.email
+          ? ` (${contact.name} • Email: ${contact.email})`
+          : "";
+
+        return {
+          success: false,
+          message: `Matriculation number "${norm.raw}" is not on the pre-authorized electorate whitelist for this election. Registration is strictly restricted. Please contact your ELCOM administration${contactDetail} if your record should be included.`,
+        };
+      }
+    }
+
     // 1. Ensure Institution exists (upsert — non-fatal if it fails)
     try {
       await supabase.from("institutions").upsert({
@@ -138,15 +164,19 @@ export async function registerStudentAccountAction(input: StudentRegisterInput) 
       };
     }
 
+    const finalFullName = ((input.fullName || matchedWhitelist?.fullName || "").trim()) || "Student Voter";
+    const finalDept = (input.department || matchedWhitelist?.department || dept).trim();
+    const finalLevel = Number(input.level) || matchedWhitelist?.level || 100;
+
     if (existing) {
       // If student was pre-seeded without a PIN, generate and attach their PIN
       try {
         await supabase
           .from("students")
           .update({
-            full_name: (input.fullName || "").trim(),
-            department: dept,
-            level: Number(input.level) || 100,
+            full_name: finalFullName,
+            department: finalDept,
+            level: finalLevel,
             email: input.email?.trim() || existing.email,
             phone_number: input.phoneNumber?.trim() || existing.phone_number,
             portal_pin: generatedPin,
@@ -173,10 +203,10 @@ export async function registerStudentAccountAction(input: StudentRegisterInput) 
       institution_id: institutionId,
       matric_no: norm.raw,
       normalized_matric: norm.normalized,
-      full_name: (input.fullName || "").trim(),
+      full_name: finalFullName,
       faculty: input.faculty?.trim() || "Faculty of Science",
-      department: dept,
-      level: Number(input.level) || 100,
+      department: finalDept,
+      level: finalLevel,
       program_type: "FULL_TIME",
       dues_paid: true,
       disciplinary_status: "GOOD_STANDING",
@@ -435,6 +465,7 @@ export interface ElectionRulesState {
   requireGoodDisciplinaryStanding: boolean;
   requireFullTimeOnly: boolean;
   requireSessionRegistration: boolean;
+  requireWhitelistMatch?: boolean;
   allowedLevels: number[];
   authMode: "PIN_SLIP" | "EMAIL_OTP" | "SECRET_MATCH";
   resultsVisibility: "LIVE" | "SEALED_UNTIL_CLOSE";
@@ -444,6 +475,226 @@ export interface ElectionRulesState {
 
 const DATA_DIR = path.join(process.cwd(), "data");
 const ELECTION_RULES_FILE = path.join(DATA_DIR, "election-rules-store.json");
+const WHITELISTS_DIR = path.join(DATA_DIR, "electorate-whitelists");
+
+export interface WhitelistEntry {
+  matricNo: string;
+  normalizedMatric: string;
+  fullName?: string;
+  department?: string;
+  level?: number;
+  addedAt: string;
+}
+
+function getWhitelistFilePath(instSlug: string, orgSlug: string): string {
+  const cleanInst = (instSlug || "ui").toLowerCase().trim().replace(/^inst-/, "");
+  const cleanOrg = (orgSlug || "nesa")
+    .toLowerCase()
+    .trim()
+    .replace(/^org-/, "")
+    .replace(new RegExp(`^${cleanInst}-`), "")
+    .replace(/-2026$/, "");
+  return path.join(WHITELISTS_DIR, `${cleanInst}-${cleanOrg}.json`);
+}
+
+function readWhitelistStore(instSlug: string, orgSlug: string): WhitelistEntry[] {
+  try {
+    if (!fs.existsSync(WHITELISTS_DIR)) {
+      fs.mkdirSync(WHITELISTS_DIR, { recursive: true });
+    }
+    const file = getWhitelistFilePath(instSlug, orgSlug);
+    if (!fs.existsSync(file)) return [];
+    const raw = fs.readFileSync(file, "utf8");
+    return JSON.parse(raw) || [];
+  } catch (_) {
+    return [];
+  }
+}
+
+function writeWhitelistStore(instSlug: string, orgSlug: string, list: WhitelistEntry[]) {
+  try {
+    if (!fs.existsSync(WHITELISTS_DIR)) {
+      fs.mkdirSync(WHITELISTS_DIR, { recursive: true });
+    }
+    const file = getWhitelistFilePath(instSlug, orgSlug);
+    fs.writeFileSync(file, JSON.stringify(list, null, 2), "utf8");
+  } catch (err) {
+    console.warn("writeWhitelistStore error:", err);
+  }
+}
+
+/**
+ * Save pre-authorized electorate roster (from CSV or Excel)
+ */
+export async function saveElectorateWhitelistAction(
+  institutionSlug: string,
+  orgSlug: string,
+  rows: Array<{ matricNo: string; fullName?: string; department?: string; level?: number }>,
+  mode: "REPLACE" | "APPEND" = "REPLACE"
+) {
+  try {
+    const cleanInst = (institutionSlug || "ui").toLowerCase().trim().replace(/^inst-/, "");
+    const cleanOrg = (orgSlug || "nesa").toLowerCase().trim();
+
+    const existing = mode === "APPEND" ? readWhitelistStore(cleanInst, cleanOrg) : [];
+    const existingMap = new Map(existing.map((e) => [e.normalizedMatric, e]));
+
+    let validCount = 0;
+    const now = new Date().toISOString();
+
+    for (const r of rows) {
+      if (!r.matricNo) continue;
+      const norm = normalizeMatricNo(r.matricNo);
+      if (!norm.isValid) continue;
+
+      const entry: WhitelistEntry = {
+        matricNo: norm.raw,
+        normalizedMatric: norm.normalized,
+        fullName: r.fullName?.trim() || undefined,
+        department: r.department?.trim() || undefined,
+        level: r.level ? Number(r.level) : undefined,
+        addedAt: now,
+      };
+
+      existingMap.set(norm.normalized, entry);
+      validCount++;
+    }
+
+    const finalList = Array.from(existingMap.values());
+    writeWhitelistStore(cleanInst, cleanOrg, finalList);
+
+    revalidatePath(`/${cleanInst}/admin`);
+    revalidatePath(`/${cleanInst}/${cleanOrg}`);
+
+    return {
+      success: true,
+      count: finalList.length,
+      importedCount: validCount,
+      message: `Successfully whitelisted ${validCount} eligible student(s) for ${cleanOrg.toUpperCase()}. Total roster: ${finalList.length} students.`,
+    };
+  } catch (err: any) {
+    console.error("saveElectorateWhitelistAction error:", err);
+    return { success: false, count: 0, message: err?.message || "Failed to save electorate whitelist." };
+  }
+}
+
+/**
+ * Get current whitelisted electorate count and sample records
+ */
+export async function getElectorateWhitelistAction(institutionSlug: string, orgSlug: string) {
+  try {
+    const cleanInst = (institutionSlug || "ui").toLowerCase().trim().replace(/^inst-/, "");
+    const cleanOrg = (orgSlug || "nesa").toLowerCase().trim();
+    const list = readWhitelistStore(cleanInst, cleanOrg);
+    return {
+      success: true,
+      count: list.length,
+      sample: list.slice(0, 10),
+    };
+  } catch (err: any) {
+    return { success: false, count: 0, sample: [] };
+  }
+}
+
+/**
+ * Clear the electorate whitelist for an organization
+ */
+export async function clearElectorateWhitelistAction(institutionSlug: string, orgSlug: string) {
+  try {
+    const cleanInst = (institutionSlug || "ui").toLowerCase().trim().replace(/^inst-/, "");
+    const cleanOrg = (orgSlug || "nesa").toLowerCase().trim();
+    writeWhitelistStore(cleanInst, cleanOrg, []);
+    revalidatePath(`/${cleanInst}/admin`);
+    return { success: true, message: "Electorate whitelist cleared successfully." };
+  } catch (err: any) {
+    return { success: false, message: err?.message || "Failed to clear whitelist." };
+  }
+}
+
+/**
+ * Public ELCOM contact details for voter display
+ */
+export async function getOrgPublicContactAction(institutionSlug: string, orgSlug: string) {
+  try {
+    const cleanInst = (institutionSlug || "ui").toLowerCase().trim().replace(/^inst-/, "");
+    const cleanOrg = (orgSlug || "nesa").toLowerCase().trim();
+    let contact: { name: string; email: string; phone?: string; role?: string; orgName?: string } | null = null;
+
+    // 1. Look in commissioner assignments
+    const assignmentsFile = path.join(DATA_DIR, "commissioner-assignments.json");
+    if (fs.existsSync(assignmentsFile)) {
+      try {
+        const raw = fs.readFileSync(assignmentsFile, "utf8");
+        const assignments = JSON.parse(raw);
+        for (const [_, assn] of Object.entries<any>(assignments)) {
+          const assnOrg = (assn.orgSlug || assn.orgId || "").toLowerCase();
+          const assnInst = (assn.institutionSlug || assn.institutionId || "").toLowerCase().replace(/^inst-/, "");
+          if (
+            (assnOrg === cleanOrg || assnOrg === `org-${cleanInst}-${cleanOrg}`) &&
+            (!assnInst || assnInst === cleanInst)
+          ) {
+            contact = {
+              name: assn.fullName || "ELCOM Administrator",
+              email: assn.email,
+              role: assn.role || "ELCOM Commissioner",
+              orgName: assn.orgName,
+            };
+            break;
+          }
+        }
+      } catch (_) {}
+    }
+
+    // 2. Supplement or fallback with org license store contact
+    const licensesFile = path.join(DATA_DIR, "org-licenses-store.json");
+    if (fs.existsSync(licensesFile)) {
+      try {
+        const raw = fs.readFileSync(licensesFile, "utf8");
+        const list = JSON.parse(raw);
+        const lic = list.find(
+          (l: any) =>
+            (l.orgSlug?.toLowerCase() === cleanOrg && l.institutionSlug?.toLowerCase() === cleanInst) ||
+            l.id?.toLowerCase() === `org-${cleanInst}-${cleanOrg}`
+        );
+        if (lic) {
+          if (!contact) {
+            contact = {
+              name: lic.contactAdminName || "ELCOM Chairman",
+              email: "elcom@" + cleanOrg + "." + cleanInst + ".edu.ng",
+              phone: lic.contactAdminPhone || undefined,
+              orgName: lic.orgName,
+            };
+          } else {
+            if (lic.contactAdminPhone && !contact.phone) {
+              contact.phone = lic.contactAdminPhone;
+            }
+            if (lic.orgName && !contact.orgName) {
+              contact.orgName = lic.orgName;
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
+    return {
+      success: true,
+      contact: contact || {
+        name: `${cleanOrg.toUpperCase()} ELCOM Office`,
+        email: `elcom@studelect.com.ng`,
+        phone: process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || "2349164221215",
+      },
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      contact: {
+        name: "ELCOM Support",
+        email: "support@studelect.com.ng",
+        phone: "2349164221215",
+      },
+    };
+  }
+}
 
 function readElectionRulesStore(): Record<string, ElectionRulesState> {
   try {
@@ -715,6 +966,7 @@ export async function getElectionRulesAction(
             requireGoodDisciplinaryStanding: data.require_good_disciplinary_standing !== false,
             requireFullTimeOnly: !!data.require_full_time_only,
             requireSessionRegistration: data.require_session_registration !== false,
+            requireWhitelistMatch: !!(data as any).require_whitelist_match,
             allowedLevels: [100, 200, 300, 400, 500],
             authMode: data.auth_mode || "PIN_SLIP",
             resultsVisibility: data.results_visibility || "LIVE",
@@ -737,6 +989,7 @@ export async function getElectionRulesAction(
       requireGoodDisciplinaryStanding: true,
       requireFullTimeOnly: false,
       requireSessionRegistration: true,
+      requireWhitelistMatch: false,
       allowedLevels: [100, 200, 300, 400, 500],
       authMode: "PIN_SLIP",
       resultsVisibility: "LIVE",
