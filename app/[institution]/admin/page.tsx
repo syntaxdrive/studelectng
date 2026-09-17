@@ -232,7 +232,7 @@ export default function InstitutionAdminPage({
     requireWhitelistMatch: false,
     allowedLevels: [100, 200, 300, 400, 500],
     authMode: "PIN_SLIP",
-    resultsVisibility: "LIVE",
+    resultsVisibility: "SEALED_UNTIL_CLOSE",
   });
   const [isSavingRules, setIsSavingRules] = useState(false);
 

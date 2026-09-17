@@ -14,7 +14,7 @@
       500
     ],
     "authMode": "PIN_SLIP",
-    "resultsVisibility": "LIVE"
+    "resultsVisibility": "SEALED_UNTIL_CLOSE"
   },
   "org": {
     "electionId": "org",
@@ -31,7 +31,7 @@
       500
     ],
     "authMode": "PIN_SLIP",
-    "resultsVisibility": "LIVE"
+    "resultsVisibility": "SEALED_UNTIL_CLOSE"
   },
   "elec-org-2026": {
     "electionId": "elec-org-2026",
@@ -48,7 +48,7 @@
       500
     ],
     "authMode": "PIN_SLIP",
-    "resultsVisibility": "LIVE"
+    "resultsVisibility": "SEALED_UNTIL_CLOSE"
   },
   "ui": {
     "electionId": "ui",
@@ -65,7 +65,7 @@
       500
     ],
     "authMode": "PIN_SLIP",
-    "resultsVisibility": "LIVE"
+    "resultsVisibility": "SEALED_UNTIL_CLOSE"
   },
   "elec-ui-2026": {
     "electionId": "elec-ui-2026",
@@ -82,6 +82,6 @@
       500
     ],
     "authMode": "PIN_SLIP",
-    "resultsVisibility": "LIVE"
+    "resultsVisibility": "SEALED_UNTIL_CLOSE"
   }
 }

@@ -82,7 +82,7 @@ export default function OrganizationPortalPage({
   const [copiedPin, setCopiedPin] = useState(false);
   const [orgLogoUrl, setOrgLogoUrl] = useState<string | null>(null);
   const [electionStatus, setElectionStatus] = useState<string>("LIVE");
-  const [resultsVisibility, setResultsVisibility] = useState<string>("LIVE");
+  const [resultsVisibility, setResultsVisibility] = useState<string>("SEALED_UNTIL_CLOSE");
   const [isPaymentHalted, setIsPaymentHalted] = useState<boolean>(false);
 
   const safeCopyToClipboard = async (text: string) => {
@@ -184,7 +184,7 @@ export default function OrganizationPortalPage({
         academicSession: "2025/2026",
         description: `Official voting portal for ${currentOrg.name} elections.`,
         status: "LIVE",
-        resultsVisibility: "LIVE",
+        resultsVisibility: "SEALED_UNTIL_CLOSE",
         authMode: "PIN_SLIP",
         requireDuesPayment: true,
         requireFullTimeOnly: true,
@@ -205,21 +205,21 @@ export default function OrganizationPortalPage({
   useEffect(() => {
     async function loadPostsAndCandidates() {
       try {
-        let rawData = await getElectionPostsAndCandidatesAction(`elec-${instSlug}-2026`);
-        try {
-          const savedPostsJson = localStorage.getItem(`studelect_posts_${instSlug}`);
-          if (savedPostsJson) {
-            const parsedSaved = JSON.parse(savedPostsJson);
-            if (parsedSaved && parsedSaved.length > 0) {
-              rawData = parsedSaved;
-            }
+        const primaryElectionId = `elec-${instSlug}-${orgSlug}-2026`;
+        let rawData = await getElectionPostsAndCandidatesAction(primaryElectionId);
+
+        // If primary query returned no posts or no candidates, attempt fallback institution election query
+        if (!rawData || rawData.length === 0 || !rawData.some((p) => p.candidates && p.candidates.length > 0)) {
+          const fallbackData = await getElectionPostsAndCandidatesAction(`elec-${instSlug}-2026`);
+          if (fallbackData && fallbackData.length > 0) {
+            rawData = fallbackData;
           }
-        } catch (_) {}
+        }
 
         if (rawData && rawData.length > 0) {
           const mapped: MockPost[] = rawData.map((p: any) => ({
             id: p.id,
-            electionId: p.electionId || p.election_id || `elec-${instSlug}-2026`,
+            electionId: p.electionId || p.election_id || primaryElectionId,
             title: p.title,
             description: p.description || "",
             maxSelections: p.maxSelections || p.max_selections || 1,
@@ -231,7 +231,7 @@ export default function OrganizationPortalPage({
                 id: c.id,
                 postId: c.postId || c.post_id || p.id,
                 fullName: c.fullName || c.full_name,
-                nickname: c.nickname,
+                nickname: c.nickname || "",
                 matricNo: c.matricNo || c.matric_no || "",
                 level: 300,
                 department: currentOrg.dept,
@@ -245,13 +245,36 @@ export default function OrganizationPortalPage({
               })),
           }));
           setLivePosts(mapped);
+
+          try {
+            localStorage.setItem(`studelect_posts_${instSlug}_${orgSlug}`, JSON.stringify(mapped));
+          } catch (_) {}
         }
       } catch (err) {
         console.warn("Failed to load live posts:", err);
       }
     }
+
     loadPostsAndCandidates();
-  }, [instSlug, currentOrg.dept]);
+
+    // Auto-refresh posts every 8s so voter booth reflects newly nominated candidates in real time
+    const interval = setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      loadPostsAndCandidates();
+    }, 8000);
+
+    const onVis = () => {
+      if (typeof document !== "undefined" && document.visibilityState === "visible") {
+        loadPostsAndCandidates();
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, [instSlug, orgSlug, currentOrg.dept]);
 
   const displayPosts = livePosts.length > 0 ? livePosts : election.posts;
 
@@ -267,6 +290,7 @@ export default function OrganizationPortalPage({
         if (savedStatus) setElectionStatus(savedStatus);
         const savedVisibility = localStorage.getItem(`studelect_results_visibility_${instSlug}_${orgSlug}`);
         if (savedVisibility) setResultsVisibility(savedVisibility);
+        else setResultsVisibility("SEALED_UNTIL_CLOSE");
       } catch (_) {}
     }
     loadInst();

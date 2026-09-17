@@ -769,7 +769,7 @@ export async function updateElectionStatusAction(
     requireSessionRegistration: true,
     allowedLevels: [100, 200, 300, 400, 500],
     authMode: "PIN_SLIP",
-    resultsVisibility: "LIVE",
+    resultsVisibility: "SEALED_UNTIL_CLOSE",
   };
   current.status = status;
   store[electionId] = current;
@@ -812,7 +812,7 @@ export async function updateResultsVisibilityAction(
     requireSessionRegistration: true,
     allowedLevels: [100, 200, 300, 400, 500],
     authMode: "PIN_SLIP",
-    resultsVisibility: "LIVE",
+    resultsVisibility: "SEALED_UNTIL_CLOSE",
   };
   current.resultsVisibility = visibility;
   store[electionId] = current;
@@ -999,7 +999,7 @@ export async function getElectionRulesAction(
             requireWhitelistMatch: !!(data as any).require_whitelist_match,
             allowedLevels: [100, 200, 300, 400, 500],
             authMode: data.auth_mode || "PIN_SLIP",
-            resultsVisibility: data.results_visibility || "LIVE",
+            resultsVisibility: data.results_visibility || "SEALED_UNTIL_CLOSE",
           };
           store[electionId] = res;
           writeElectionRulesStore(store);
@@ -1010,7 +1010,7 @@ export async function getElectionRulesAction(
     } catch (_) {}
   }
 
-  // 4. Default fallback: LIVE
+  // 4. Default fallback: SEALED_UNTIL_CLOSE
   if (!baseRules) {
     baseRules = {
       electionId,
@@ -1022,7 +1022,7 @@ export async function getElectionRulesAction(
       requireWhitelistMatch: false,
       allowedLevels: [100, 200, 300, 400, 500],
       authMode: "PIN_SLIP",
-      resultsVisibility: "LIVE",
+      resultsVisibility: "SEALED_UNTIL_CLOSE",
     };
   }
 

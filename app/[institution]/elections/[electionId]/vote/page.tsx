@@ -1,11 +1,12 @@
 "use client";
 
-import React, { useState, use } from "react";
+import React, { useState, useEffect, use } from "react";
 import Link from "next/link";
 import {
   MOCK_ELECTIONS,
   MOCK_STUDENTS,
   MockCandidate,
+  MockPost,
   MockStudent,
 } from "@/lib/mock-data";
 import { QRCodeSVG } from "qrcode.react";
@@ -27,6 +28,7 @@ import {
 } from "lucide-react";
 import { accreditVoterAction } from "@/app/actions/accredit";
 import { castBallotAction } from "@/app/actions/vote";
+import { getElectionPostsAndCandidatesAction } from "@/app/actions/candidates";
 
 export default function VotingPage({
   params,
@@ -37,6 +39,49 @@ export default function VotingPage({
   const election =
     MOCK_ELECTIONS.find((e) => e.id === resolvedParams.electionId) ||
     MOCK_ELECTIONS[0];
+
+  const [livePosts, setLivePosts] = useState<MockPost[]>([]);
+
+  useEffect(() => {
+    async function loadPosts() {
+      try {
+        const raw = await getElectionPostsAndCandidatesAction(resolvedParams.electionId);
+        if (raw && raw.length > 0) {
+          const mapped = raw.map((p: any) => ({
+            id: p.id,
+            electionId: p.electionId || resolvedParams.electionId,
+            title: p.title,
+            description: p.description || "",
+            maxSelections: p.maxSelections || 1,
+            allowedLevels: p.allowedLevels || [],
+            allowedDepartments: [],
+            candidates: (p.candidates || [])
+              .filter((c: any) => c.status !== "DISQUALIFIED")
+              .map((c: any) => ({
+                id: c.id,
+                postId: c.postId || p.id,
+                fullName: c.fullName || c.full_name,
+                nickname: c.nickname || "",
+                matricNo: c.matricNo || c.matric_no || "",
+                level: 300,
+                department: "Department",
+                photoUrl:
+                  c.photoUrl ||
+                  c.photo_url ||
+                  `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(c.fullName || c.full_name || "cand")}`,
+                manifesto: c.manifesto || "",
+                slogan: c.nickname ? `"${c.nickname}"` : "",
+                votes: c.voteCount || c.vote_count || 0,
+              })),
+          }));
+          setLivePosts(mapped);
+        }
+      } catch (_) {}
+    }
+    loadPosts();
+  }, [resolvedParams.electionId]);
+
+  const displayPosts = livePosts.length > 0 ? livePosts : election.posts;
 
   const [step, setStep] = useState<"LOGIN" | "BALLOT" | "REVIEW" | "RECEIPT">(
     "LOGIN"
@@ -321,7 +366,7 @@ export default function VotingPage({
 
           {/* Contested Offices */}
           <div className="space-y-6">
-            {election.posts.map((post, postIndex) => (
+            {displayPosts.map((post, postIndex) => (
               <div
                 key={post.id}
                 className="bg-white rounded-lg border border-zinc-200 shadow-sm overflow-hidden"
@@ -329,7 +374,7 @@ export default function VotingPage({
                 <div className="bg-zinc-50 px-5 py-3 border-b border-zinc-200 flex items-center justify-between">
                   <div>
                     <span className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider">
-                      Office {postIndex + 1} of {election.posts.length}
+                      Office {postIndex + 1} of {displayPosts.length}
                     </span>
                     <h2 className="text-base font-bold text-zinc-900">{post.title}</h2>
                   </div>
@@ -433,7 +478,7 @@ export default function VotingPage({
           </div>
 
           <div className="divide-y divide-zinc-200 border-y border-zinc-200 py-2 space-y-3">
-            {election.posts.map((post) => {
+            {displayPosts.map((post) => {
               const selectedCandId = selectedCandidates[post.id];
               const cand = post.candidates.find((c) => c.id === selectedCandId);
 
