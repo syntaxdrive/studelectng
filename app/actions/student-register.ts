@@ -864,7 +864,30 @@ export async function getOrgLicenseInfoAction(orgSlug: string, instSlug: string)
             l.institutionSlug?.toLowerCase() === cleanInst &&
             l.orgSlug?.toLowerCase() === cleanOrg
         );
+        // Also try matching by id (e.g. "org-ui-nesa")
+        if (!license) {
+          license = list.find(
+            (l: any) =>
+              l.id?.toLowerCase() === `org-${cleanInst}-${cleanOrg}` ||
+              l.orgSlug?.toLowerCase() === cleanOrg
+          );
+        }
       }
+    }
+
+    // Fallback: pull from the full SuperAdmin org list (reads Supabase + overrides)
+    if (!license) {
+      try {
+        const { getSuperAdminOrgLicensesAction } = await import("./super-admin");
+        const allOrgs = await getSuperAdminOrgLicensesAction();
+        const found = allOrgs.find(
+          (o) =>
+            (o.orgSlug?.toLowerCase() === cleanOrg &&
+              o.institutionSlug?.toLowerCase() === cleanInst) ||
+            o.id?.toLowerCase() === `org-${cleanInst}-${cleanOrg}`
+        );
+        if (found) license = found;
+      } catch (_) {}
     }
 
     return {
@@ -888,4 +911,5 @@ export async function getOrgLicenseInfoAction(orgSlug: string, instSlug: string)
     };
   }
 }
+
 

@@ -1252,10 +1252,27 @@ export default function InstitutionAdminPage({
               <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-zinc-500">
                 REGISTERED VOTERS
               </span>
-              <p className="text-2xl font-bold font-mono text-zinc-900">
-                {telemetryData.totalRegistered.toLocaleString()}
-              </p>
-              <p className="text-[11px] text-zinc-400">Total cleared student electorate</p>
+              <div className="flex items-baseline gap-1.5">
+                <p className="text-2xl font-bold font-mono text-zinc-900">
+                  {telemetryData.totalRegistered.toLocaleString()}
+                </p>
+                <span className="text-xs text-zinc-400 font-mono">
+                  / {(orgLicenseInfo.voterQuota || 500).toLocaleString()} max
+                </span>
+              </div>
+              <div className="w-full bg-zinc-100 rounded-full h-1.5 mt-1 overflow-hidden">
+                <div
+                  className={`h-1.5 rounded-full transition-all duration-500 ${
+                    (telemetryData.totalRegistered / (orgLicenseInfo.voterQuota || 500)) > 0.9
+                      ? "bg-red-500"
+                      : (telemetryData.totalRegistered / (orgLicenseInfo.voterQuota || 500)) > 0.7
+                      ? "bg-amber-500"
+                      : "bg-zinc-900"
+                  }`}
+                  style={{ width: `${Math.min(100, Math.round((telemetryData.totalRegistered / (orgLicenseInfo.voterQuota || 500)) * 100))}%` }}
+                />
+              </div>
+              <p className="text-[11px] text-zinc-400">Voter quota capacity</p>
             </div>
 
             <div className="p-5 rounded-xl bg-white border border-zinc-200 shadow-sm space-y-1">
@@ -2056,7 +2073,45 @@ export default function InstitutionAdminPage({
             </div>
           </div>
 
-          {/* Dues Import Explanation & Status Banner */}
+          {/* Quota Usage Banner */}
+          {(() => {
+            const quota = orgLicenseInfo.voterQuota || 500;
+            const used = voterRoll.length;
+            const remaining = quota - used;
+            const pct = Math.min(100, Math.round((used / quota) * 100));
+            const isNearLimit = remaining <= 50;
+            return (
+              <div className={`p-3.5 rounded-xl border text-xs flex flex-col sm:flex-row sm:items-center gap-3 ${isNearLimit ? "bg-amber-50 border-amber-200" : "bg-zinc-50 border-zinc-200"}`}>
+                <div className="flex-1 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className={`font-bold font-mono uppercase text-[11px] ${isNearLimit ? "text-amber-700" : "text-zinc-700"}`}>
+                      Voter Quota: {used.toLocaleString()} / {quota.toLocaleString()} registered
+                    </span>
+                    <span className={`font-mono text-[11px] font-semibold ${isNearLimit ? "text-amber-600" : "text-zinc-500"}`}>
+                      {remaining > 0 ? `${remaining.toLocaleString()} slots remaining` : "Quota full"}
+                    </span>
+                  </div>
+                  <div className="w-full bg-zinc-200 rounded-full h-1.5 overflow-hidden">
+                    <div
+                      className={`h-1.5 rounded-full transition-all duration-500 ${pct >= 100 ? "bg-red-500" : pct >= 80 ? "bg-amber-500" : "bg-zinc-900"}`}
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                </div>
+                {isNearLimit && (
+                  <button
+                    type="button"
+                    onClick={() => { setSupportReason("QUOTA_TOPUP"); setIsSupportModalOpen(true); }}
+                    className="shrink-0 px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-bold transition"
+                  >
+                    Request Quota Top-Up
+                  </button>
+                )}
+              </div>
+            );
+          })()}
+
+
           <div className="p-4 rounded-xl bg-zinc-50 border border-zinc-200 text-xs space-y-1.5">
             <div className="flex items-center gap-2 font-bold text-zinc-900">
               <FileSpreadsheet className="w-4 h-4 text-zinc-700" />

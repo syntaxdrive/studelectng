@@ -284,7 +284,16 @@ export default function SuperAdminDashboard() {
     setIsSubmitting(false);
 
     if (res.success) {
+      // Reload from server to confirm persisted value (avoids stale cache)
+      await loadData();
       setTimeout(() => setStatusMessage(null), 4000);
+    } else {
+      setStatusMessage(res.message || "Save failed — please try again.");
+      // Revert optimistic update if server failed
+      setOrgLicenses((prev) =>
+        prev.map((o) => (o.id === editingOrg.id ? editingOrg : o))
+      );
+      setTimeout(() => setStatusMessage(null), 5000);
     }
   };
 
