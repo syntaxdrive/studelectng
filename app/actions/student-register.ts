@@ -852,48 +852,57 @@ export async function getOrgLicenseInfoAction(orgSlug: string, instSlug: string)
   try {
     const cleanOrg = (orgSlug || "nesa").toLowerCase().trim();
     const cleanInst = (instSlug || "ui").toLowerCase().trim();
-    let license: any = null;
 
+    // Direct synchronization with SuperAdmin source of truth
+    try {
+      const { getSuperAdminOrgLicensesAction } = await import("./super-admin");
+      const allOrgs = await getSuperAdminOrgLicensesAction();
+      const matched = allOrgs.find(
+        (o) =>
+          (o.orgSlug?.toLowerCase() === cleanOrg &&
+            o.institutionSlug?.toLowerCase() === cleanInst) ||
+          o.id?.toLowerCase() === `org-${cleanInst}-${cleanOrg}` ||
+          o.orgSlug?.toLowerCase() === cleanOrg
+      );
+
+      if (matched) {
+        return {
+          success: true,
+          license: matched,
+        };
+      }
+    } catch (e) {
+      console.warn("getSuperAdminOrgLicensesAction lookup in getOrgLicenseInfoAction failed:", e);
+    }
+
+    // Secondary fallback: local store
     const licensesFile = path.join(DATA_DIR, "org-licenses-store.json");
     if (fs.existsSync(licensesFile)) {
-      const raw = fs.readFileSync(licensesFile, "utf8");
-      const list = JSON.parse(raw);
-      if (Array.isArray(list)) {
-        license = list.find(
-          (l: any) =>
-            l.institutionSlug?.toLowerCase() === cleanInst &&
-            l.orgSlug?.toLowerCase() === cleanOrg
-        );
-        // Also try matching by id (e.g. "org-ui-nesa")
-        if (!license) {
-          license = list.find(
+      try {
+        const raw = fs.readFileSync(licensesFile, "utf8");
+        const list = JSON.parse(raw);
+        if (Array.isArray(list)) {
+          const found = list.find(
             (l: any) =>
+              (l.institutionSlug?.toLowerCase() === cleanInst &&
+                l.orgSlug?.toLowerCase() === cleanOrg) ||
               l.id?.toLowerCase() === `org-${cleanInst}-${cleanOrg}` ||
               l.orgSlug?.toLowerCase() === cleanOrg
           );
+          if (found) {
+            return {
+              success: true,
+              license: found,
+            };
+          }
         }
-      }
-    }
-
-    // Fallback: pull from the full SuperAdmin org list (reads Supabase + overrides)
-    if (!license) {
-      try {
-        const { getSuperAdminOrgLicensesAction } = await import("./super-admin");
-        const allOrgs = await getSuperAdminOrgLicensesAction();
-        const found = allOrgs.find(
-          (o) =>
-            (o.orgSlug?.toLowerCase() === cleanOrg &&
-              o.institutionSlug?.toLowerCase() === cleanInst) ||
-            o.id?.toLowerCase() === `org-${cleanInst}-${cleanOrg}`
-        );
-        if (found) license = found;
       } catch (_) {}
     }
 
     return {
       success: true,
-      license: license || {
-        voterQuota: 500,
+      license: {
+        voterQuota: 1000,
         registeredVotersCount: 0,
         licenseStatus: "ACTIVE",
         orgName: cleanOrg.toUpperCase(),
@@ -904,7 +913,7 @@ export async function getOrgLicenseInfoAction(orgSlug: string, instSlug: string)
     return {
       success: false,
       license: {
-        voterQuota: 500,
+        voterQuota: 1000,
         registeredVotersCount: 0,
         licenseStatus: "ACTIVE",
       },

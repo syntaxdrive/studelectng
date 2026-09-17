@@ -211,7 +211,10 @@ export default function InstitutionAdminPage({
   // Official University Crest State (managed strictly by Platform SuperAdmin)
   const [orgLogoUrl, setOrgLogoUrl] = useState<string | null>(null);
 
-  const electionId = `elec-${instSlug}-2026`;
+  const [activeOrgSlug, setActiveOrgSlug] = useState<string>("");
+  const electionId = activeOrgSlug
+    ? `elec-${instSlug}-${activeOrgSlug}-2026`
+    : `elec-${instSlug}-2026`;
 
   // Election Eligibility Rules State
   const [electionRules, setElectionRules] = useState<ElectionRulesState>({
@@ -234,8 +237,6 @@ export default function InstitutionAdminPage({
     }
     loadRules();
   }, [electionId]);
-
-  const [activeOrgSlug, setActiveOrgSlug] = useState<string>("");
 
   useEffect(() => {
     async function resolveActiveOrg() {
@@ -261,14 +262,15 @@ export default function InstitutionAdminPage({
   }, [instSlug]);
 
   // Load organization license metadata
-  useEffect(() => {
-    async function loadLicense() {
-      const orgToLoad = activeOrgSlug || (instSlug === "unilag" ? "nacos" : "nesa");
-      const res = await getOrgLicenseInfoAction(orgToLoad, instSlug);
-      if (res && res.license) {
-        setOrgLicenseInfo(res.license);
-      }
+  const loadLicense = async (targetOrg?: string) => {
+    const orgToLoad = targetOrg || activeOrgSlug || (instSlug === "unilag" ? "nacos" : "nesa");
+    const res = await getOrgLicenseInfoAction(orgToLoad, instSlug);
+    if (res && res.license) {
+      setOrgLicenseInfo(res.license);
     }
+  };
+
+  useEffect(() => {
     loadLicense();
   }, [activeOrgSlug, instSlug]);
 
@@ -320,7 +322,10 @@ export default function InstitutionAdminPage({
   // ── Load Real-Time Election Telemetry & Candidates ─────────────────────────
   const loadTelemetry = async () => {
     try {
-      const data = await getRealtimeElectionTelemetryAction(electionId, instSlug);
+      const [data] = await Promise.all([
+        getRealtimeElectionTelemetryAction(electionId, instSlug),
+        loadLicense(),
+      ]);
       if (data && data.success) {
         setTelemetryData(data);
         if (data.posts && data.posts.length > 0) {
@@ -1252,27 +1257,41 @@ export default function InstitutionAdminPage({
               <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-zinc-500">
                 REGISTERED VOTERS
               </span>
-              <div className="flex items-baseline gap-1.5">
-                <p className="text-2xl font-bold font-mono text-zinc-900">
-                  {telemetryData.totalRegistered.toLocaleString()}
-                </p>
-                <span className="text-xs text-zinc-400 font-mono">
-                  / {(orgLicenseInfo.voterQuota || 500).toLocaleString()} max
-                </span>
-              </div>
-              <div className="w-full bg-zinc-100 rounded-full h-1.5 mt-1 overflow-hidden">
-                <div
-                  className={`h-1.5 rounded-full transition-all duration-500 ${
-                    (telemetryData.totalRegistered / (orgLicenseInfo.voterQuota || 500)) > 0.9
-                      ? "bg-red-500"
-                      : (telemetryData.totalRegistered / (orgLicenseInfo.voterQuota || 500)) > 0.7
-                      ? "bg-amber-500"
-                      : "bg-zinc-900"
-                  }`}
-                  style={{ width: `${Math.min(100, Math.round((telemetryData.totalRegistered / (orgLicenseInfo.voterQuota || 500)) * 100))}%` }}
-                />
-              </div>
-              <p className="text-[11px] text-zinc-400">Voter quota capacity</p>
+              {(() => {
+                const registered = voterRoll.length > 0
+                  ? voterRoll.length
+                  : (orgLicenseInfo?.registeredVotersCount ?? telemetryData.totalRegistered ?? 0);
+                const quota = orgLicenseInfo?.voterQuota || 1000;
+                const percentUsed = Math.min(100, Math.round((registered / quota) * 100));
+
+                return (
+                  <>
+                    <div className="flex items-baseline gap-1.5">
+                      <p className="text-2xl font-bold font-mono text-zinc-900">
+                        {registered.toLocaleString()}
+                      </p>
+                      <span className="text-xs text-zinc-400 font-mono">
+                        / {quota.toLocaleString()} max
+                      </span>
+                    </div>
+                    <div className="w-full bg-zinc-100 rounded-full h-1.5 mt-1 overflow-hidden">
+                      <div
+                        className={`h-1.5 rounded-full transition-all duration-500 ${
+                          percentUsed > 90
+                            ? "bg-red-500"
+                            : percentUsed > 70
+                            ? "bg-amber-500"
+                            : "bg-zinc-900"
+                        }`}
+                        style={{ width: `${percentUsed}%` }}
+                      />
+                    </div>
+                    <p className="text-[11px] text-zinc-400 font-mono">
+                      {percentUsed}% capacity used &bull; {Math.max(0, quota - registered)} slots remaining
+                    </p>
+                  </>
+                );
+              })()}
             </div>
 
             <div className="p-5 rounded-xl bg-white border border-zinc-200 shadow-sm space-y-1">
@@ -2075,7 +2094,7 @@ export default function InstitutionAdminPage({
 
           {/* Quota Usage Banner */}
           {(() => {
-            const quota = orgLicenseInfo.voterQuota || 500;
+            const quota = orgLicenseInfo?.voterQuota || 1000;
             const used = voterRoll.length;
             const remaining = quota - used;
             const pct = Math.min(100, Math.round((used / quota) * 100));
@@ -3500,7 +3519,7 @@ export default function InstitutionAdminPage({
               </div>
               <div className="flex items-center justify-between font-mono text-[11px]">
                 <span className="text-zinc-500 uppercase font-semibold">Active Quota Capacity:</span>
-                <span className="font-bold text-zinc-900">{orgLicenseInfo.voterQuota || 500} Voters ({voterRoll.length} Registered)</span>
+                <span className="font-bold text-zinc-900">{orgLicenseInfo?.voterQuota || 1000} Voters ({voterRoll.length} Registered)</span>
               </div>
               <div className="flex items-center justify-between font-mono text-[11px]">
                 <span className="text-zinc-500 uppercase font-semibold">Election Status:</span>

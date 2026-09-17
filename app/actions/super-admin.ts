@@ -1107,6 +1107,7 @@ export async function updateOrgLicenseAction(updated: SuperAdminOrgLicense) {
     ]).catch(() => {});
   }).catch(() => {});
 
+  invalidateCache();
   revalidatePath("/super-admin");
   revalidatePath(`/${instSlug}/${orgSlug}`);
   revalidatePath(`/${instSlug}/admin`);
@@ -1146,7 +1147,11 @@ export async function extendOrgQuotaAction(id: string, additionalVoters: number)
   const updatedEntry: SuperAdminOrgLicense = { ...orgEntry, id, voterQuota: newQuota };
   list.push(updatedEntry);
   writeOrgLicensesStore(list);
+
+  invalidateCache();
   revalidatePath("/super-admin");
+  revalidatePath(`/${cleanInstSlug}/${cleanOrgSlug}`);
+  revalidatePath(`/${cleanInstSlug}/admin`);
 
   return {
     success: true,
