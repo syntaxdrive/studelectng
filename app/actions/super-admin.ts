@@ -1327,7 +1327,18 @@ export async function deleteWholeOrganizationAction(
 
       if (allElecIds.length > 0) {
         try { await supabase.from("ballots").delete().in("election_id", allElecIds); } catch (_) {}
+        try { await supabase.from("voter_accreditations").delete().in("election_id", allElecIds); } catch (_) {}
         try { await supabase.from("audit_logs").delete().in("election_id", allElecIds); } catch (_) {}
+
+        // Delete candidates attached to election posts
+        try {
+          const { data: dbPosts } = await supabase.from("posts").select("id").in("election_id", allElecIds);
+          const postIds = (dbPosts || []).map((p: any) => p.id);
+          if (postIds.length > 0) {
+            await supabase.from("candidates").delete().in("post_id", postIds);
+          }
+        } catch (_) {}
+
         try { await supabase.from("posts").delete().in("election_id", allElecIds); } catch (_) {}
         try { await supabase.from("elections").delete().in("id", allElecIds); } catch (_) {}
       }
@@ -1370,6 +1381,7 @@ export async function deleteWholeOrganizationAction(
       console.warn("Supabase cascading deletion warning:", dbErr);
     }
 
+    invalidateCache();
     revalidatePath("/super-admin");
     revalidatePath(`/${cleanInst}`);
     revalidatePath(`/${cleanInst}/${cleanOrg}`);
