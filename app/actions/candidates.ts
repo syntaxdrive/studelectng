@@ -102,33 +102,85 @@ export async function getElectionPostsAndCandidatesAction(
   return fetchWithCache(`posts:${electionId}`, 15, async () => {
     try {
       const store = readServerStore();
+      const targetElectionId = electionId || "elec-ui-nesa-2026";
 
-      // Attempt querying Supabase in parallel to merge any cloud records
+      // 1. Attempt querying Supabase posts & candidates
       try {
-        const [postsRes, candidatesRes] = await Promise.allSettled([
-          supabase
+        let { data: cloudPosts } = await supabase
+          .from("posts")
+          .select("*")
+          .eq("election_id", targetElectionId)
+          .order("display_order", { ascending: true });
+
+        // If no posts found under targetElectionId, search if any posts exist for this institution
+        if (!cloudPosts || cloudPosts.length === 0) {
+          const { data: allPosts } = await supabase
             .from("posts")
             .select("*")
-            .eq("election_id", electionId)
-            .order("display_order", { ascending: true }),
-          supabase
-            .from("candidates")
-            .select("*")
-            .order("created_at", { ascending: true }),
-        ]);
+            .order("display_order", { ascending: true });
 
-        const cloudPosts = postsRes.status === "fulfilled" ? postsRes.value.data : null;
-        const cloudCandidates = candidatesRes.status === "fulfilled" ? candidatesRes.value.data : null;
+          if (allPosts && allPosts.length > 0) {
+            const instPrefix = targetElectionId.split("-")[1] || "";
+            const instMatch = allPosts.filter((p: any) =>
+              p.election_id && instPrefix && p.election_id.includes(instPrefix)
+            );
+            cloudPosts = instMatch.length > 0 ? instMatch : allPosts;
+          }
+        }
+
+        // If Supabase has zero posts for this election, seed default posts into Supabase
+        if (!cloudPosts || cloudPosts.length === 0) {
+          const { data: elec } = await supabase.from("elections").select("id").limit(1).maybeSingle();
+          const validElectionId = elec?.id || targetElectionId;
+
+          const defaultPostsToSeed = [
+            {
+              id: "post-1",
+              election_id: validElectionId,
+              title: "President",
+              description: "Executive President of the Association",
+              max_selections: 1,
+              display_order: 1,
+              allowed_levels: [],
+              allowed_departments: [],
+            },
+            {
+              id: "post-2",
+              election_id: validElectionId,
+              title: "Vice President",
+              description: "Executive Vice President",
+              max_selections: 1,
+              display_order: 2,
+              allowed_levels: [],
+              allowed_departments: [],
+            },
+            {
+              id: "post-3",
+              election_id: validElectionId,
+              title: "General Secretary",
+              description: "Chief Secretariat Administrator",
+              max_selections: 1,
+              display_order: 3,
+              allowed_levels: [],
+              allowed_departments: [],
+            },
+          ];
+
+          for (const p of defaultPostsToSeed) {
+            await supabase.from("posts").upsert(p);
+          }
+          cloudPosts = defaultPostsToSeed;
+        }
+
+        // 2. Query all cloud candidates
+        const { data: cloudCandidates } = await supabase
+          .from("candidates")
+          .select("*")
+          .order("created_at", { ascending: true });
 
         if (cloudPosts && cloudPosts.length > 0) {
-          const cloudMerged: PostWithCandidatesDto[] = cloudPosts.map((p: any) => ({
-            id: p.id,
-            electionId: p.election_id || electionId,
-            title: p.title,
-            description: p.description || "",
-            maxSelections: p.max_selections || 1,
-            allowedLevels: p.allowed_levels || [],
-            candidates: (cloudCandidates || [])
+          const cloudMerged: PostWithCandidatesDto[] = cloudPosts.map((p: any) => {
+            const postCloudCands: CandidateDto[] = (cloudCandidates || [])
               .filter((c: any) => (c.post_id || c.postId) === p.id)
               .map((c: any) => ({
                 id: c.id,
@@ -138,16 +190,37 @@ export async function getElectionPostsAndCandidatesAction(
                 matricNo: c.matric_no || c.matricNo || "",
                 photoUrl: c.photo_url || c.photoUrl || "",
                 manifesto: c.manifesto || "",
-                status: c.status || "CLEARED",
+                status: (c.status || "CLEARED") as "NOMINATED" | "CLEARED" | "DISQUALIFIED",
                 voteCount: c.vote_count || 0,
-              })),
-          }));
+              }));
 
-          if (cloudMerged.length > 0) {
-            return cloudMerged;
-          }
+            // Also include any candidate from local store if not yet in Supabase
+            const storePost = store.posts.find((sp) => sp.id === p.id);
+            if (storePost?.candidates) {
+              const existingIds = new Set(postCloudCands.map((c) => c.id));
+              for (const sc of storePost.candidates) {
+                if (!existingIds.has(sc.id)) {
+                  postCloudCands.push(sc);
+                }
+              }
+            }
+
+            return {
+              id: p.id,
+              electionId: p.election_id || targetElectionId,
+              title: p.title,
+              description: p.description || "",
+              maxSelections: p.max_selections || 1,
+              allowedLevels: p.allowed_levels || [],
+              candidates: postCloudCands,
+            };
+          });
+
+          return cloudMerged;
         }
-      } catch (_) {}
+      } catch (cloudErr) {
+        console.warn("Cloud posts query exception, using local store:", cloudErr);
+      }
 
       // Filter store posts matching this electionId, or all posts if matching
       const matchingStorePosts = store.posts.filter(
@@ -174,9 +247,29 @@ export async function createPostAction(input: {
   const newPostId = `post-${Date.now()}`;
   const store = readServerStore();
 
+  let targetElectionId = input.electionId || "elec-ui-nesa-2026";
+  try {
+    const { data: elec } = await supabase
+      .from("elections")
+      .select("id")
+      .eq("id", targetElectionId)
+      .maybeSingle();
+
+    if (!elec) {
+      const { data: fallbackElec } = await supabase
+        .from("elections")
+        .select("id")
+        .limit(1)
+        .maybeSingle();
+      if (fallbackElec?.id) {
+        targetElectionId = fallbackElec.id;
+      }
+    }
+  } catch (_) {}
+
   const newPost: PostWithCandidatesDto = {
     id: newPostId,
-    electionId: input.electionId || "elec-ui-2026",
+    electionId: targetElectionId,
     title: input.title.trim(),
     description: input.description?.trim() || "",
     maxSelections: input.maxSelections || 1,
@@ -188,17 +281,25 @@ export async function createPostAction(input: {
   writeServerStore(store);
 
   try {
-    await supabase.from("posts").upsert({
+    const { error: postError } = await supabase.from("posts").upsert({
       id: newPostId,
-      election_id: input.electionId,
+      election_id: targetElectionId,
       title: input.title.trim(),
       description: input.description?.trim() || "",
       max_selections: input.maxSelections || 1,
+      display_order: Date.now() % 100000,
       allowed_levels: input.allowedLevels || [],
+      allowed_departments: [],
     });
-  } catch (_) {}
+    if (postError) {
+      console.error("createPostAction Supabase error:", postError);
+    }
+  } catch (err) {
+    console.error("createPostAction exception:", err);
+  }
 
   invalidateCache("posts:");
+  invalidateCache("telemetry:");
   revalidatePath("/[institution]/admin");
   revalidatePath("/[institution]/[organization]");
   return {
@@ -218,10 +319,77 @@ export async function createCandidateAction(input: {
   matricNo?: string;
   photoUrl?: string;
   manifesto?: string;
+  electionId?: string;
 }) {
-  const newCandId = `cand-${Date.now()}`;
+  const newCandId = `cand-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
   const store = readServerStore();
 
+  // 1. Ensure the parent post exists in Supabase posts table before inserting
+  let targetElectionId = input.electionId || "elec-ui-nesa-2026";
+  try {
+    const { data: existingPost } = await supabase
+      .from("posts")
+      .select("id, election_id")
+      .eq("id", input.postId)
+      .maybeSingle();
+
+    if (!existingPost) {
+      // Find valid electionId
+      const { data: elec } = await supabase
+        .from("elections")
+        .select("id")
+        .limit(1)
+        .maybeSingle();
+      targetElectionId = elec?.id || targetElectionId;
+
+      const foundInStore = store.posts.find((p) => p.id === input.postId);
+      const postTitle =
+        foundInStore?.title ||
+        (input.postId === "post-1"
+          ? "President"
+          : input.postId === "post-2"
+          ? "Vice President"
+          : input.postId === "post-3"
+          ? "General Secretary"
+          : "Executive Office");
+
+      await supabase.from("posts").upsert({
+        id: input.postId,
+        election_id: targetElectionId,
+        title: postTitle,
+        description: foundInStore?.description || "",
+        max_selections: 1,
+        display_order: 1,
+        allowed_levels: [],
+        allowed_departments: [],
+      });
+    }
+  } catch (postCheckErr) {
+    console.warn("Parent post check exception:", postCheckErr);
+  }
+
+  // 2. Persist candidate directly to Supabase cloud
+  try {
+    const { error: candError } = await supabase.from("candidates").upsert({
+      id: newCandId,
+      post_id: input.postId,
+      full_name: input.fullName.trim(),
+      nickname: input.nickname?.trim() || "",
+      matric_no: input.matricNo?.trim() || "",
+      photo_url: input.photoUrl?.trim() || "",
+      manifesto: input.manifesto?.trim() || "",
+      status: "CLEARED",
+      vote_count: 0,
+    });
+
+    if (candError) {
+      console.error("createCandidateAction Supabase error:", candError);
+    }
+  } catch (candInsertErr) {
+    console.error("createCandidateAction insert exception:", candInsertErr);
+  }
+
+  // 3. Update local server store backup
   const newCand: CandidateDto = {
     id: newCandId,
     postId: input.postId,
@@ -238,7 +406,10 @@ export async function createCandidateAction(input: {
   store.posts = store.posts.map((post) => {
     if (post.id === input.postId) {
       foundPost = true;
-      return { ...post, candidates: [...post.candidates, newCand] };
+      return {
+        ...post,
+        candidates: [...post.candidates.filter((c) => c.id !== newCandId), newCand],
+      };
     }
     return post;
   });
@@ -246,7 +417,7 @@ export async function createCandidateAction(input: {
   if (!foundPost) {
     store.posts.push({
       id: input.postId,
-      electionId: "elec-ui-2026",
+      electionId: targetElectionId,
       title: "Executive Office",
       description: "",
       maxSelections: 1,
@@ -257,21 +428,8 @@ export async function createCandidateAction(input: {
 
   writeServerStore(store);
 
-  try {
-    await supabase.from("candidates").upsert({
-      id: newCandId,
-      post_id: input.postId,
-      full_name: input.fullName.trim(),
-      nickname: input.nickname?.trim() || "",
-      matric_no: input.matricNo?.trim() || "",
-      photo_url: input.photoUrl?.trim() || "",
-      manifesto: input.manifesto?.trim() || "",
-      status: "CLEARED",
-      vote_count: 0,
-    });
-  } catch (_) {}
-
   invalidateCache("posts:");
+  invalidateCache("telemetry:");
   revalidatePath("/[institution]/admin");
   revalidatePath("/[institution]/[organization]");
   return {
@@ -315,7 +473,7 @@ export async function updateCandidateAction(input: {
   writeServerStore(store);
 
   try {
-    await supabase
+    const { error } = await supabase
       .from("candidates")
       .update({
         full_name: input.fullName.trim(),
@@ -326,9 +484,16 @@ export async function updateCandidateAction(input: {
         status: input.status || "CLEARED",
       })
       .eq("id", input.candidateId);
-  } catch (_) {}
+
+    if (error) {
+      console.error("updateCandidateAction Supabase error:", error);
+    }
+  } catch (err) {
+    console.error("updateCandidateAction exception:", err);
+  }
 
   invalidateCache("posts:");
+  invalidateCache("telemetry:");
   revalidatePath("/[institution]/admin");
   revalidatePath("/[institution]/[organization]");
   return {
@@ -351,10 +516,16 @@ export async function deleteCandidateAction(candidateId: string) {
   writeServerStore(store);
 
   try {
-    await supabase.from("candidates").delete().eq("id", candidateId);
-  } catch (_) {}
+    const { error } = await supabase.from("candidates").delete().eq("id", candidateId);
+    if (error) {
+      console.error("deleteCandidateAction Supabase error:", error);
+    }
+  } catch (err) {
+    console.error("deleteCandidateAction exception:", err);
+  }
 
   invalidateCache("posts:");
+  invalidateCache("telemetry:");
   revalidatePath("/[institution]/admin");
   revalidatePath("/[institution]/[organization]");
   return { success: true, message: "Candidate removed." };
@@ -370,11 +541,16 @@ export async function deletePostAction(postId: string) {
   writeServerStore(store);
 
   try {
+    await supabase.from("candidates").delete().eq("post_id", postId);
     await supabase.from("posts").delete().eq("id", postId);
-  } catch (_) {}
+  } catch (err) {
+    console.error("deletePostAction exception:", err);
+  }
 
   invalidateCache("posts:");
+  invalidateCache("telemetry:");
   revalidatePath("/[institution]/admin");
   revalidatePath("/[institution]/[organization]");
   return { success: true, message: "Elective post removed." };
 }
+

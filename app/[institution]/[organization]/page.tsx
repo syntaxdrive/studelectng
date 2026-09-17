@@ -1358,7 +1358,7 @@ export default function OrganizationPortalPage({
                     <p className="text-base font-mono font-bold text-zinc-900 break-all">
                       {receiptCode}
                     </p>
-                    <p className="text-[10px] text-zinc-400 font-mono">
+                    <p suppressHydrationWarning className="text-[10px] text-zinc-400 font-mono">
                       Timestamp: {castTimestamp ? new Date(castTimestamp).toLocaleString("en-NG") : new Date().toLocaleString("en-NG")}
                     </p>
                   </div>

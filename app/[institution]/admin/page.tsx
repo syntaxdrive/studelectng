@@ -214,7 +214,9 @@ export default function InstitutionAdminPage({
   // Official University Crest State (managed strictly by Platform SuperAdmin)
   const [orgLogoUrl, setOrgLogoUrl] = useState<string | null>(null);
 
-  const [activeOrgSlug, setActiveOrgSlug] = useState<string>("");
+  const [activeOrgSlug, setActiveOrgSlug] = useState<string>(
+    instSlug === "unilag" ? "nacos" : "nesa"
+  );
   const electionId = activeOrgSlug
     ? `elec-${instSlug}-${activeOrgSlug}-2026`
     : `elec-${instSlug}-2026`;
@@ -776,12 +778,19 @@ export default function InstitutionAdminPage({
 
     const res = await createCandidateAction({
       postId: activePostForNomination,
+      electionId,
       fullName: candForm.fullName.trim(),
       nickname: candForm.nickname.trim(),
       matricNo: candForm.matricNo.trim(),
       photoUrl: candForm.photoUrl.trim(),
       manifesto: candForm.manifesto.trim(),
     });
+
+    if (!res.success) {
+      setAdminActionMessage(res.message || "Failed to nominate candidate.");
+      setTimeout(() => setAdminActionMessage(null), 5000);
+      return;
+    }
 
     const newCand = {
       id: res.candidateId || `cand-${Date.now()}`,
@@ -798,7 +807,13 @@ export default function InstitutionAdminPage({
     setPosts((prev) =>
       prev.map((post) =>
         post.id === activePostForNomination
-          ? { ...post, candidates: [...post.candidates, newCand] }
+          ? {
+              ...post,
+              candidates: [
+                ...post.candidates.filter((c) => c.id !== newCand.id),
+                newCand,
+              ],
+            }
           : post
       )
     );
@@ -807,6 +822,9 @@ export default function InstitutionAdminPage({
     setActivePostForNomination(null);
     setAdminActionMessage(res.message || "Candidate nominated successfully.");
     setTimeout(() => setAdminActionMessage(null), 4000);
+
+    // Refresh telemetry to sync cloud state immediately
+    loadTelemetry();
   };
 
   const handleOpenEditCandidate = (cand: any, postId: string) => {
@@ -3925,7 +3943,7 @@ export default function InstitutionAdminPage({
                   </p>
                   <div className="flex items-center justify-between text-[9px] font-mono text-zinc-500 pt-2 border-t border-zinc-200 mt-2">
                     <span>CERTIFICATE ID: CERT-{instSlug.toUpperCase()}-{electionRules.status}</span>
-                    <span>DATE: {new Date().toLocaleDateString("en-NG", { day: "numeric", month: "long", year: "numeric" })}</span>
+                    <span suppressHydrationWarning>DATE: {new Date().toLocaleDateString("en-NG", { day: "numeric", month: "long", year: "numeric" })}</span>
                     <span>AUDIT LEDGER: SHA-256 VERIFIED</span>
                   </div>
                 </div>
@@ -4123,7 +4141,7 @@ export default function InstitutionAdminPage({
           </p>
           <div className="flex items-center justify-between text-[9px] font-mono text-zinc-500 pt-2 border-t border-zinc-200 mt-2">
             <span>CERTIFICATE ID: CERT-{instSlug.toUpperCase()}-{electionRules.status}</span>
-            <span>DATE OF DECLARATION: {new Date().toLocaleDateString("en-NG", { day: "numeric", month: "long", year: "numeric" })}</span>
+            <span suppressHydrationWarning>DATE OF DECLARATION: {new Date().toLocaleDateString("en-NG", { day: "numeric", month: "long", year: "numeric" })}</span>
             <span>AUDIT LEDGER: SHA-256 VERIFIED</span>
           </div>
         </div>
@@ -4293,7 +4311,7 @@ export default function InstitutionAdminPage({
           <div className="flex items-center justify-between text-[8px] font-mono text-zinc-500 border-t border-zinc-200 pt-2">
             <span>Generated via StudElect Cryptographic Engine</span>
             <span>Tamper-evident verification at: studelect.com.ng/verify</span>
-            <span>Printed on: {new Date().toLocaleString("en-NG")}</span>
+            <span suppressHydrationWarning>Printed on: {new Date().toLocaleString("en-NG")}</span>
           </div>
         </div>
       </div>
