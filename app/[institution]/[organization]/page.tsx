@@ -11,6 +11,7 @@ import {
   lookupStudentStatusAction,
   getElectionRulesAction,
   getOrgPublicContactAction,
+  verifyOrgExistsAction,
 } from "@/app/actions/student-register";
 import { getElectionPostsAndCandidatesAction } from "@/app/actions/candidates";
 import { useLiveElection } from "@/lib/hooks/use-live-election";
@@ -66,6 +67,11 @@ export default function OrganizationPortalPage({
 
   const [institution, setInstitution] = useState<any>(null);
   const [activeTab, setActiveTab] = useState<"VOTE" | "CANDIDATES" | "REGISTER" | "RESULTS">("VOTE");
+
+  // Org Existence and Verification State
+  const [orgNotFound, setOrgNotFound] = useState<boolean>(false);
+  const [isVerifyingOrg, setIsVerifyingOrg] = useState<boolean>(true);
+  const [verifiedOrg, setVerifiedOrg] = useState<any>(null);
 
   // Voting Booth State (LOGIN -> BALLOT -> REVIEW -> RECEIPT)
   const [voteStep, setVoteStep] = useState<"LOGIN" | "BALLOT" | "REVIEW" | "RECEIPT">("LOGIN");
@@ -129,7 +135,6 @@ export default function OrganizationPortalPage({
     orgName?: string;
   } | null>(null);
 
-
   // Dynamic Association Names
   const orgNames: { [key: string]: { name: string; type: string; title: string; dept: string } } = {
     nesa: {
@@ -165,12 +170,32 @@ export default function OrganizationPortalPage({
   };
 
   const cleanOrgKey = (orgSlug || "").replace(new RegExp(`^${instSlug}-`, "i"), "").toLowerCase();
-  const currentOrg = orgNames[cleanOrgKey] || orgNames[orgSlug] || {
+  const currentOrg = verifiedOrg || orgNames[cleanOrgKey] || orgNames[orgSlug] || {
     name: `${(orgSlug || "").toUpperCase()} Students' Association`,
     type: "Student Union Body",
     title: `${(orgSlug || "").toUpperCase()} 2026/2027 Elections`,
     dept: (orgSlug || "").toUpperCase(),
   };
+
+  // Verify Organization Existence on mount
+  useEffect(() => {
+    async function checkExistence() {
+      setIsVerifyingOrg(true);
+      try {
+        const res = await verifyOrgExistsAction(instSlug, orgSlug);
+        if (!res.exists) {
+          setOrgNotFound(true);
+        } else if (res.org) {
+          setVerifiedOrg(res.org);
+        }
+      } catch (_) {
+        // Fallback: keep rendering if verification encounters network glitch
+      } finally {
+        setIsVerifyingOrg(false);
+      }
+    }
+    checkExistence();
+  }, [instSlug, orgSlug]);
 
   // Find or generate active election
   const baseElection: MockElection = useMemo(() => {
@@ -194,10 +219,10 @@ export default function OrganizationPortalPage({
         totalRegisteredVoters: 0,
         totalAccreditedVoters: 0,
         totalBallotsCast: 0,
-        posts: MOCK_ELECTIONS[0]?.posts || [],
+        posts: [],
       }
     );
-  }, [orgSlug, currentOrg.name, currentOrg.title]);
+  }, [orgSlug, currentOrg.name, currentOrg.title, instSlug]);
 
   const { election } = useLiveElection(baseElection);
   const [livePosts, setLivePosts] = useState<MockPost[]>([]);
@@ -206,15 +231,7 @@ export default function OrganizationPortalPage({
     async function loadPostsAndCandidates() {
       try {
         const primaryElectionId = `elec-${instSlug}-${orgSlug}-2026`;
-        let rawData = await getElectionPostsAndCandidatesAction(primaryElectionId);
-
-        // If primary query returned no posts or no candidates, attempt fallback institution election query
-        if (!rawData || rawData.length === 0 || !rawData.some((p) => p.candidates && p.candidates.length > 0)) {
-          const fallbackData = await getElectionPostsAndCandidatesAction(`elec-${instSlug}-2026`);
-          if (fallbackData && fallbackData.length > 0) {
-            rawData = fallbackData;
-          }
-        }
+        const rawData = await getElectionPostsAndCandidatesAction(primaryElectionId);
 
         if (rawData && rawData.length > 0) {
           const mapped: MockPost[] = rawData.map((p: any) => ({
@@ -675,6 +692,45 @@ export default function OrganizationPortalPage({
     setRegError(null);
   };
 
+  if (!isVerifyingOrg && orgNotFound) {
+    return (
+      <div className="min-h-[70vh] flex items-center justify-center px-4 py-16">
+        <div className="max-w-md w-full text-center space-y-6 bg-white p-8 rounded-2xl border border-zinc-200 shadow-sm">
+          <div className="w-16 h-16 rounded-full bg-rose-50 border border-rose-200 text-rose-600 flex items-center justify-center mx-auto shadow-xs">
+            <AlertCircle className="w-8 h-8" />
+          </div>
+          <div>
+            <span className="text-[10px] font-mono font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-rose-100 text-rose-800 border border-rose-200">
+              404 • Not Found
+            </span>
+            <h1 className="text-2xl font-bold text-zinc-900 mt-3">
+              Portal Does Not Exist
+            </h1>
+            <p className="text-xs text-zinc-600 mt-2 leading-relaxed">
+              The association election portal at <span className="font-mono font-bold text-zinc-900 uppercase">/{instSlug}/{orgSlug}</span> was not found on this campus network.
+            </p>
+          </div>
+
+          <div className="pt-2 space-y-2">
+            <Link
+              href={`/${instSlug}`}
+              className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold transition shadow-xs"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Back to Campus Directory</span>
+            </Link>
+            <Link
+              href={`/${instSlug}/admin/create`}
+              className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-zinc-300 hover:bg-zinc-50 text-zinc-800 text-xs font-bold transition"
+            >
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+              <span>Initialize Association Election</span>
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">

@@ -59,11 +59,19 @@ export async function initializeElectionAndAccountAction(input: InitializeElecti
       .replace(/[^a-z0-9-]/g, "");
 
     const orgType = input.orgType || "DEPARTMENT";
-    const electionId = `elec-${cleanOrgSlug}-${Date.now()}`;
+    // Use consistent electionId format: `elec-{inst}-{org}-2026`
+    // This matches what the voter portal, admin panel, telemetry, and all actions expect.
+    // Previously used `elec-{orgSlug}-{timestamp}` which caused a key mismatch — posts
+    // were stored under the timestamp ID but the portal looked up the slug-based ID.
+    const electionId = `elec-${cleanInstSlug}-${cleanOrgSlug}-2026`;
     const orgId = `org-${cleanInstSlug}-${cleanOrgSlug}`;
     const institutionId = `inst-${cleanInstSlug}`;
     const cleanEmail = input.commissionerEmail.trim().toLowerCase();
     const passwordHash = crypto.createHash("sha256").update(input.password.trim()).digest("hex");
+
+    const plan = input.paymentPlan || (orgType === "SUG" ? "SUG_UNLIMITED" : orgType === "FACULTY" ? "FACULTY_3000" : "DEPT_1000");
+    const quota = input.voterQuota || (plan === "MICRO_500" ? 500 : plan === "FACULTY_3000" ? 3000 : plan === "SUG_UNLIMITED" ? 10000 : 1000);
+    const price = input.agreedAmountNgn || (plan === "MICRO_500" ? 15000 : plan === "FACULTY_3000" ? 65000 : plan === "SUG_UNLIMITED" ? 150000 : 30000);
 
     // ── 1. Instant Local Stores Write (0ms - guarantees instant portal response) ─
     try {
@@ -126,10 +134,6 @@ export async function initializeElectionAndAccountAction(input: InitializeElecti
           licenses = JSON.parse(fs.readFileSync(licensesPath, "utf8"));
         } catch (_) {}
       }
-
-      const plan = input.paymentPlan || (orgType === "SUG" ? "SUG_UNLIMITED" : orgType === "FACULTY" ? "FACULTY_3000" : "DEPT_1000");
-      const quota = input.voterQuota || (plan === "MICRO_500" ? 500 : plan === "FACULTY_3000" ? 3000 : plan === "SUG_UNLIMITED" ? 10000 : 1000);
-      const price = input.agreedAmountNgn || (plan === "MICRO_500" ? 15000 : plan === "FACULTY_3000" ? 65000 : plan === "SUG_UNLIMITED" ? 150000 : 30000);
 
       const existingLicenseIndex = licenses.findIndex(
         (l: any) => l.id === orgId || (l.institutionSlug === cleanInstSlug && l.orgSlug === cleanOrgSlug)
@@ -206,8 +210,8 @@ export async function initializeElectionAndAccountAction(input: InitializeElecti
         code: cleanOrgSlug.toUpperCase(),
       });
 
-      // Step C: Create Election
-      await supabase.from("elections").insert({
+      // Step C: Upsert Election (not insert — allows re-initializing same org without error)
+      const { error: elecError } = await supabase.from("elections").upsert({
         id: electionId,
         organization_id: orgId,
         title: input.electionTitle,
@@ -221,7 +225,26 @@ export async function initializeElectionAndAccountAction(input: InitializeElecti
         require_good_disciplinary_standing: input.requireGoodDisciplinaryStanding !== false,
         starts_at: new Date(input.startsAt || Date.now()).toISOString(),
         ends_at: new Date(input.endsAt || Date.now() + 7 * 86400000).toISOString(),
+        multi_sig_approvals: {
+          commissionerEmail: cleanEmail,
+          commissionerName: input.commissionerName.trim(),
+          orgId,
+          orgSlug: cleanOrgSlug,
+          orgName: input.orgName.trim(),
+          institutionSlug: cleanInstSlug,
+          license: {
+            voterQuota: quota,
+            agreedAmountNgn: price,
+            paymentPlan: plan,
+            licenseStatus: "ACTIVE",
+            contactAdminName: input.commissionerName.trim(),
+            contactAdminEmail: cleanEmail,
+          },
+        },
       });
+      if (elecError) {
+        console.error("initializeElectionAndAccountAction: election upsert failed:", elecError);
+      }
 
       // Step D: Batch Insert ALL Posts at once (1 single request instead of loop)
       if (input.posts && input.posts.length > 0) {
@@ -233,10 +256,13 @@ export async function initializeElectionAndAccountAction(input: InitializeElecti
           allowed_levels: p.allowedLevels || [],
           display_order: i,
         }));
-        await supabase.from("posts").insert(postsBatch);
+        const { error: postsError } = await supabase.from("posts").insert(postsBatch);
+        if (postsError) {
+          console.error("initializeElectionAndAccountAction: posts insert failed:", postsError);
+        }
       }
     } catch (dbErr) {
-      console.warn("Supabase background synchronization completed with notices:", dbErr);
+      console.error("Supabase write failed during election initialization:", dbErr);
     }
 
     // Invalidate stale in-memory read caches

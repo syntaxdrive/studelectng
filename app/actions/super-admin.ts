@@ -317,17 +317,29 @@ export async function getSuperAdminCommissionersAction(): Promise<SuperAdminComm
     if (!error && admins) {
       const { data: insts } = await supabase.from("institutions").select("id, name, code, slug");
       const { data: orgs } = await supabase.from("organizations").select("id, name, code, slug, institution_id");
+      const { data: dbElections } = await supabase.from("elections").select("id, organization_id, multi_sig_approvals");
       const assignments = readCommissionerAssignments();
       const licenses = readOrgLicensesStore();
+
+      // Read promoted admins store
+      let promotedAdmins: any[] = [];
+      try {
+        const pPath = path.join(DATA_DIR, "promoted-admins-store.json");
+        if (fs.existsSync(pPath)) {
+          promotedAdmins = JSON.parse(fs.readFileSync(pPath, "utf8")) || [];
+        }
+      } catch (_) {}
 
       return admins.map((a: any) => {
         const inst = (insts || []).find((i: any) => i.id === a.institution_id);
         const emailLower = (a.email || "").toLowerCase().trim();
+        const nameLower = (a.full_name || "").toLowerCase().trim();
         const assignment = assignments[emailLower];
 
         let orgName = "All Campus Elections";
-        let orgId = undefined;
+        let orgId: string | undefined = undefined;
 
+        // 1. Check direct commissioner assignment
         if (assignment?.orgName) {
           orgName = assignment.orgName;
           orgId = assignment.orgId;
@@ -342,25 +354,60 @@ export async function getSuperAdminCommissionersAction(): Promise<SuperAdminComm
             orgName = matchedLic.orgName;
             orgId = matchedLic.id;
           }
-        } else if (a.role && a.role.includes(":")) {
+        }
+
+        // 2. Check cloud elections where this commissioner initialized or is listed
+        if (!orgId && dbElections) {
+          const matchedElection = (dbElections || []).find((e: any) => {
+            const approvals = e.multi_sig_approvals as any;
+            if (!approvals) return false;
+            const commEmail = (approvals.commissionerEmail || approvals.contactAdminEmail || "").toLowerCase().trim();
+            const commName = (approvals.commissionerName || approvals.contactAdminName || "").toLowerCase().trim();
+            return (commEmail && commEmail === emailLower) || (commName && nameLower && commName === nameLower);
+          });
+
+          if (matchedElection) {
+            const approvals = matchedElection.multi_sig_approvals as any;
+            orgId = matchedElection.organization_id || approvals?.orgId;
+            const matchedOrg = (orgs || []).find((o: any) => o.id === orgId || o.slug === approvals?.orgSlug);
+            orgName = approvals?.orgName || matchedOrg?.name || approvals?.orgSlug?.toUpperCase() || "Assigned Organization";
+          }
+        }
+
+        // 3. Check org licenses store by contact name or contact email
+        if (!orgId) {
+          const matchedLic = licenses.find((l: any) => {
+            const contactName = (l.contactAdminName || "").toLowerCase().trim();
+            const contactEmail = (l.contactAdminEmail || "").toLowerCase().trim();
+            return (contactEmail && contactEmail === emailLower) || (contactName && nameLower && contactName === nameLower);
+          });
+          if (matchedLic) {
+            orgName = matchedLic.orgName;
+            orgId = matchedLic.id;
+          }
+        }
+
+        // 4. Check promoted admins store
+        if (!orgId && promotedAdmins.length > 0) {
+          const pAdmin = promotedAdmins.find((p: any) => {
+            const pEmail = (p.email || "").toLowerCase().trim();
+            const pMatric = (p.matricNo || p.normalizedMatric || "").toLowerCase().trim();
+            return pEmail === emailLower || pMatric === emailLower;
+          });
+          if (pAdmin?.orgSlug) {
+            const matchedOrg = (orgs || []).find((o: any) => o.slug === pAdmin.orgSlug);
+            orgName = matchedOrg?.name || pAdmin.orgSlug.toUpperCase();
+            orgId = pAdmin.orgId || `org-${pAdmin.institutionSlug || "ui"}-${pAdmin.orgSlug}`;
+          }
+        }
+
+        // 5. Check role format if encoded with org
+        if (!orgId && a.role && a.role.includes(":")) {
           const parts = a.role.split(":");
           const matchedOrg = (orgs || []).find((o: any) => o.id === parts[1] || o.slug === parts[1]);
           if (matchedOrg) {
             orgName = matchedOrg.name;
             orgId = matchedOrg.id;
-          }
-        } else if (a.institution_id === "inst-ui") {
-          // If commissioner is at UI and no assignment, link to UI's active organization
-          const uiLic = licenses.find((l: any) => l.institutionSlug === "ui" && l.licenseStatus === "ACTIVE");
-          if (uiLic) {
-            orgName = uiLic.orgName;
-            orgId = uiLic.id;
-          } else {
-            const uiOrg = (orgs || []).find((o: any) => o.institution_id === "inst-ui");
-            if (uiOrg) {
-              orgName = uiOrg.name;
-              orgId = uiOrg.id;
-            }
           }
         }
 

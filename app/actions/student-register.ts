@@ -1527,3 +1527,261 @@ export async function getInstitutionOrgsAction(
 
   return results;
 }
+
+export interface VerifiedOrgData {
+  id: string;
+  name: string;
+  slug: string;
+  type: string;
+  title: string;
+  dept: string;
+  institutionSlug: string;
+}
+
+/**
+ * Verify if an organization election portal actually exists for a campus.
+ * Prevents unauthorized or non-existent URLs (e.g. /ui/fake-org) from rendering fake portals.
+ */
+export async function verifyOrgExistsAction(
+  institutionSlug: string,
+  orgSlug: string
+): Promise<{ exists: boolean; reason?: string; isSystemRoute?: boolean; org?: VerifiedOrgData }> {
+  const cleanInst = (institutionSlug || "ui").toLowerCase().trim().replace(/^inst-/, "");
+  const cleanOrg = (orgSlug || "").toLowerCase().trim();
+
+  // 1. Reserved system routes are not organizations
+  const systemRoutes = [
+    "admin",
+    "elections",
+    "create",
+    "super-admin",
+    "pricing",
+    "legal",
+    "terms",
+    "privacy",
+    "cookies",
+    "sitemap.xml",
+    "robots.txt",
+    "favicon.ico",
+    "_next",
+    "api",
+  ];
+  if (!cleanOrg || systemRoutes.includes(cleanOrg)) {
+    return { exists: false, isSystemRoute: true, reason: "SYSTEM_ROUTE" };
+  }
+
+  // 2. Check if campus is deleted / archived
+  try {
+    const deletedCampusesFile = path.join(DATA_DIR, "deleted-campuses-store.json");
+    if (fs.existsSync(deletedCampusesFile)) {
+      const deletedCampuses: string[] = JSON.parse(fs.readFileSync(deletedCampusesFile, "utf8")) || [];
+      if (deletedCampuses.includes(cleanInst)) {
+        return { exists: false, reason: "CAMPUS_DELETED" };
+      }
+    }
+  } catch (_) {}
+
+  // 3. Check if organization is deleted / tombstoned
+  try {
+    const deletedOrgsFile = path.join(DATA_DIR, "deleted-orgs-store.json");
+    if (fs.existsSync(deletedOrgsFile)) {
+      const deletedOrgs = JSON.parse(fs.readFileSync(deletedOrgsFile, "utf8")) || [];
+      const isDeleted = (deletedOrgs || []).some((d: any) => {
+        const dOrg = (d.orgSlug || "").toLowerCase().trim();
+        const dInst = (d.institutionSlug || "").toLowerCase().trim().replace(/^inst-/, "");
+        const dId = (d.id || "").toLowerCase().trim();
+        return (
+          dId === `org-${cleanInst}-${cleanOrg}` ||
+          (dOrg === cleanOrg && (!dInst || dInst === cleanInst))
+        );
+      });
+      if (isDeleted) {
+        return { exists: false, reason: "ORG_DELETED" };
+      }
+    }
+  } catch (_) {}
+
+  // 4. Check local org-licenses-store.json (primary source for licensed student bodies)
+  try {
+    const licensesFile = path.join(DATA_DIR, "org-licenses-store.json");
+    if (fs.existsSync(licensesFile)) {
+      const raw = fs.readFileSync(licensesFile, "utf8");
+      const list = JSON.parse(raw);
+      if (Array.isArray(list)) {
+        const found = list.find((l: any) => {
+          const lSlug = (l.orgSlug || "").toLowerCase().trim();
+          const lInst = (l.institutionSlug || "").toLowerCase().trim().replace(/^inst-/, "");
+          const lId = (l.id || "").toLowerCase().trim();
+          return (
+            (lSlug === cleanOrg && (!lInst || lInst === cleanInst)) ||
+            lId === `org-${cleanInst}-${cleanOrg}`
+          );
+        });
+
+        if (found) {
+          const orgType = found.orgType || "DEPARTMENT";
+          const orgName = found.orgName || cleanOrg.toUpperCase() + " Association";
+          return {
+            exists: true,
+            org: {
+              id: found.id || `org-${cleanInst}-${cleanOrg}`,
+              name: orgName,
+              slug: cleanOrg,
+              type:
+                orgType === "FACULTY"
+                  ? "Faculty Association"
+                  : orgType === "SUG"
+                  ? "Apex Student Union"
+                  : orgType === "HALL"
+                  ? "Hall of Residence"
+                  : "Departmental Association",
+              title: `${orgName} 2026/2027 Executive Elections`,
+              dept: found.dept || cleanOrg.toUpperCase(),
+              institutionSlug: cleanInst,
+            },
+          };
+        }
+      }
+    }
+  } catch (_) {}
+
+  // 5. Check commissioner-assignments.json
+  try {
+    const assignmentsFile = path.join(DATA_DIR, "commissioner-assignments.json");
+    if (fs.existsSync(assignmentsFile)) {
+      const raw = fs.readFileSync(assignmentsFile, "utf8");
+      const assignments = JSON.parse(raw);
+      for (const [_, assn] of Object.entries<any>(assignments)) {
+        const assnOrg = (assn.orgSlug || assn.orgId || "").toLowerCase();
+        const assnInst = (assn.institutionSlug || assn.institutionId || "").toLowerCase().replace(/^inst-/, "");
+        if (
+          (assnOrg === cleanOrg || assnOrg === `org-${cleanInst}-${cleanOrg}`) &&
+          (!assnInst || assnInst === cleanInst)
+        ) {
+          const orgName = assn.orgName || cleanOrg.toUpperCase() + " Association";
+          return {
+            exists: true,
+            org: {
+              id: assn.orgId || `org-${cleanInst}-${cleanOrg}`,
+              name: orgName,
+              slug: cleanOrg,
+              type: "Departmental Association",
+              title: `${orgName} 2026/2027 Executive Elections`,
+              dept: cleanOrg.toUpperCase(),
+              institutionSlug: cleanInst,
+            },
+          };
+        }
+      }
+    }
+  } catch (_) {}
+
+  // 6. Check Supabase organizations table
+  try {
+    const { data: supaOrg } = await supabase
+      .from("organizations")
+      .select("id, name, slug, org_type, code")
+      .eq("institution_id", `inst-${cleanInst}`)
+      .eq("slug", cleanOrg)
+      .maybeSingle();
+
+    if (supaOrg) {
+      const orgType = supaOrg.org_type || "DEPARTMENT";
+      const orgName = supaOrg.name || cleanOrg.toUpperCase();
+      return {
+        exists: true,
+        org: {
+          id: supaOrg.id,
+          name: orgName,
+          slug: supaOrg.slug,
+          type:
+            orgType === "FACULTY"
+              ? "Faculty Association"
+              : orgType === "SUG"
+              ? "Apex Student Union"
+              : orgType === "HALL"
+              ? "Hall of Residence"
+              : "Departmental Association",
+          title: `${orgName} 2026/2027 Executive Elections`,
+          dept: supaOrg.code || cleanOrg.toUpperCase(),
+          institutionSlug: cleanInst,
+        },
+      };
+    }
+  } catch (_) {}
+
+  // 7. Check Supabase elections table for this organization
+  try {
+    const { data: supaElec } = await supabase
+      .from("elections")
+      .select("id, title, organization_id, multi_sig_approvals")
+      .or(`id.eq.elec-${cleanInst}-${cleanOrg}-2026,organization_id.eq.org-${cleanInst}-${cleanOrg}`)
+      .limit(1)
+      .maybeSingle();
+
+    if (supaElec) {
+      const approvals = supaElec.multi_sig_approvals as any;
+      const orgName = approvals?.orgName || supaElec.title || cleanOrg.toUpperCase();
+      return {
+        exists: true,
+        org: {
+          id: supaElec.organization_id || `org-${cleanInst}-${cleanOrg}`,
+          name: orgName,
+          slug: cleanOrg,
+          type: "Departmental Association",
+          title: supaElec.title || `${orgName} 2026/2027 Executive Elections`,
+          dept: cleanOrg.toUpperCase(),
+          institutionSlug: cleanInst,
+        },
+      };
+    }
+  } catch (_) {}
+
+  // Not found anywhere
+  return { exists: false, reason: "ORG_NOT_FOUND" };
+}
+
+/**
+ * Verify if a standalone election exists by electionId.
+ */
+export async function verifyElectionExistsAction(
+  institutionSlug: string,
+  electionId: string
+): Promise<{ exists: boolean; election?: any }> {
+  const cleanId = (electionId || "").trim();
+  const cleanInst = (institutionSlug || "ui").toLowerCase().trim().replace(/^inst-/, "");
+
+  if (!cleanId) return { exists: false };
+
+  // 1. Check Supabase
+  try {
+    const { data: elec } = await supabase
+      .from("elections")
+      .select("id, title, status, results_visibility, auth_mode, organization_id, multi_sig_approvals")
+      .eq("id", cleanId)
+      .maybeSingle();
+
+    if (elec) {
+      return { exists: true, election: elec };
+    }
+  } catch (_) {}
+
+  // 2. Check local election rules store
+  const rules = readElectionRulesStore();
+  if (rules[cleanId]) {
+    return { exists: true, election: rules[cleanId] };
+  }
+
+  // 3. Check if convention matches an active organization
+  const parts = cleanId.split("-");
+  if (parts.length >= 3) {
+    const orgSlug = parts[parts.length - 2];
+    const orgCheck = await verifyOrgExistsAction(cleanInst, orgSlug);
+    if (orgCheck.exists) {
+      return { exists: true, election: { id: cleanId, title: orgCheck.org?.title } };
+    }
+  }
+
+  return { exists: false };
+}
+

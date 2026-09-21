@@ -29,6 +29,7 @@ import {
 import { accreditVoterAction } from "@/app/actions/accredit";
 import { castBallotAction } from "@/app/actions/vote";
 import { getElectionPostsAndCandidatesAction } from "@/app/actions/candidates";
+import { verifyElectionExistsAction } from "@/app/actions/student-register";
 
 export default function VotingPage({
   params,
@@ -36,20 +37,51 @@ export default function VotingPage({
   params: Promise<{ institution: string; electionId: string }>;
 }) {
   const resolvedParams = use(params);
+  const instSlug = (resolvedParams?.institution || "ui").toLowerCase();
+  const electionId = resolvedParams?.electionId || "";
+
+  const [electionNotFound, setElectionNotFound] = useState(false);
+  const [isVerifying, setIsVerifying] = useState(true);
+  const [verifiedElection, setVerifiedElection] = useState<any>(null);
+
   const election =
-    MOCK_ELECTIONS.find((e) => e.id === resolvedParams.electionId) ||
-    MOCK_ELECTIONS[0];
+    verifiedElection ||
+    MOCK_ELECTIONS.find((e) => e.id === electionId) || {
+      id: electionId,
+      orgName: "Student Association",
+      title: "Executive Elections",
+      academicSession: "2025/2026",
+      posts: [],
+    };
 
   const [livePosts, setLivePosts] = useState<MockPost[]>([]);
 
   useEffect(() => {
+    async function verify() {
+      setIsVerifying(true);
+      try {
+        const res = await verifyElectionExistsAction(instSlug, electionId);
+        if (!res.exists) {
+          setElectionNotFound(true);
+        } else if (res.election) {
+          setVerifiedElection(res.election);
+        }
+      } catch (_) {
+      } finally {
+        setIsVerifying(false);
+      }
+    }
+    verify();
+  }, [instSlug, electionId]);
+
+  useEffect(() => {
     async function loadPosts() {
       try {
-        const raw = await getElectionPostsAndCandidatesAction(resolvedParams.electionId);
+        const raw = await getElectionPostsAndCandidatesAction(electionId);
         if (raw && raw.length > 0) {
           const mapped = raw.map((p: any) => ({
             id: p.id,
-            electionId: p.electionId || resolvedParams.electionId,
+            electionId: p.electionId || electionId,
             title: p.title,
             description: p.description || "",
             maxSelections: p.maxSelections || 1,
@@ -79,9 +111,9 @@ export default function VotingPage({
       } catch (_) {}
     }
     loadPosts();
-  }, [resolvedParams.electionId]);
+  }, [electionId]);
 
-  const displayPosts = livePosts.length > 0 ? livePosts : election.posts;
+  const displayPosts = livePosts;
 
   const [step, setStep] = useState<"LOGIN" | "BALLOT" | "REVIEW" | "RECEIPT">(
     "LOGIN"
@@ -189,6 +221,39 @@ export default function VotingPage({
       setAuthError(res.message || "Failed to record ballot.");
     }
   };
+
+  if (!isVerifying && electionNotFound) {
+    return (
+      <div className="min-h-[70vh] flex items-center justify-center px-4 py-16">
+        <div className="max-w-md w-full text-center space-y-6 bg-white p-8 rounded-2xl border border-zinc-200 shadow-sm">
+          <div className="w-16 h-16 rounded-full bg-rose-50 border border-rose-200 text-rose-600 flex items-center justify-center mx-auto shadow-xs">
+            <AlertOctagon className="w-8 h-8" />
+          </div>
+          <div>
+            <span className="text-[10px] font-mono font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-rose-100 text-rose-800 border border-rose-200">
+              404 • Election Not Found
+            </span>
+            <h1 className="text-2xl font-bold text-zinc-900 mt-3">
+              Election Not Found
+            </h1>
+            <p className="text-xs text-zinc-600 mt-2 leading-relaxed">
+              The election <span className="font-mono font-bold text-zinc-900">{electionId}</span> does not exist or has been concluded/archived.
+            </p>
+          </div>
+
+          <div className="pt-2">
+            <Link
+              href={`/${instSlug}`}
+              className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold transition shadow-xs"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Back to Campus Directory</span>
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-6">
