@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { getAdminSession } from "@/lib/auth/session";
 import { supabase, fetchWithCache, invalidateCache } from "@/lib/supabase";
+import { CANONICAL_INSTITUTIONS } from "@/lib/db/institutions";
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
@@ -191,6 +192,7 @@ export interface SuperAdminCampus {
   code: string;
   tagline: string;
   logoUrl?: string;
+  coverImageUrl?: string;
   createdAt?: string;
 }
 
@@ -272,15 +274,23 @@ export async function getSuperAdminCampusesAction(): Promise<SuperAdminCampus[]>
           const cleanId = (i.id || "").toLowerCase().trim().replace(/^inst-/, "");
           return !deletedCampuses.includes(cleanSlug) && !deletedCampuses.includes(cleanId);
         })
-        .map((i: any) => ({
-          id: i.id,
-          name: i.name,
-          slug: i.slug,
-          code: i.code,
-          tagline: i.tagline || "",
-          logoUrl: i.logo_url || i.logoUrl || `/logos/${i.slug}.svg`,
-          createdAt: i.created_at,
-        }));
+        .map((i: any) => {
+          const canonical = CANONICAL_INSTITUTIONS.find((c) => c.slug.toLowerCase() === (i.slug || "").toLowerCase());
+          const dbLogo = i.logo_url || i.logoUrl;
+          const isPlaceholderSvg = !dbLogo || dbLogo.endsWith(".svg");
+          const logoUrl = (isPlaceholderSvg && canonical?.logoUrl) ? canonical.logoUrl : (dbLogo || canonical?.logoUrl || `/logos/${i.slug}.svg`);
+
+          return {
+            id: i.id,
+            name: i.name,
+            slug: i.slug,
+            code: i.code,
+            tagline: i.tagline || "",
+            logoUrl,
+            coverImageUrl: i.cover_image_url || i.coverImageUrl || canonical?.coverImageUrl || "https://images.unsplash.com/photo-1541339907198-e08756dedf3f?w=1200&auto=format&fit=crop&q=80",
+            createdAt: i.created_at,
+          };
+        });
     }
   } catch (err) {
     console.warn("Error fetching campuses:", err);
@@ -479,6 +489,7 @@ export async function createInstitutionAction(input: {
   code: string;
   tagline: string;
   logoUrl?: string;
+  coverImageUrl?: string;
 }) {
   const session = await getAdminSession();
   if (session && session.role !== "SUPER_ADMIN") {
@@ -495,6 +506,7 @@ export async function createInstitutionAction(input: {
     code: cleanCode,
     tagline: input.tagline?.trim() || "",
     logoUrl: input.logoUrl?.trim() || `/logos/${cleanSlug}.svg`,
+    coverImageUrl: input.coverImageUrl?.trim() || "https://images.unsplash.com/photo-1541339907198-e08756dedf3f?w=1200&auto=format&fit=crop&q=80",
   };
 
   try {
@@ -505,6 +517,7 @@ export async function createInstitutionAction(input: {
       code: newInst.code,
       tagline: newInst.tagline,
       logo_url: newInst.logoUrl,
+      cover_image_url: newInst.coverImageUrl,
     });
 
     if (error) {
@@ -538,6 +551,7 @@ export async function updateInstitutionAction(input: {
   slug: string;
   tagline: string;
   logoUrl?: string;
+  coverImageUrl?: string;
 }) {
   const session = await getAdminSession();
   if (session && session.role !== "SUPER_ADMIN") {
@@ -553,6 +567,7 @@ export async function updateInstitutionAction(input: {
         slug: input.slug.toLowerCase().trim(),
         tagline: input.tagline?.trim() || "",
         logo_url: input.logoUrl?.trim() || `/logos/${input.slug}.svg`,
+        cover_image_url: input.coverImageUrl?.trim() || "https://images.unsplash.com/photo-1541339907198-e08756dedf3f?w=1200&auto=format&fit=crop&q=80",
       })
       .eq("id", input.id);
 

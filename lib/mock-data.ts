@@ -5,6 +5,7 @@ export interface MockInstitution {
   code: string;
   tagline: string;
   logoUrl?: string;
+  coverImageUrl?: string;
 }
 
 export interface MockCandidate {

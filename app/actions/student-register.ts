@@ -622,6 +622,7 @@ export interface ElectionRulesState {
   resultsVisibility: "LIVE" | "SEALED_UNTIL_CLOSE";
   isPaymentHalted?: boolean;
   paymentStatus?: "ACTIVE" | "PENDING_PAYMENT" | "LOCKED" | "CONCLUDED" | string;
+  autoPauseAt?: string | null;
 }
 
 const DATA_DIR = path.join(process.cwd(), "data");
@@ -983,6 +984,65 @@ export async function updateElectionStatusAction(
 }
 
 /**
+ * Schedule or Cancel Election Auto-Pause Timer
+ */
+export async function setElectionAutoPauseAction(
+  electionId: string,
+  autoPauseAt: string | null
+) {
+  const store = readElectionRulesStore();
+  const current = store[electionId] || {
+    electionId,
+    status: "LIVE",
+    requireDuesPayment: true,
+    requireGoodDisciplinaryStanding: true,
+    requireFullTimeOnly: false,
+    requireSessionRegistration: true,
+    allowedLevels: [100, 200, 300, 400, 500],
+    authMode: "PIN_SLIP",
+    resultsVisibility: "SEALED_UNTIL_CLOSE",
+  };
+
+  current.autoPauseAt = autoPauseAt;
+  store[electionId] = current;
+  writeElectionRulesStore(store);
+
+  try {
+    const { data: existingElec } = await supabase
+      .from("elections")
+      .select("id, multi_sig_approvals")
+      .eq("id", electionId)
+      .maybeSingle();
+
+    if (existingElec) {
+      const currentApprovals = (existingElec.multi_sig_approvals as any) || {};
+      await supabase
+        .from("elections")
+        .update({
+          multi_sig_approvals: {
+            ...currentApprovals,
+            autoPauseAt,
+            autoPauseUpdatedAt: new Date().toISOString(),
+          },
+        })
+        .eq("id", existingElec.id);
+    }
+  } catch (err) {
+    console.error("setElectionAutoPauseAction Supabase error:", err);
+  }
+
+  invalidateCache();
+  revalidatePath("/", "layout");
+  return {
+    success: true,
+    autoPauseAt,
+    message: autoPauseAt
+      ? `Auto-pause timer scheduled for ${new Date(autoPauseAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.`
+      : "Auto-pause timer removed.",
+  };
+}
+
+/**
  * Release or Withhold/Seal Election Results
  */
 export async function updateResultsVisibilityAction(
@@ -1171,12 +1231,18 @@ export async function getElectionRulesAction(
         .maybeSingle();
 
       if (data) {
+        const approvals = (data.multi_sig_approvals as any) || {};
         const effectiveStatus =
-          (data.multi_sig_approvals as any)?.operationalStatus ||
+          approvals.operationalStatus ||
           data.status ||
           "LIVE";
         const effectiveVisibility =
           data.results_visibility || "SEALED_UNTIL_CLOSE";
+        const autoPauseAt =
+          approvals.autoPauseAt ||
+          store[data.id]?.autoPauseAt ||
+          store[electionId]?.autoPauseAt ||
+          null;
 
         baseRules = {
           electionId: data.id || electionId,
@@ -1190,6 +1256,7 @@ export async function getElectionRulesAction(
           allowedLevels: [100, 200, 300, 400, 500],
           authMode: data.auth_mode || "PIN_SLIP",
           resultsVisibility: effectiveVisibility,
+          autoPauseAt,
         };
 
         // Keep local store in sync with cloud
@@ -1218,12 +1285,18 @@ export async function getElectionRulesAction(
           : instElections[0];
 
         if (matchedElec) {
+          const approvals = (matchedElec.multi_sig_approvals as any) || {};
           const effectiveStatus =
-            (matchedElec.multi_sig_approvals as any)?.operationalStatus ||
+            approvals.operationalStatus ||
             matchedElec.status ||
             "LIVE";
           const effectiveVisibility =
             matchedElec.results_visibility || "SEALED_UNTIL_CLOSE";
+          const autoPauseAt =
+            approvals.autoPauseAt ||
+            store[matchedElec.id]?.autoPauseAt ||
+            store[electionId]?.autoPauseAt ||
+            null;
 
           baseRules = {
             electionId: matchedElec.id || electionId,
@@ -1238,6 +1311,7 @@ export async function getElectionRulesAction(
             allowedLevels: [100, 200, 300, 400, 500],
             authMode: matchedElec.auth_mode || "PIN_SLIP",
             resultsVisibility: effectiveVisibility,
+            autoPauseAt,
           };
           store[electionId] = baseRules;
           if (matchedElec.id) store[matchedElec.id] = baseRules;
@@ -1291,7 +1365,21 @@ export async function getElectionRulesAction(
       allowedLevels: [100, 200, 300, 400, 500],
       authMode: "PIN_SLIP",
       resultsVisibility: "SEALED_UNTIL_CLOSE",
+      autoPauseAt: store[electionId]?.autoPauseAt || null,
     };
+  }
+
+  // 5. Automatic Timer Expiry Check: If autoPauseAt is set and now >= autoPauseAt, pause election
+  if (baseRules.autoPauseAt && baseRules.status === "LIVE") {
+    const pauseTime = new Date(baseRules.autoPauseAt).getTime();
+    if (!isNaN(pauseTime) && Date.now() >= pauseTime) {
+      baseRules.status = "PAUSED";
+      store[electionId] = { ...baseRules, status: "PAUSED" };
+      writeElectionRulesStore(store);
+      try {
+        updateElectionStatusAction(electionId, "PAUSED");
+      } catch (_) {}
+    }
   }
 
   // Check organization license payment status

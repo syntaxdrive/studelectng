@@ -101,6 +101,7 @@ export default function SuperAdminDashboard() {
     slug: "",
     tagline: "",
     logoUrl: "",
+    coverImageUrl: "",
   });
 
   // New Organization Modal States
@@ -360,7 +361,7 @@ export default function SuperAdminDashboard() {
   // Campus Form Handling
   const handleOpenAddModal = () => {
     setEditingCampus(null);
-    setFormData({ name: "", code: "", slug: "", tagline: "", logoUrl: "" });
+    setFormData({ name: "", code: "", slug: "", tagline: "", logoUrl: "", coverImageUrl: "" });
     setIsAddModalOpen(true);
   };
 
@@ -372,6 +373,7 @@ export default function SuperAdminDashboard() {
       slug: campus.slug,
       tagline: campus.tagline,
       logoUrl: campus.logoUrl || "",
+      coverImageUrl: campus.coverImageUrl || "",
     });
     setIsAddModalOpen(true);
   };
@@ -920,12 +922,31 @@ export default function SuperAdminDashboard() {
             {filteredCampuses.map((campus) => (
               <div
                 key={campus.id}
-                className="p-5 rounded-2xl bg-white border border-zinc-200 shadow-xs flex flex-col justify-between space-y-4 hover:border-zinc-300 transition"
+                className="rounded-2xl bg-white border border-zinc-200 shadow-xs flex flex-col justify-between overflow-hidden hover:border-zinc-300 transition group"
               >
-                <div className="space-y-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-center gap-3">
-                      <div className="w-12 h-12 rounded-lg bg-zinc-50 border border-zinc-200 p-1 flex items-center justify-center flex-shrink-0 overflow-hidden">
+                <div>
+                  {/* Campus Cover Image Banner */}
+                  <div className="h-28 w-full relative bg-zinc-900 overflow-hidden">
+                    <img
+                      src={campus.coverImageUrl || "https://images.unsplash.com/photo-1541339907198-e08756dedf3f?w=1200&auto=format&fit=crop&q=80"}
+                      alt={`${campus.name} Cover`}
+                      className="w-full h-full object-cover opacity-80 group-hover:scale-105 transition duration-300"
+                      onError={(e) => {
+                        (e.target as any).src = "https://images.unsplash.com/photo-1541339907198-e08756dedf3f?w=1200&auto=format&fit=crop&q=80";
+                      }}
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
+                    <div className="absolute top-2.5 right-2.5">
+                      <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-black/60 text-white backdrop-blur-xs border border-white/20">
+                        {campus.code}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="p-4 pt-0 relative space-y-2">
+                    {/* DP Crest overlaid on banner */}
+                    <div className="-mt-7 mb-2 flex items-end justify-between">
+                      <div className="w-14 h-14 rounded-xl bg-white border-2 border-white shadow-md p-1.5 flex items-center justify-center flex-shrink-0 overflow-hidden">
                         <img
                           src={campus.logoUrl || `/logos/${campus.slug}.svg`}
                           alt={campus.name}
@@ -935,19 +956,14 @@ export default function SuperAdminDashboard() {
                           }}
                         />
                       </div>
-                      <div>
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-xs font-mono font-bold px-1.5 py-0.2 rounded bg-zinc-100 text-zinc-800 border border-zinc-200">
-                            {campus.code}
-                          </span>
-                          <span className="text-[11px] font-mono text-zinc-400">/{campus.slug}</span>
-                        </div>
-                        <h3 className="text-sm font-bold text-zinc-900 mt-0.5">{campus.name}</h3>
-                      </div>
+                      <span className="text-[10px] font-mono text-zinc-400">/{campus.slug}</span>
+                    </div>
+
+                    <div>
+                      <h3 className="text-sm font-bold text-zinc-900">{campus.name}</h3>
+                      <p className="text-xs text-zinc-500 italic line-clamp-2 mt-0.5">{campus.tagline}</p>
                     </div>
                   </div>
-
-                  <p className="text-xs text-zinc-500 italic line-clamp-2">{campus.tagline}</p>
                 </div>
 
                 <div className="pt-3 border-t border-zinc-100 flex items-center justify-between gap-2">
@@ -1346,7 +1362,7 @@ export default function SuperAdminDashboard() {
 
               <div>
                 <label className="block font-semibold mb-1">
-                  Official Institution Crest / Logo URL
+                  Campus DP / Logo Crest
                   <span className="text-zinc-400 font-normal ml-1">(SuperAdmin exclusive)</span>
                 </label>
                 <div className="flex items-center gap-3">
@@ -1360,17 +1376,88 @@ export default function SuperAdminDashboard() {
                       }}
                     />
                   </div>
-                  <div className="flex-1 space-y-1">
+                  <div className="flex-1 space-y-1.5">
                     <input
-                      type="url"
-                      placeholder="https://... (Direct image link or SVG/PNG URL)"
+                      type="text"
+                      placeholder="https://... (Direct image URL or SVG)"
                       value={formData.logoUrl}
                       onChange={(e) => setFormData((prev) => ({ ...prev, logoUrl: e.target.value }))}
-                      className="w-full px-3 py-2 rounded-lg border border-zinc-300 text-xs font-mono"
+                      className="w-full px-3 py-1.5 rounded-lg border border-zinc-300 text-xs font-mono"
                     />
-                    <p className="text-[10px] text-zinc-500">
-                      Leave blank to use the default system crest: <code className="font-mono text-zinc-700">/logos/{formData.slug || "slug"}.svg</code>
-                    </p>
+                    <div className="flex items-center gap-2">
+                      <label className="cursor-pointer px-2.5 py-1 rounded bg-zinc-100 hover:bg-zinc-200 text-zinc-700 text-[11px] font-semibold transition">
+                        <span>Upload DP File</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              const reader = new FileReader();
+                              reader.onload = () => {
+                                if (typeof reader.result === "string") {
+                                  setFormData((prev) => ({ ...prev, logoUrl: reader.result as string }));
+                                }
+                              };
+                              reader.readAsDataURL(file);
+                            }
+                          }}
+                        />
+                      </label>
+                      <span className="text-[10px] text-zinc-400">or enter direct link</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-semibold mb-1">
+                  Campus Cover / Banner Image
+                  <span className="text-zinc-400 font-normal ml-1">(Displays on homepage & campus hub)</span>
+                </label>
+                <div className="space-y-2">
+                  {formData.coverImageUrl && (
+                    <div className="h-24 w-full rounded-lg bg-zinc-100 border border-zinc-200 overflow-hidden relative">
+                      <img
+                        src={formData.coverImageUrl}
+                        alt="Cover Preview"
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          (e.target as any).src = "https://images.unsplash.com/photo-1541339907198-e08756dedf3f?w=1200&auto=format&fit=crop&q=80";
+                        }}
+                      />
+                    </div>
+                  )}
+                  <input
+                    type="text"
+                    placeholder="https://... (Direct banner photo link or Unsplash image URL)"
+                    value={formData.coverImageUrl}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, coverImageUrl: e.target.value }))}
+                    className="w-full px-3 py-1.5 rounded-lg border border-zinc-300 text-xs font-mono"
+                  />
+                  <div className="flex items-center gap-2">
+                    <label className="cursor-pointer px-2.5 py-1 rounded bg-zinc-100 hover:bg-zinc-200 text-zinc-700 text-[11px] font-semibold transition">
+                      <span>Upload Cover Banner</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            const reader = new FileReader();
+                            reader.onload = () => {
+                              if (typeof reader.result === "string") {
+                                setFormData((prev) => ({ ...prev, coverImageUrl: reader.result as string }));
+                              }
+                            };
+                            reader.readAsDataURL(file);
+                          }
+                        }}
+                      />
+                    </label>
+                    <span className="text-[10px] text-zinc-400">JPEG/PNG/WebP high-res landscape banner</span>
                   </div>
                 </div>
               </div>

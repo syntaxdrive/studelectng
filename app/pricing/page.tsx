@@ -16,6 +16,9 @@ import {
   Lock,
   Award,
   ChevronDown,
+  Sparkles,
+  Clock,
+  CheckCircle2,
 } from "lucide-react";
 
 export default function PricingPage() {
@@ -36,8 +39,18 @@ export default function PricingPage() {
       votersCount: 500,
       priceNgn: "15,000",
       description: "Ideal for small academic departments, residential halls, and student clubs.",
+      bestFor: "Best for 100–500 student departmental & hall elections",
       popular: false,
-      ctaText: "Choose Micro (₦15k)",
+      ctaText: "Activate Micro (₦15k)",
+      features: [
+        { text: "Up to 500 Accredited Voters", bold: true },
+        { text: "Instant ₦0 PIN Slip Generator", detail: "Zero SMS failure, zero telecom fees" },
+        { text: "Unlimited Contested Offices & Candidates", detail: "With photo profiles & manifestos" },
+        { text: "Blind Cryptographic Ballot Tokens", detail: "100% anonymous & tamper-evident" },
+        { text: "Real-Time Multi-Color Bar Charts", detail: "Live candidate standing updates" },
+        { text: "Printable QR Certificate of Return", detail: "Official accredited handover sheet" },
+        { text: "Priority WhatsApp Clearance", detail: "Live activation in under 15 minutes" },
+      ],
     },
     {
       id: "department",
@@ -46,9 +59,20 @@ export default function PricingPage() {
       voters: "Up to 1,000 Voters",
       votersCount: 1000,
       priceNgn: "30,000",
-      description: "Perfect for medium to large academic departments conducting annual elections.",
+      description: "The gold standard for medium-to-large departmental associations (NESA, NACOS, NAMSSN).",
+      bestFor: "Best for active departmental associations & large halls",
       popular: true,
-      ctaText: "Choose Dept Pro (₦30k)",
+      ctaText: "Activate Dept Pro (₦30k)",
+      features: [
+        { text: "Up to 1,000 Accredited Voters", bold: true },
+        { text: "Everything in Micro Tier, PLUS:", bold: true },
+        { text: "Automated Dues & Whitelist Screening", detail: "CSV/Excel import with instant matric lookup" },
+        { text: "Academic Level & Disciplinary Gating", detail: "Enforce 100L–500L & good standing" },
+        { text: "Scheduled Auto-Pause Election Timer", detail: "Auto-halt voting when polling time expires" },
+        { text: "Demographic Doughnut Charts & Velocity", detail: "Real-time participation breakdown" },
+        { text: "Sealed Results / Live Press Room Toggle", detail: "Withhold or broadcast live with 1 click" },
+        { text: "Observer & Multi-Device Admin Access", detail: "Supervise polls without session conflicts" },
+      ],
     },
     {
       id: "faculty",
@@ -57,9 +81,20 @@ export default function PricingPage() {
       voters: "Up to 3,000 Voters",
       votersCount: 3000,
       priceNgn: "65,000",
-      description: "Designed for full faculties (Science, Law, Engineering, Social Sciences).",
+      description: "Designed for full faculties (Science, Law, Engineering, Social Sciences) with multi-dept elections.",
+      bestFor: "Best for full faculty associations & multiple departments",
       popular: false,
-      ctaText: "Choose Faculty Pro (₦65k)",
+      ctaText: "Activate Faculty Pro (₦65k)",
+      features: [
+        { text: "Up to 3,000 Accredited Voters", bold: true },
+        { text: "Everything in Department Pro, PLUS:", bold: true },
+        { text: "Multi-Department Concurrent Ballot Engine", detail: "Host faculty + dept ballots simultaneously" },
+        { text: "Bulk High-Speed Excel Ingestion", detail: "Smart fuzzy column mapper & deduplication" },
+        { text: "Decentralized Sub-Commissioners", detail: "Assign department-level electoral officers" },
+        { text: "Pre-Election Sandbox Mock Testing", detail: "1-click test simulation & audit reset" },
+        { text: "Custom Faculty Cover & Crest Branding", detail: "Personalized institutional look" },
+        { text: "SHA-256 Merkle Audit Ledger Export", detail: "Forensic election audit certificate" },
+      ],
     },
     {
       id: "sug",
@@ -68,9 +103,20 @@ export default function PricingPage() {
       voters: "3,000+ / Unlimited",
       votersCount: 35000,
       priceNgn: "150,000+",
-      description: "University-wide scale for apex Student Union Governments and Student Representative Councils.",
+      description: "University-wide scale for apex Student Union Governments, SRCs, and multi-campus elections.",
+      bestFor: "Best for university-wide SUG & multi-campus voting",
       popular: false,
       ctaText: "Contact for SUG Plan",
+      features: [
+        { text: "3,000+ / Unlimited Electorate Scale", bold: true },
+        { text: "Everything in Faculty Pro, PLUS:", bold: true },
+        { text: "Ultra-High Concurrency Cloud Cluster", detail: "Zero downtime under 10,000+ simultaneous clicks" },
+        { text: "Anti-DDoS & Hostile Network Protection", detail: "Rate limiters & blind nonces" },
+        { text: "Hall of Residence Decentralized Routing", detail: "Voter zoning by hall & faculty" },
+        { text: "Commission Multi-Sig Approval Protocol", detail: "Multi-party consensus certification" },
+        { text: "Dean of Student Affairs Observer Portal", detail: "Official university leadership dashboard" },
+        { text: "Dedicated On-Call Senior Engineer", detail: "Direct standby engineer on election day" },
+      ],
     },
   ];
 
@@ -110,10 +156,10 @@ export default function PricingPage() {
   ];
 
   return (
-    <div className="space-y-16 py-12 max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div className="space-y-16 py-12 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
       {/* Header */}
       <div className="text-center space-y-4 max-w-3xl mx-auto">
-        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white border border-zinc-200 text-zinc-700 text-xs font-semibold shadow-xs">
+        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white border border-zinc-200 text-zinc-700 text-xs font-semibold shadow-xs">
           <Zap className="w-3.5 h-3.5 text-blue-600" />
           <span>Transparent Pay-Per-Use Pricing</span>
         </div>
@@ -123,37 +169,38 @@ export default function PricingPage() {
         </h1>
 
         <p className="text-sm sm:text-base text-zinc-600 leading-relaxed">
-          Every plan includes <strong>100% of all platform features</strong>. Zero feature gating, zero hidden SMS fees. Choose your electorate size and activate your campus election instantly via WhatsApp.
+          Every plan is loaded with <strong>enterprise-grade electoral features</strong>. Zero hidden SMS fees, zero surprise costs. Select your electorate tier and unlock your campus portal instantly.
         </p>
       </div>
 
       {/* Plan Cards Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 items-stretch">
         {plans.map((plan) => (
           <div
             key={plan.id}
             className={`relative p-6 rounded-2xl bg-white border transition flex flex-col justify-between ${
               plan.popular
-                ? "border-zinc-900 shadow-md ring-1 ring-zinc-900"
-                : "border-zinc-200 shadow-xs hover:border-zinc-400"
+                ? "border-zinc-900 shadow-xl ring-2 ring-zinc-900 bg-gradient-to-b from-zinc-50/40 to-white"
+                : "border-zinc-200 shadow-xs hover:border-zinc-400 hover:shadow-md"
             }`}
           >
             {plan.popular && (
-              <span className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full bg-zinc-900 text-white text-[10px] font-mono font-bold uppercase tracking-wider shadow-xs">
-                {plan.badge}
+              <span className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full bg-zinc-900 text-white text-[10px] font-mono font-bold uppercase tracking-wider shadow-sm flex items-center gap-1">
+                <Sparkles className="w-3 h-3 text-amber-400 fill-amber-400" />
+                <span>{plan.badge}</span>
               </span>
             )}
 
-            <div className="space-y-4">
+            <div className="space-y-4 flex-1">
               <div>
-                <span className="text-[11px] font-mono font-bold text-zinc-500 uppercase">
+                <span className="text-[11px] font-mono font-bold text-zinc-400 uppercase tracking-wider">
                   {plan.badge}
                 </span>
-                <h3 className="text-lg font-bold text-zinc-900 mt-0.5">{plan.name}</h3>
-                <p className="text-xs text-zinc-500 mt-1 min-h-[36px]">{plan.description}</p>
+                <h3 className="text-xl font-bold text-zinc-900 mt-0.5">{plan.name}</h3>
+                <p className="text-xs text-zinc-500 mt-1 leading-relaxed min-h-[36px]">{plan.description}</p>
               </div>
 
-              <div className="p-3.5 rounded-xl bg-zinc-50 border border-zinc-200 space-y-1">
+              <div className="p-3 rounded-xl bg-zinc-50 border border-zinc-200 space-y-1">
                 <span className="text-[10px] font-mono font-bold uppercase text-zinc-500 block">
                   ELECTORATE CAPACITY
                 </span>
@@ -162,22 +209,48 @@ export default function PricingPage() {
                 </span>
               </div>
 
-              <div className="pt-2">
+              <div className="pt-1">
                 <div className="flex items-baseline gap-1">
-                  <span className="text-xs font-bold text-zinc-500 font-mono">₦</span>
-                  <span className="text-3xl font-bold font-mono text-zinc-900">{plan.priceNgn}</span>
+                  <span className="text-sm font-bold text-zinc-500 font-mono">₦</span>
+                  <span className="text-3xl font-extrabold font-mono text-zinc-900">{plan.priceNgn}</span>
                   <span className="text-xs text-zinc-500 font-medium">/ election</span>
                 </div>
-                <span className="text-[11px] text-zinc-400 block mt-0.5">Pay-per-use • No recurring bills</span>
+                <span className="text-[11px] text-zinc-400 block mt-0.5 font-medium">One-time payment • No recurring fees</span>
+              </div>
+
+              {/* Feature Checklist inside each card */}
+              <div className="pt-4 border-t border-zinc-100 space-y-2.5">
+                <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-zinc-400 block">
+                  INCLUDED FEATURES:
+                </span>
+                <ul className="space-y-2 text-xs">
+                  {plan.features.map((feat, idx) => (
+                    <li key={idx} className="flex items-start gap-2">
+                      <div className="w-4 h-4 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center flex-shrink-0 mt-0.5">
+                        <Check className="w-2.5 h-2.5 stroke-[3]" />
+                      </div>
+                      <div className="leading-snug">
+                        <span className={feat.bold ? "font-bold text-zinc-900" : "font-medium text-zinc-800"}>
+                          {feat.text}
+                        </span>
+                        {feat.detail && (
+                          <span className="block text-[11px] text-zinc-500 font-normal mt-0.5">
+                            {feat.detail}
+                          </span>
+                        )}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
               </div>
             </div>
 
-            <div className="pt-6">
+            <div className="pt-6 mt-4 border-t border-zinc-100">
               <a
                 href={getWhatsAppLink(plan.name, plan.voters, `₦${plan.priceNgn}`)}
                 target="_blank"
                 rel="noopener noreferrer"
-                className={`w-full py-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 shadow-xs ${
+                className={`w-full py-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 shadow-xs cursor-pointer ${
                   plan.popular
                     ? "bg-zinc-900 hover:bg-zinc-800 text-white"
                     : "border border-zinc-300 hover:bg-zinc-100 text-zinc-800 bg-white"
@@ -186,6 +259,7 @@ export default function PricingPage() {
                 <MessageSquare className="w-3.5 h-3.5" />
                 <span>{plan.ctaText}</span>
               </a>
+              <span className="block text-center text-[10px] text-zinc-400 mt-2">Instant SuperAdmin clearance</span>
             </div>
           </div>
         ))}

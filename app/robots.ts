@@ -4,21 +4,40 @@ export default function robots(): MetadataRoute.Robots {
   return {
     rules: [
       {
-        userAgent: "*",
-        allow: "/",
+        userAgent: "Googlebot",
+        allow: [
+          "/",
+          "/pricing",
+          "/legal/*",
+          "/logos/*",
+          "/*.jpg",
+          "/*.png",
+          "/*.svg",
+        ],
         disallow: [
-          "/super-admin",
-          "/super-admin/",
-          "/api/",
-          "/_next/",
+          "/super-admin*",
+          "/*/admin*",
+          "/api/*",
+          "/_next/*",
+          "/*/elections/*/vote*",
+          "/admin/login*",
         ],
       },
       {
-        // Block all bots from admin panels
         userAgent: "*",
-        disallow: ["/*/admin", "/*/admin/"],
+        allow: "/",
+        disallow: [
+          "/super-admin*",
+          "/*/admin*",
+          "/api/*",
+          "/_next/*",
+          "/*/elections/*/vote*",
+          "/admin/login*",
+        ],
       },
     ],
     sitemap: "https://studelect.com.ng/sitemap.xml",
+    host: "https://studelect.com.ng",
   };
 }
+

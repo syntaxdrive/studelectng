@@ -1,15 +1,12 @@
 "use client";
 
 import React, { useState, useEffect, use } from "react";
-import Link from "next/link";
 import { getInstitutionBySlug } from "@/lib/db/institutions";
 import { getElectionsByInstitution } from "@/lib/db/elections";
 import {
   Vote,
   Search,
-  ArrowRight,
   ShieldCheck,
-  UserPlus,
   Building2,
   CheckCircle2,
   AlertCircle,
@@ -46,37 +43,56 @@ export default function CampusHubPage({
   }
 
   return (
-    <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-8">
-      {/* Campus Branded Header */}
-      <div className="border-b border-zinc-200 pb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="flex items-center gap-4">
+    <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+      {/* Campus Hero Cover Banner */}
+      <div className="rounded-3xl bg-zinc-900 border border-zinc-200 shadow-sm overflow-hidden relative">
+        <div className="h-44 sm:h-52 w-full relative overflow-hidden">
           <img
-            src={`/logos/${institution.slug}.svg`}
-            alt={institution.name}
-            className="w-14 h-14 object-contain flex-shrink-0"
+            src={institution.coverImageUrl || "https://images.unsplash.com/photo-1541339907198-e08756dedf3f?w=1200&auto=format&fit=crop&q=80"}
+            alt={`${institution.name} Campus Cover`}
+            className="w-full h-full object-cover opacity-75"
+            onError={(e) => {
+              (e.target as any).src = "https://images.unsplash.com/photo-1541339907198-e08756dedf3f?w=1200&auto=format&fit=crop&q=80";
+            }}
           />
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-zinc-100 text-zinc-800">
-                {institution.code}
-              </span>
-              <span className="text-xs text-zinc-500">Official Student Election Portal</span>
-            </div>
-            <h1 className="text-2xl font-bold text-zinc-900">{institution.name}</h1>
-            <p className="text-xs text-zinc-500">{institution.tagline}</p>
-          </div>
+          <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent" />
         </div>
 
-        {/* Student-Focused Action Header */}
-        <div className="flex flex-wrap items-center gap-2 text-xs font-medium">
-          <button
-            type="button"
-            onClick={() => setActiveTab("ELECTIONS")}
-            className="px-3.5 py-2 rounded-lg bg-zinc-900 text-white hover:bg-zinc-800 transition font-bold flex items-center gap-1.5 shadow-xs"
-          >
-            <Vote className="w-3.5 h-3.5" />
-            <span>Choose Association & Vote ({elections.length})</span>
-          </button>
+        {/* Campus Header Bar overlaid at bottom of banner */}
+        <div className="p-6 sm:p-8 pt-0 relative -mt-12 flex flex-col md:flex-row md:items-end justify-between gap-4 text-white">
+          <div className="flex items-end gap-4">
+            <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl bg-white border-2 border-white shadow-xl p-2.5 flex items-center justify-center flex-shrink-0 overflow-hidden">
+              <img
+                src={institution.logoUrl || `/logos/${institution.slug}.svg`}
+                alt={institution.name}
+                className="w-full h-full object-contain"
+                onError={(e) => {
+                  (e.target as any).src = `/logos/${institution.slug}.svg`;
+                }}
+              />
+            </div>
+            <div className="space-y-1 pb-1">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-white/20 text-white backdrop-blur-xs border border-white/20">
+                  {institution.code}
+                </span>
+                <span className="text-xs text-zinc-300">Official Campus Election Hub</span>
+              </div>
+              <h1 className="text-2xl sm:text-3xl font-extrabold text-white">{institution.name}</h1>
+              <p className="text-xs text-zinc-300">{institution.tagline}</p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 text-xs font-medium pb-1">
+            <button
+              type="button"
+              onClick={() => setActiveTab("ELECTIONS")}
+              className="px-4 py-2.5 rounded-xl bg-white text-zinc-900 hover:bg-zinc-100 transition font-bold flex items-center gap-1.5 shadow-md"
+            >
+              <Vote className="w-4 h-4 text-zinc-900" />
+              <span>Active Associations ({elections.length})</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -99,9 +115,9 @@ export default function CampusHubPage({
             2
           </div>
           <div>
-            <p className="font-bold text-white text-sm">Register / Enter PIN</p>
+            <p className="font-bold text-white text-sm">Accreditation & PIN Login</p>
             <p className="text-zinc-400 text-[11px] mt-0.5 leading-relaxed">
-              First-time voters get their organization-scoped PIN directly on that page.
+              Enter your accredited matric number and access PIN to unlock your encrypted ballot.
             </p>
           </div>
         </div>
@@ -170,7 +186,6 @@ export default function CampusHubPage({
                   .replace(/^org-/, "")
                   .replace(new RegExp(`^${institution.slug}-`, "i"), "")
                   .toLowerCase() || "nesa";
-                const orgPortalUrl = `/${institution.slug}/${orgCodeSlug}`;
 
                 return (
                   <div
@@ -229,22 +244,14 @@ export default function CampusHubPage({
                       </div>
                     </div>
 
-                    <div className="pt-3 border-t border-zinc-100 flex items-center justify-between gap-2">
-                      <Link
-                        href={orgPortalUrl}
-                        className="px-3.5 py-2 rounded-lg border border-zinc-300 hover:bg-zinc-50 text-zinc-700 text-xs font-semibold transition flex items-center gap-1"
-                      >
-                        <UserPlus className="w-3.5 h-3.5 text-zinc-500" />
-                        <span>Get PIN / Info</span>
-                      </Link>
-
-                      <Link
-                        href={orgPortalUrl}
-                        className="px-4 py-2 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-xs"
-                      >
-                        <Vote className="w-3.5 h-3.5" />
-                        <span>Enter Polling Booth</span>
-                      </Link>
+                    <div className="pt-3 border-t border-zinc-100 flex items-center justify-between gap-2 text-xs text-zinc-500">
+                      <div className="flex items-center gap-1.5">
+                        <ShieldCheck className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                        <span>Accredited Electorate Only</span>
+                      </div>
+                      <span className="text-[11px] font-mono text-zinc-400 font-medium">
+                        Private Direct Link
+                      </span>
                     </div>
                   </div>
                 );

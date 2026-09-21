@@ -27,8 +27,41 @@ export default async function HomePage() {
     "*STUDENT ELECTION INQUIRY*\n\nHello SuperAdmin, I am reaching out from StudElect.com.ng. I am an ELCOM Chairman / Student Union Executive and would like to inquire about activating our upcoming campus election."
   )}`;
 
+  const homeServiceSchema = {
+    "@context": "https://schema.org",
+    "@type": "Service",
+    name: "StudElect Student Election Infrastructure",
+    serviceType: "Digital Voting Platform & E-Voting System",
+    provider: {
+      "@type": "Organization",
+      name: "StudElect Nigeria",
+      url: "https://studelect.com.ng",
+    },
+    areaServed: {
+      "@type": "Country",
+      name: "Nigeria",
+    },
+    audience: {
+      "@type": "Audience",
+      audienceType:
+        "Nigerian Tertiary Institutions, ELCOM Administrators, Student Unions, Academic Departments",
+    },
+    description:
+      "Cryptographically secure, tamper-evident digital election infrastructure designed specifically for Nigerian universities and tertiary institutions.",
+    offers: {
+      "@type": "AggregateOffer",
+      priceCurrency: "NGN",
+      lowPrice: "15000",
+      highPrice: "95000",
+    },
+  };
+
   return (
     <div className="space-y-20 py-10 relative overflow-hidden">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(homeServiceSchema) }}
+      />
       {/* Clean Architectural Grid (Zero colorful gradients) */}
       <div className="absolute inset-0 hero-dot-grid opacity-60 pointer-events-none" />
 
@@ -305,33 +338,59 @@ export default async function HomePage() {
             </div>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
             {institutions.map((inst) => (
               <Link
                 key={inst.id}
                 href={`/${inst.slug}`}
-                className="group block p-5 rounded-xl bg-white border border-zinc-200 hover:border-zinc-900 transition space-y-3 shadow-xs"
+                className="group block rounded-2xl bg-white border border-zinc-200 hover:border-zinc-900 overflow-hidden transition duration-200 shadow-xs hover:shadow-md flex flex-col justify-between"
               >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <img
-                      src={`/logos/${inst.slug}.svg`}
-                      alt={inst.name}
-                      className="w-10 h-10 object-contain flex-shrink-0"
-                    />
-                    <span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-zinc-100 text-zinc-800">
-                      {inst.code}
-                    </span>
-                  </div>
-                  <ArrowRight className="w-4 h-4 text-zinc-400 group-hover:text-zinc-900 group-hover:translate-x-0.5 transition" />
-                </div>
                 <div>
-                  <h3 className="text-base font-semibold text-zinc-900 transition">
-                    {inst.name}
-                  </h3>
-                  <p className="text-xs text-zinc-500 mt-1">
-                    {inst.tagline}
-                  </p>
+                  {/* Campus Landscape Cover Banner */}
+                  <div className="h-36 w-full relative bg-zinc-900 overflow-hidden">
+                    <img
+                      src={inst.coverImageUrl || "https://images.unsplash.com/photo-1541339907198-e08756dedf3f?w=1200&auto=format&fit=crop&q=80"}
+                      alt={`${inst.name} Campus`}
+                      className="w-full h-full object-cover opacity-85 group-hover:scale-105 transition duration-300"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+                    <div className="absolute top-3 right-3">
+                      <span className="text-[10px] font-mono font-bold px-2.5 py-1 rounded-full bg-black/60 text-white backdrop-blur-xs border border-white/20 uppercase tracking-wider">
+                        {inst.code}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Campus Info & Logo Crest Overlay */}
+                  <div className="p-5 pt-0 relative space-y-2.5">
+                    <div className="-mt-8 mb-2 flex items-end justify-between">
+                      <div className="w-16 h-16 rounded-2xl bg-white border-2 border-white shadow-md p-2 flex items-center justify-center flex-shrink-0 overflow-hidden">
+                        <img
+                          src={inst.logoUrl || `/logos/${inst.slug}.svg`}
+                          alt={inst.name}
+                          className="w-full h-full object-contain"
+                        />
+                      </div>
+                      <span className="text-[11px] font-mono text-zinc-400 group-hover:text-zinc-900 font-semibold transition flex items-center gap-1">
+                        <span>Enter Campus</span>
+                        <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition" />
+                      </span>
+                    </div>
+
+                    <div>
+                      <h3 className="text-base font-bold text-zinc-900 group-hover:text-zinc-950 transition">
+                        {inst.name}
+                      </h3>
+                      <p className="text-xs text-zinc-500 mt-1 line-clamp-2">
+                        {inst.tagline}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="px-5 py-3 border-t border-zinc-100 bg-zinc-50/50 flex items-center justify-between text-[11px] font-medium text-zinc-500">
+                  <span>Official Election Network</span>
+                  <span className="font-mono font-bold text-zinc-700">/{inst.slug}</span>
                 </div>
               </Link>
             ))}

@@ -23,14 +23,31 @@ export const metadata: Metadata = {
     "NESA NACOS election portal",
     "secure student voting",
     "Nigerian university election system",
+    "university student election portal Nigeria",
+    "SUG online voting portal",
+    "University of Ibadan election portal",
+    "UNILAG student election voting",
+    "departmental election portal Nigeria",
+    "faculty association voting system",
+    "ELCOM accreditation and voter PIN system",
+    "campus electronic voting Nigeria",
+    "RENARSA election portal UI",
   ],
   authors: [{ name: "StudElect", url: "https://studelect.com.ng" }],
   creator: "StudElect Nigeria",
   publisher: "StudElect Nigeria",
+  category: "Technology / Electoral Systems",
+  classification: "Student Election Infrastructure",
   robots: {
     index: true,
     follow: true,
-    googleBot: { index: true, follow: true, "max-image-preview": "large" },
+    googleBot: {
+      index: true,
+      follow: true,
+      "max-video-preview": -1,
+      "max-image-preview": "large",
+      "max-snippet": -1,
+    },
   },
   openGraph: {
     type: "website",
@@ -57,12 +74,17 @@ export const metadata: Metadata = {
     creator: "@studelect_ng",
   },
   icons: {
-    icon: "/favicon.svg",
+    icon: [
+      { url: "/favicon.svg", type: "image/svg+xml" },
+      { url: "/studelect-mark.jpg", sizes: "192x192", type: "image/jpeg" },
+    ],
     shortcut: "/favicon.svg",
     apple: "/studelect-mark.jpg",
   },
-  verification: {
-    google: "REPLACE_WITH_GOOGLE_SEARCH_CONSOLE_TOKEN",
+  other: {
+    "geo.region": "NG",
+    "geo.placename": "Nigeria",
+    "target-country": "NG",
   },
   alternates: {
     canonical: "https://studelect.com.ng",
@@ -76,8 +98,70 @@ export default async function RootLayout({
 }>) {
   const session = await getAdminSession();
 
+  const globalJsonLd = {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Organization",
+        "@id": "https://studelect.com.ng/#organization",
+        name: "StudElect Nigeria",
+        alternateName: "StudElect",
+        url: "https://studelect.com.ng",
+        logo: {
+          "@type": "ImageObject",
+          "@id": "https://studelect.com.ng/#logo",
+          url: "https://studelect.com.ng/studelect-logo.jpg",
+          caption: "StudElect Sovereign Student Voting Protocol",
+        },
+        description:
+          "Nigeria's premier digital student election platform for universities, polytechnics, and colleges.",
+        email: "privacy@studelect.com.ng",
+        address: {
+          "@type": "PostalAddress",
+          addressCountry: "NG",
+        },
+      },
+      {
+        "@type": "WebSite",
+        "@id": "https://studelect.com.ng/#website",
+        url: "https://studelect.com.ng",
+        name: "StudElect",
+        publisher: {
+          "@id": "https://studelect.com.ng/#organization",
+        },
+        inLanguage: "en-NG",
+        description:
+          "Secure, tamper-evident student elections with real-time audit trails for Nigerian tertiary institutions.",
+      },
+      {
+        "@type": "SoftwareApplication",
+        "@id": "https://studelect.com.ng/#software",
+        name: "StudElect Voting Platform",
+        applicationCategory: "SecurityApplication, EducationalApplication",
+        operatingSystem: "Web Browser",
+        url: "https://studelect.com.ng",
+        offers: {
+          "@type": "AggregateOffer",
+          priceCurrency: "NGN",
+          lowPrice: "15000",
+          highPrice: "95000",
+          offerCount: "4",
+        },
+        publisher: {
+          "@id": "https://studelect.com.ng/#organization",
+        },
+      },
+    ],
+  };
+
   return (
     <html lang="en">
+      <head>
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(globalJsonLd) }}
+        />
+      </head>
       <body className="min-h-screen flex flex-col bg-zinc-50/50 text-zinc-900 font-sans">
         {/* Sleek Minimalist Conditional Navbar */}
         <header className="border-b border-zinc-200 bg-white/80 backdrop-blur-md sticky top-0 z-50 print:hidden">

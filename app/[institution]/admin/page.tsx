@@ -24,6 +24,7 @@ import {
   getElectionRulesAction,
   updateElectionRulesAction,
   updateElectionStatusAction,
+  setElectionAutoPauseAction,
   updateResultsVisibilityAction,
   getElectionAuditLogsAction,
   getOrgLicenseInfoAction,
@@ -93,6 +94,9 @@ import {
   Play,
   Pause,
   StopCircle,
+  Clock,
+  Timer,
+  AlarmClock,
   Radio,
   FileText,
   Award,
@@ -239,6 +243,83 @@ export default function InstitutionAdminPage({
   });
   const [isSavingRules, setIsSavingRules] = useState(false);
 
+  // Auto-Pause Timer State
+  const [isTimerModalOpen, setIsTimerModalOpen] = useState(false);
+  const [timerPresetMinutes, setTimerPresetMinutes] = useState<number>(60);
+  const [customClosingTime, setCustomClosingTime] = useState<string>("");
+  const [timerMode, setTimerMode] = useState<"PRESET" | "CUSTOM">("PRESET");
+  const [timerCountdown, setTimerCountdown] = useState<string>("");
+  const [isTimerSaving, setIsTimerSaving] = useState(false);
+
+  // Live countdown ticker for Auto-Pause Timer
+  useEffect(() => {
+    if (!electionRules.autoPauseAt || electionRules.status !== "LIVE") {
+      setTimerCountdown("");
+      return;
+    }
+
+    const updateCountdown = () => {
+      const target = new Date(electionRules.autoPauseAt!).getTime();
+      const now = Date.now();
+      const diff = target - now;
+
+      if (diff <= 0) {
+        setTimerCountdown("Expired");
+        setElectionRules((prev) => ({ ...prev, status: "PAUSED" }));
+        updateElectionStatusAction(electionId, "PAUSED").then(() => {
+          setAdminActionMessage("⏰ Scheduled Timer Expired: Polls have been automatically paused.");
+          setTimeout(() => setAdminActionMessage(null), 8000);
+        });
+        return;
+      }
+
+      const hours = Math.floor(diff / (1000 * 60 * 60));
+      const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+      const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+
+      if (hours > 0) {
+        setTimerCountdown(
+          `${hours}h ${minutes.toString().padStart(2, "0")}m ${seconds.toString().padStart(2, "0")}s`
+        );
+      } else {
+        setTimerCountdown(
+          `${minutes.toString().padStart(2, "0")}m ${seconds.toString().padStart(2, "0")}s`
+        );
+      }
+    };
+
+    updateCountdown();
+    const interval = setInterval(updateCountdown, 1000);
+    return () => clearInterval(interval);
+  }, [electionRules.autoPauseAt, electionRules.status, electionId]);
+
+  const handleApplyAutoPause = async (targetDate: Date) => {
+    setIsTimerSaving(true);
+    const iso = targetDate.toISOString();
+    setElectionRules((prev) => ({ ...prev, autoPauseAt: iso }));
+    try {
+      localStorage.setItem(`studelect_auto_pause_${electionId}`, iso);
+    } catch (_) {}
+    const res = await setElectionAutoPauseAction(electionId, iso);
+    setIsTimerSaving(false);
+    setIsTimerModalOpen(false);
+    setAdminActionMessage(res.message);
+    setTimeout(() => setAdminActionMessage(null), 5000);
+  };
+
+  const handleCancelAutoPause = async () => {
+    setIsTimerSaving(true);
+    setElectionRules((prev) => ({ ...prev, autoPauseAt: null }));
+    try {
+      localStorage.removeItem(`studelect_auto_pause_${electionId}`);
+    } catch (_) {}
+    const res = await setElectionAutoPauseAction(electionId, null);
+    setIsTimerSaving(false);
+    setIsTimerModalOpen(false);
+    setAdminActionMessage(res.message);
+    setTimeout(() => setAdminActionMessage(null), 5000);
+  };
+
   // Electorate Whitelist State
   const [whitelistCount, setWhitelistCount] = useState<number>(0);
   const [isUploadingWhitelist, setIsUploadingWhitelist] = useState(false);
@@ -264,32 +345,43 @@ export default function InstitutionAdminPage({
   useEffect(() => {
     async function resolveActiveOrg() {
       let detectedOrg = "";
-      if (typeof window !== "undefined") {
-        const queryOrg = new URLSearchParams(window.location.search).get("org");
-        if (queryOrg) detectedOrg = queryOrg.toLowerCase().trim();
+      let userSession: any = null;
+
+      try {
+        const session = await getCurrentUserSession();
+        if (session) {
+          userSession = session;
+          setCurrentAdminUser(session);
+        }
+      } catch (_) {}
+
+      // 1. If user is an ELCOM Commissioner (not SUPER_ADMIN), they are strictly locked to their assigned organization
+      if (userSession && userSession.role !== "SUPER_ADMIN" && userSession.orgId) {
+        detectedOrg = userSession.orgId
+          .replace(/^org-[^-]+-/, "")
+          .replace(/^org-/, "")
+          .toLowerCase()
+          .trim();
       }
+
+      // 2. Only allow URL query parameter if the user is a SUPER_ADMIN or no session org is specified
       if (!detectedOrg) {
-        try {
-          const session = await getCurrentUserSession();
-          if (session) {
-            setCurrentAdminUser(session);
-            if (session.orgId) {
-              detectedOrg = session.orgId.replace(/^org-[^-]+-/, "").toLowerCase().trim();
-            }
-          }
-        } catch (_) {}
+        if (typeof window !== "undefined") {
+          const queryOrg = new URLSearchParams(window.location.search).get("org");
+          if (queryOrg) detectedOrg = queryOrg.toLowerCase().trim();
+        }
       }
+
       if (!detectedOrg) {
         detectedOrg = instSlug === "unilag" ? "nacos" : "nesa";
       }
       setActiveOrgSlug(detectedOrg);
 
-      // Load all orgs for this institution (for the org switcher dropdown)
+      // Load all orgs for this institution (only selectable by SuperAdmin)
       try {
         const orgs = await getInstitutionOrgsAction(instSlug);
         if (orgs && orgs.length > 0) {
           setAvailableOrgs(orgs);
-          // If the detected org isn't in the list, add it as a synthetic entry
           if (detectedOrg && !orgs.find((o) => o.orgSlug === detectedOrg)) {
             setAvailableOrgs([
               ...orgs,
@@ -311,6 +403,11 @@ export default function InstitutionAdminPage({
   };
 
   const handleOrgSwitch = (newOrgSlug: string) => {
+    // ELCOM admins cannot switch organizations
+    if (currentAdminUser && currentAdminUser.role !== "SUPER_ADMIN") {
+      alert("Unauthorized: ELCOM administrators are strictly restricted to their assigned organization.");
+      return;
+    }
     if (!newOrgSlug || newOrgSlug === activeOrgSlug) return;
     setActiveOrgSlug(newOrgSlug);
     // Update URL so refreshing preserves the org context
@@ -1069,24 +1166,38 @@ export default function InstitutionAdminPage({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {/* Org Switcher — only shown when this institution has multiple orgs */}
-          {availableOrgs.length > 1 && (
-            <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-zinc-200 bg-white shadow-xs">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 font-mono whitespace-nowrap">
-                Active Org:
+          {/* Organization Indicator:
+              - If SUPER_ADMIN: Can switch organizations via dropdown.
+              - If ELCOM_ADMIN: Strictly LOCKED to their assigned association (Read-Only badge, NO dropdown).
+          */}
+          {currentAdminUser?.role === "SUPER_ADMIN" ? (
+            availableOrgs.length > 1 && (
+              <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-zinc-200 bg-white shadow-xs">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 font-mono whitespace-nowrap">
+                  Active Org:
+                </span>
+                <select
+                  value={activeOrgSlug}
+                  onChange={(e) => handleOrgSwitch(e.target.value)}
+                  className="text-xs font-bold text-zinc-900 bg-transparent border-none outline-none cursor-pointer uppercase pr-1"
+                  title="Switch organization (SuperAdmin Only)"
+                >
+                  {availableOrgs.map((o) => (
+                    <option key={o.orgSlug} value={o.orgSlug}>
+                      {o.orgName || o.orgSlug.toUpperCase()}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )
+          ) : (
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-zinc-200 bg-zinc-50 shadow-2xs">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 font-mono whitespace-nowrap">
+                Assigned Association:
               </span>
-              <select
-                value={activeOrgSlug}
-                onChange={(e) => handleOrgSwitch(e.target.value)}
-                className="text-xs font-bold text-zinc-900 bg-transparent border-none outline-none cursor-pointer uppercase pr-1"
-                title="Switch organization"
-              >
-                {availableOrgs.map((o) => (
-                  <option key={o.orgSlug} value={o.orgSlug}>
-                    {o.orgName || o.orgSlug.toUpperCase()}
-                  </option>
-                ))}
-              </select>
+              <span className="text-xs font-bold text-zinc-900 uppercase font-mono">
+                {availableOrgs.find((o) => o.orgSlug === activeOrgSlug)?.orgName || activeOrgSlug.toUpperCase()}
+              </span>
             </div>
           )}
 
@@ -1236,8 +1347,209 @@ export default function InstitutionAdminPage({
               <span>Release Results</span>
             </button>
           )}
+
+          {/* Auto-Pause Timer Trigger Button */}
+          {electionRules.autoPauseAt && electionRules.status === "LIVE" ? (
+            <button
+              type="button"
+              onClick={() => setIsTimerModalOpen(true)}
+              className="px-3.5 py-2.5 rounded-lg border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 font-mono font-bold text-xs transition flex items-center gap-2 shadow-xs"
+              title="Auto-pause timer active. Click to adjust or cancel."
+            >
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+              </span>
+              <Clock className="w-3.5 h-3.5 text-amber-700" />
+              <span>Auto-Pause: {timerCountdown || "Scheduled"}</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setIsTimerModalOpen(true)}
+              className="px-3.5 py-2.5 rounded-lg border border-zinc-300 hover:bg-zinc-100 text-zinc-700 font-bold text-xs transition flex items-center gap-1.5 bg-white"
+              title="Set a countdown timer or closing time to automatically pause voting"
+            >
+              <Clock className="w-3.5 h-3.5 text-zinc-500" />
+              <span>Set Timer</span>
+            </button>
+          )}
         </div>
       </div>
+
+      {/* Auto-Pause Timer Configuration Modal */}
+      {isTimerModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-900/60 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl border border-zinc-200 shadow-2xl max-w-md w-full p-6 space-y-5 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-700">
+                  <Clock className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-zinc-900">Election Auto-Pause Timer</h3>
+                  <p className="text-xs text-zinc-500">Automatically halt voting when scheduled deadline is reached.</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsTimerModalOpen(false)}
+                className="p-1 rounded-lg text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Active timer status banner */}
+            {electionRules.autoPauseAt && (
+              <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200/80 space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-semibold text-amber-900">Active Auto-Pause Scheduled:</span>
+                  <span className="font-mono font-bold text-amber-800">
+                    {new Date(electionRules.autoPauseAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-xs text-amber-700">
+                  <span>Remaining Voting Time:</span>
+                  <span className="font-mono font-bold">{timerCountdown || "Calculating..."}</span>
+                </div>
+                <button
+                  type="button"
+                  disabled={isTimerSaving}
+                  onClick={handleCancelAutoPause}
+                  className="w-full mt-2 py-2 px-3 rounded-lg bg-white border border-rose-200 text-rose-700 hover:bg-rose-50 text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer"
+                >
+                  <StopCircle className="w-3.5 h-3.5" />
+                  <span>Cancel Active Timer</span>
+                </button>
+              </div>
+            )}
+
+            {/* Mode Selector */}
+            <div className="space-y-3">
+              <div className="flex items-center p-1 bg-zinc-100 rounded-lg border border-zinc-200 text-xs font-medium">
+                <button
+                  type="button"
+                  onClick={() => setTimerMode("PRESET")}
+                  className={`flex-1 py-1.5 rounded-md transition ${
+                    timerMode === "PRESET"
+                      ? "bg-white text-zinc-900 shadow-2xs font-bold"
+                      : "text-zinc-600 hover:text-zinc-900"
+                  }`}
+                >
+                  Duration Preset
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTimerMode("CUSTOM")}
+                  className={`flex-1 py-1.5 rounded-md transition ${
+                    timerMode === "CUSTOM"
+                      ? "bg-white text-zinc-900 shadow-2xs font-bold"
+                      : "text-zinc-600 hover:text-zinc-900"
+                  }`}
+                >
+                  Specific Clock Time
+                </button>
+              </div>
+
+              {timerMode === "PRESET" ? (
+                <div className="space-y-2">
+                  <label className="block text-xs font-bold text-zinc-700">Select Polling Duration:</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      { label: "15 Mins", minutes: 15 },
+                      { label: "30 Mins", minutes: 30 },
+                      { label: "1 Hour", minutes: 60 },
+                      { label: "2 Hours", minutes: 120 },
+                      { label: "4 Hours", minutes: 240 },
+                      { label: "8 Hours", minutes: 480 },
+                    ].map((p) => (
+                      <button
+                        key={p.minutes}
+                        type="button"
+                        onClick={() => setTimerPresetMinutes(p.minutes)}
+                        className={`py-2 px-3 rounded-lg border text-xs font-bold transition cursor-pointer ${
+                          timerPresetMinutes === p.minutes
+                            ? "bg-zinc-900 text-white border-zinc-900 shadow-2xs"
+                            : "bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50"
+                        }`}
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[11px] text-zinc-500 pt-1">
+                    Polls will auto-pause at{" "}
+                    <span className="font-semibold font-mono text-zinc-800">
+                      {new Date(Date.now() + timerPresetMinutes * 60 * 1000).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </span>
+                    .
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <label className="block text-xs font-bold text-zinc-700">Closing Time (Today or Future Date):</label>
+                  <input
+                    type="datetime-local"
+                    value={customClosingTime}
+                    min={new Date().toISOString().slice(0, 16)}
+                    onChange={(e) => setCustomClosingTime(e.target.value)}
+                    className="w-full px-3 py-2 text-xs rounded-lg border border-zinc-300 focus:outline-none focus:ring-1 focus:ring-zinc-900 font-mono"
+                  />
+                  <p className="text-[11px] text-zinc-500">
+                    Specify the exact date and time when polls must close and ballot casting terminates.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Action Buttons */}
+            <div className="pt-2 flex items-center justify-end gap-2 border-t border-zinc-100">
+              <button
+                type="button"
+                onClick={() => setIsTimerModalOpen(false)}
+                className="px-3.5 py-2 text-xs font-semibold text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 rounded-lg transition cursor-pointer"
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                disabled={isTimerSaving}
+                onClick={() => {
+                  if (timerMode === "PRESET") {
+                    const target = new Date(Date.now() + timerPresetMinutes * 60 * 1000);
+                    handleApplyAutoPause(target);
+                  } else {
+                    if (!customClosingTime) {
+                      alert("Please select a closing date and time.");
+                      return;
+                    }
+                    const target = new Date(customClosingTime);
+                    if (target.getTime() <= Date.now()) {
+                      alert("Closing time must be in the future.");
+                      return;
+                    }
+                    handleApplyAutoPause(target);
+                  }
+                }}
+                className="px-4 py-2 text-xs font-bold text-white bg-zinc-900 hover:bg-zinc-800 rounded-lg transition flex items-center gap-1.5 shadow-xs disabled:opacity-50 cursor-pointer"
+              >
+                {isTimerSaving ? (
+                  <span>Saving...</span>
+                ) : (
+                  <>
+                    <Clock className="w-3.5 h-3.5" />
+                    <span>{electionRules.autoPauseAt ? "Update Timer" : "Start Timer"}</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Permanent Live Voting URL Banner */}
       <div className="p-4 rounded-xl bg-gradient-to-r from-zinc-900 via-zinc-800 to-zinc-900 border border-zinc-700 text-white flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-sm">
