@@ -1,5 +1,6 @@
 import * as XLSX from "xlsx";
 import { MockStudent, MockElection } from "../mock-data";
+import { validateAndNormalizeNigerianPhone } from "../phone-normalizer";
 
 export interface ParsedStudentRow {
   matricNo: string;
@@ -157,7 +158,11 @@ export async function parseExcelOrCsvFile(file: File): Promise<{
 
       // 8. Contact & Hall
       const email = findColumnValue(row, ["email", "studentemail", "mail"]);
-      const phoneNumber = findColumnValue(row, ["phone", "phonenumber", "gsm", "mobile"]);
+      const rawPhone = findColumnValue(row, ["phone", "phonenumber", "gsm", "mobile"]);
+      const phoneValidation = rawPhone ? validateAndNormalizeNigerianPhone(rawPhone) : null;
+      const phoneNumber = phoneValidation?.isValid
+        ? phoneValidation.normalized
+        : (rawPhone ? String(rawPhone).trim() : undefined);
       const hall = findColumnValue(row, ["hall", "hostel", "residence", "hallofresidence"]) || "On-Campus";
 
       parsedRows.push({

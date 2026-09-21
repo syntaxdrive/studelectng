@@ -2,6 +2,7 @@
 
 import { supabase, fetchWithCache, invalidateCache } from "@/lib/supabase";
 import { normalizeMatricNo } from "@/lib/matric-normalizer";
+import { validateAndNormalizeNigerianPhone } from "@/lib/phone-normalizer";
 import { generateSingleVoterPin } from "@/lib/auth/pin-generator";
 import fs from "fs";
 import path from "path";
@@ -112,20 +113,16 @@ export async function registerStudentAccountAction(input: StudentRegisterInput) 
     };
   }
 
-  const cleanPhone = (input.phoneNumber || "").trim();
-  if (!cleanPhone) {
+  const phoneValidation = validateAndNormalizeNigerianPhone(input.phoneNumber);
+  if (!phoneValidation.isValid) {
     return {
       success: false,
-      message: "Phone / WhatsApp number is compulsory. Please enter your active phone number.",
+      message:
+        phoneValidation.error ||
+        "A Nigerian phone number must be exactly 11 digits (e.g. 08012345678).",
     };
   }
-  const phoneDigits = cleanPhone.replace(/[\s\-\(\)\+]/g, "");
-  if (phoneDigits.length < 10) {
-    return {
-      success: false,
-      message: "Please enter a valid phone or WhatsApp number (minimum 10 digits).",
-    };
-  }
+  const cleanPhone = phoneValidation.normalized;
 
   const cleanInstSlug = (input.institutionSlug || "ui").toLowerCase().trim();
   const orgCode = (input.orgSlug || "ST").substring(0, 4).toUpperCase();
@@ -208,7 +205,7 @@ export async function registerStudentAccountAction(input: StudentRegisterInput) 
             department: finalDept,
             level: finalLevel,
             email: input.email?.trim() || existing.email,
-            phone_number: input.phoneNumber?.trim() || existing.phone_number,
+            phone_number: cleanPhone || existing.phone_number,
             portal_pin: generatedPin,
           })
           .eq("id", existing.id);
@@ -243,7 +240,7 @@ export async function registerStudentAccountAction(input: StudentRegisterInput) 
       hall_of_residence: input.hallOfResidence?.trim() || "Campus",
       portal_pin: generatedPin,
       email: input.email?.trim() || null,
-      phone_number: input.phoneNumber?.trim() || null,
+      phone_number: cleanPhone || null,
     });
 
     if (insertError) {

@@ -14,6 +14,7 @@ import {
   verifyOrgExistsAction,
 } from "@/app/actions/student-register";
 import { getElectionPostsAndCandidatesAction } from "@/app/actions/candidates";
+import { validateAndNormalizeNigerianPhone } from "@/lib/phone-normalizer";
 import { useLiveElection } from "@/lib/hooks/use-live-election";
 import { QRCodeSVG } from "qrcode.react";
 import {
@@ -635,16 +636,15 @@ export default function OrganizationPortalPage({
       return;
     }
 
-    const cleanPhone = regPhone.trim();
-    if (!cleanPhone) {
-      setRegError("Phone / WhatsApp number is compulsory. Please enter your active phone number.");
+    const phoneValidation = validateAndNormalizeNigerianPhone(regPhone);
+    if (!phoneValidation.isValid) {
+      setRegError(
+        phoneValidation.error ||
+          "A Nigerian phone number must be exactly 11 digits (e.g. 08012345678)."
+      );
       return;
     }
-    const phoneDigits = cleanPhone.replace(/[\s\-\(\)\+]/g, "");
-    if (phoneDigits.length < 10) {
-      setRegError("Please enter a valid phone number (minimum 10 digits).");
-      return;
-    }
+    const cleanPhone = phoneValidation.normalized;
 
     setRegLoading(true);
 
@@ -1841,9 +1841,36 @@ export default function OrganizationPortalPage({
                       required
                       placeholder="e.g. 08012345678"
                       value={regPhone}
-                      onChange={(e) => setRegPhone(e.target.value)}
-                      className="w-full px-3.5 py-2.5 rounded-lg border border-zinc-300 focus:ring-1 focus:ring-zinc-900 focus:outline-none"
+                      onChange={(e) => {
+                        let val = e.target.value;
+                        if (val.startsWith("+")) {
+                          // Allow international +234 (14 characters max)
+                          val = "+" + val.slice(1).replace(/\D/g, "").slice(0, 13);
+                        } else {
+                          // Strictly capped to exactly 11 digits for Nigerian local format
+                          val = val.replace(/\D/g, "").slice(0, 11);
+                        }
+                        setRegPhone(val);
+                        if (regError && regError.toLowerCase().includes("phone")) {
+                          setRegError(null);
+                        }
+                      }}
+                      className="w-full px-3.5 py-2.5 rounded-lg border border-zinc-300 focus:ring-1 focus:ring-zinc-900 focus:outline-none font-mono text-xs"
                     />
+                    <div className="flex items-center justify-between text-[11px] mt-1 text-zinc-400 font-mono">
+                      <span>Must be exactly 11 digits</span>
+                      <span
+                        className={
+                          regPhone.replace(/\D/g, "").length === 11
+                            ? "text-emerald-600 font-bold"
+                            : regPhone.replace(/\D/g, "").length > 0
+                            ? "text-amber-600 font-semibold"
+                            : "text-zinc-400"
+                        }
+                      >
+                        {regPhone.replace(/\D/g, "").length}/11 digits
+                      </span>
+                    </div>
                   </div>
                 </div>
 
