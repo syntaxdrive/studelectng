@@ -106,76 +106,29 @@ export async function getElectionPostsAndCandidatesAction(
 
       // 1. Attempt querying Supabase posts & candidates
       try {
-        let { data: cloudPosts } = await supabase
+        const { data: cloudPosts } = await supabase
           .from("posts")
           .select("*")
           .eq("election_id", targetElectionId)
           .order("display_order", { ascending: true });
 
-        // If no posts found under targetElectionId, search if any posts exist for this institution
+        // STRICT ISOLATION: if no posts exist for this exact electionId, return empty.
+        // Do NOT fall back to searching all posts by institution prefix — that causes
+        // cross-org bleed (NESA's posts appearing for RENARSA).
         if (!cloudPosts || cloudPosts.length === 0) {
-          const { data: allPosts } = await supabase
-            .from("posts")
-            .select("*")
-            .order("display_order", { ascending: true });
-
-          if (allPosts && allPosts.length > 0) {
-            const instPrefix = targetElectionId.split("-")[1] || "";
-            const instMatch = allPosts.filter((p: any) =>
-              p.election_id && instPrefix && p.election_id.includes(instPrefix)
-            );
-            cloudPosts = instMatch.length > 0 ? instMatch : allPosts;
-          }
+          // Check local store for this specific election
+          const matchingStorePosts = store.posts.filter(
+            (p) => p.electionId === targetElectionId
+          );
+          return matchingStorePosts;
         }
 
-        // If Supabase has zero posts for this election, seed default posts into Supabase
-        if (!cloudPosts || cloudPosts.length === 0) {
-          const { data: elec } = await supabase.from("elections").select("id").limit(1).maybeSingle();
-          const validElectionId = elec?.id || targetElectionId;
-
-          const defaultPostsToSeed = [
-            {
-              id: "post-1",
-              election_id: validElectionId,
-              title: "President",
-              description: "Executive President of the Association",
-              max_selections: 1,
-              display_order: 1,
-              allowed_levels: [],
-              allowed_departments: [],
-            },
-            {
-              id: "post-2",
-              election_id: validElectionId,
-              title: "Vice President",
-              description: "Executive Vice President",
-              max_selections: 1,
-              display_order: 2,
-              allowed_levels: [],
-              allowed_departments: [],
-            },
-            {
-              id: "post-3",
-              election_id: validElectionId,
-              title: "General Secretary",
-              description: "Chief Secretariat Administrator",
-              max_selections: 1,
-              display_order: 3,
-              allowed_levels: [],
-              allowed_departments: [],
-            },
-          ];
-
-          for (const p of defaultPostsToSeed) {
-            await supabase.from("posts").upsert(p);
-          }
-          cloudPosts = defaultPostsToSeed;
-        }
-
-        // 2. Query all cloud candidates
+        // 2. Query candidates SCOPED to this election's posts only
+        const postIds = cloudPosts.map((p: any) => p.id);
         const { data: cloudCandidates } = await supabase
           .from("candidates")
           .select("*")
+          .in("post_id", postIds)
           .order("created_at", { ascending: true });
 
         if (cloudPosts && cloudPosts.length > 0) {
@@ -195,7 +148,7 @@ export async function getElectionPostsAndCandidatesAction(
               }));
 
             // Also include any candidate from local store if not yet in Supabase
-            const storePost = store.posts.find((sp) => sp.id === p.id);
+            const storePost = store.posts.find((sp) => sp.id === p.id && sp.electionId === targetElectionId);
             if (storePost?.candidates) {
               const existingIds = new Set(postCloudCands.map((c) => c.id));
               for (const sc of storePost.candidates) {
@@ -222,14 +175,14 @@ export async function getElectionPostsAndCandidatesAction(
         console.warn("Cloud posts query exception, using local store:", cloudErr);
       }
 
-      // Filter store posts matching this electionId, or all posts if matching
+      // Strict local store fallback: only return posts matching this specific electionId
       const matchingStorePosts = store.posts.filter(
-        (p) => p.electionId === electionId || !p.electionId
+        (p) => p.electionId === electionId
       );
-      return matchingStorePosts.length > 0 ? matchingStorePosts : store.posts;
+      return matchingStorePosts;
     } catch (err) {
       console.warn("Error in getElectionPostsAndCandidatesAction:", err);
-      return getInitialStore().posts;
+      return [];
     }
   });
 }
@@ -255,15 +208,10 @@ export async function createPostAction(input: {
       .eq("id", targetElectionId)
       .maybeSingle();
 
+    // Do NOT fall back to .limit(1) — that would assign the post to the wrong org's election.
+    // If the exact electionId doesn't exist in Supabase yet, keep using the provided ID.
     if (!elec) {
-      const { data: fallbackElec } = await supabase
-        .from("elections")
-        .select("id")
-        .limit(1)
-        .maybeSingle();
-      if (fallbackElec?.id) {
-        targetElectionId = fallbackElec.id;
-      }
+      console.warn(`createPostAction: election "${targetElectionId}" not found in Supabase; using provided ID as-is.`);
     }
   } catch (_) {}
 
@@ -334,13 +282,8 @@ export async function createCandidateAction(input: {
       .maybeSingle();
 
     if (!existingPost) {
-      // Find valid electionId
-      const { data: elec } = await supabase
-        .from("elections")
-        .select("id")
-        .limit(1)
-        .maybeSingle();
-      targetElectionId = elec?.id || targetElectionId;
+      // Do NOT fall back to elections.limit(1) — that would link the post to the wrong org.
+      // Use the provided targetElectionId as-is.
 
       const foundInStore = store.posts.find((p) => p.id === input.postId);
       const postTitle =

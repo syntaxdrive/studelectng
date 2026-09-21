@@ -30,6 +30,7 @@ import {
   saveElectorateWhitelistAction,
   getElectorateWhitelistAction,
   clearElectorateWhitelistAction,
+  getInstitutionOrgsAction,
   ElectionRulesState,
 } from "@/app/actions/student-register";
 import {
@@ -218,6 +219,7 @@ export default function InstitutionAdminPage({
   const [activeOrgSlug, setActiveOrgSlug] = useState<string>(
     instSlug === "unilag" ? "nacos" : "nesa"
   );
+  const [availableOrgs, setAvailableOrgs] = useState<{ orgSlug: string; orgName: string; id: string }[]>([]);
   const electionId = activeOrgSlug
     ? `elec-${instSlug}-${activeOrgSlug}-2026`
     : `elec-${instSlug}-2026`;
@@ -281,6 +283,21 @@ export default function InstitutionAdminPage({
         detectedOrg = instSlug === "unilag" ? "nacos" : "nesa";
       }
       setActiveOrgSlug(detectedOrg);
+
+      // Load all orgs for this institution (for the org switcher dropdown)
+      try {
+        const orgs = await getInstitutionOrgsAction(instSlug);
+        if (orgs && orgs.length > 0) {
+          setAvailableOrgs(orgs);
+          // If the detected org isn't in the list, add it as a synthetic entry
+          if (detectedOrg && !orgs.find((o) => o.orgSlug === detectedOrg)) {
+            setAvailableOrgs([
+              ...orgs,
+              { orgSlug: detectedOrg, orgName: detectedOrg.toUpperCase(), id: `org-${instSlug}-${detectedOrg}` },
+            ]);
+          }
+        }
+      } catch (_) {}
     }
     resolveActiveOrg();
   }, [instSlug]);
@@ -291,6 +308,17 @@ export default function InstitutionAdminPage({
       await logoutAction();
     } catch (_) {}
     window.location.href = `/${instSlug}`;
+  };
+
+  const handleOrgSwitch = (newOrgSlug: string) => {
+    if (!newOrgSlug || newOrgSlug === activeOrgSlug) return;
+    setActiveOrgSlug(newOrgSlug);
+    // Update URL so refreshing preserves the org context
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      url.searchParams.set("org", newOrgSlug);
+      window.history.replaceState({}, "", url.toString());
+    }
   };
 
   // Load organization license metadata
@@ -1041,6 +1069,27 @@ export default function InstitutionAdminPage({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {/* Org Switcher — only shown when this institution has multiple orgs */}
+          {availableOrgs.length > 1 && (
+            <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-zinc-200 bg-white shadow-xs">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 font-mono whitespace-nowrap">
+                Active Org:
+              </span>
+              <select
+                value={activeOrgSlug}
+                onChange={(e) => handleOrgSwitch(e.target.value)}
+                className="text-xs font-bold text-zinc-900 bg-transparent border-none outline-none cursor-pointer uppercase pr-1"
+                title="Switch organization"
+              >
+                {availableOrgs.map((o) => (
+                  <option key={o.orgSlug} value={o.orgSlug}>
+                    {o.orgName || o.orgSlug.toUpperCase()}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           {currentAdminUser && (
             <div className="px-3 py-1.5 rounded-lg bg-zinc-900 text-white text-xs flex items-center gap-2 shadow-xs border border-zinc-700">
               <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />

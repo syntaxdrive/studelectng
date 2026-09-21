@@ -291,6 +291,7 @@ export async function getOrgVoterRollAction(institutionSlug: string, orgSlug?: s
       let accreditedStudentIds = new Set<string>();
 
       if (cleanOrgSlug) {
+        // 1. Try Supabase organizations table
         try {
           const { data: orgData } = await supabase
             .from("organizations")
@@ -299,23 +300,75 @@ export async function getOrgVoterRollAction(institutionSlug: string, orgSlug?: s
             .eq("slug", cleanOrgSlug)
             .maybeSingle();
           org = orgData;
+        } catch (_) {}
 
-          if (org) {
+        // 2. If not in Supabase, synthesize org from local license store so we can still filter
+        if (!org) {
+          try {
+            const licensesFile = path.join(DATA_DIR, "org-licenses-store.json");
+            if (fs.existsSync(licensesFile)) {
+              const raw = fs.readFileSync(licensesFile, "utf8");
+              const list = JSON.parse(raw);
+              if (Array.isArray(list)) {
+                const found = list.find((l: any) => {
+                  const lSlug = (l.orgSlug || "").toLowerCase().trim();
+                  const lInst = (l.institutionSlug || "").toLowerCase().trim();
+                  return lSlug === cleanOrgSlug && (!lInst || lInst === cleanSlug);
+                });
+                if (found) {
+                  org = {
+                    id: found.id || `org-${cleanSlug}-${cleanOrgSlug}`,
+                    slug: found.orgSlug || cleanOrgSlug,
+                    name: found.orgName || cleanOrgSlug.toUpperCase(),
+                    code: (found.orgSlug || cleanOrgSlug).slice(0, 4).toUpperCase(),
+                    org_type: found.orgType || "DEPARTMENT",
+                  };
+                }
+              }
+            }
+          } catch (_) {}
+        }
+
+        // 3. If still no org info, create a minimal synthetic one from the slug itself
+        // This guarantees PIN-based isolation even for orgs not yet in any store
+        if (!org) {
+          org = {
+            id: `org-${cleanSlug}-${cleanOrgSlug}`,
+            slug: cleanOrgSlug,
+            name: cleanOrgSlug.toUpperCase(),
+            code: cleanOrgSlug.slice(0, 4).toUpperCase(),
+            org_type: "DEPARTMENT",
+          };
+        }
+
+        // 4. Fetch election IDs for this org (accreditation links)
+        if (org?.id) {
+          try {
             const { data: elecData } = await supabase
               .from("elections")
               .select("id")
               .eq("organization_id", org.id);
             orgElectionIds = (elecData || []).map((e: any) => e.id);
+          } catch (_) {}
+        }
 
-            if (orgElectionIds.length > 0) {
-              const { data: accData } = await supabase
-                .from("voter_accreditations")
-                .select("student_id")
-                .in("election_id", orgElectionIds);
-              accreditedStudentIds = new Set((accData || []).map((a: any) => a.student_id));
-            }
-          }
-        } catch (_) {}
+        // 5. Also check election IDs by conventional ID pattern
+        const derivedElectionIds = [
+          `elec-${cleanSlug}-${cleanOrgSlug}-2026`,
+          `elec-${cleanOrgSlug}-2026`,
+        ].filter((id) => !orgElectionIds.includes(id));
+        orgElectionIds = [...orgElectionIds, ...derivedElectionIds];
+
+        // 6. Get student IDs that have accreditation records for this org's elections
+        if (orgElectionIds.length > 0) {
+          try {
+            const { data: accData } = await supabase
+              .from("voter_accreditations")
+              .select("student_id")
+              .in("election_id", orgElectionIds);
+            accreditedStudentIds = new Set((accData || []).map((a: any) => a.student_id));
+          } catch (_) {}
+        }
       }
 
       const { data, error } = await supabase
@@ -329,29 +382,74 @@ export async function getOrgVoterRollAction(institutionSlug: string, orgSlug?: s
         return { success: false, students: [], message: error.message };
       }
 
-      // If org is specified, filter strictly to students registered for or eligible for this organization
+      // Strict per-org filter: NEVER fall through to all-institution list when org is specified
       let filteredData = data || [];
-      if (org) {
-        const orgPrefixes = [
-          (org.slug || "").toUpperCase(),
-          (org.code || "").toUpperCase(),
-          (org.slug || "").slice(0, 3).toUpperCase(),
-          (org.code || "").slice(0, 3).toUpperCase(),
-        ].filter((p: string) => p.length >= 2);
+      if (cleanOrgSlug && org) {
+        const orgCode = (org.code || cleanOrgSlug.slice(0, 4)).toUpperCase();
+        const orgSlugUpper = cleanOrgSlug.toUpperCase();
+
+        // Build set of known prefixes for this org's voter PINs
+        const orgPrefixes = Array.from(
+          new Set(
+            [
+              orgSlugUpper,
+              orgCode,
+              orgSlugUpper.slice(0, 4),
+              orgCode.slice(0, 3),
+            ].filter((p: string) => p.length >= 2)
+          )
+        );
+
+        // Build set of ALL other known org prefixes to exclude cross-org bleed
+        let otherOrgPrefixes: string[] = [];
+        try {
+          const licensesFile = path.join(DATA_DIR, "org-licenses-store.json");
+          if (fs.existsSync(licensesFile)) {
+            const raw = fs.readFileSync(licensesFile, "utf8");
+            const list = JSON.parse(raw);
+            if (Array.isArray(list)) {
+              list.forEach((l: any) => {
+                if ((l.orgSlug || "").toLowerCase() !== cleanOrgSlug) {
+                  const s = (l.orgSlug || "").toUpperCase();
+                  if (s.length >= 2) otherOrgPrefixes.push(s);
+                  const c = (l.orgSlug || "").slice(0, 4).toUpperCase();
+                  if (c.length >= 2) otherOrgPrefixes.push(c);
+                }
+              });
+            }
+          }
+        } catch (_) {}
 
         filteredData = (data || []).filter((s: any) => {
+          // 1. Accreditation-linked students always pass (explicit election enrollment)
           if (accreditedStudentIds.has(s.id)) return true;
 
           const pin = (s.portal_pin || "").toUpperCase();
-          if (pin && orgPrefixes.some((p: string) => pin.startsWith(p + "-") || (p.length >= 3 && pin.startsWith(p)))) {
+
+          // 2. If PIN clearly belongs to a DIFFERENT org, exclude (cross-org bleed prevention)
+          if (pin && otherOrgPrefixes.some((p: string) =>
+            pin.startsWith(p + "-") || (p.length >= 4 && pin.startsWith(p))
+          )) {
+            // Only exclude if the pin does NOT also match this org's prefixes
+            const matchesThisOrg = orgPrefixes.some((p: string) =>
+              pin.startsWith(p + "-") || (p.length >= 3 && pin.startsWith(p))
+            );
+            if (!matchesThisOrg) return false;
+          }
+
+          // 3. Include if PIN starts with this org's prefix
+          if (pin && orgPrefixes.some((p: string) =>
+            pin.startsWith(p + "-") || (p.length >= 3 && pin.startsWith(p))
+          )) {
             return true;
           }
 
+          // 4. Include if department/faculty matches org profile
           const dept = (s.department || "").toLowerCase().trim();
           const fac = (s.faculty || "").toLowerCase().trim();
           const orgName = (org.name || "").toLowerCase().trim();
-          const oSlug = (org.slug || "").toLowerCase().trim();
-          const oCode = (org.code || "").toLowerCase().trim();
+          const oSlug = cleanOrgSlug;
+          const oCode = orgCode.toLowerCase();
 
           if (org.org_type === "DEPARTMENT" && dept) {
             if (orgName.includes(dept) || dept.includes(oSlug) || dept.includes(oCode) || oSlug === dept) return true;
@@ -364,6 +462,7 @@ export async function getOrgVoterRollAction(institutionSlug: string, orgSlug?: s
             if (orgName.includes(hall) || hall.includes(oSlug) || hall.includes(oCode)) return true;
           }
 
+          // No match → exclude. This prevents students from bleeding across orgs.
           return false;
         });
       }
@@ -796,12 +895,9 @@ export async function updateElectionStatusAction(
   current.status = status;
   store[electionId] = current;
 
-  // Sync alias keys (e.g. "ui" from "elec-ui-2026", "nesa" from "elec-nesa-2026")
-  const parts = electionId.toLowerCase().split("-").filter((p) => p !== "elec" && p !== "2026");
-  for (const part of parts) {
-    store[part] = { ...current, electionId: part };
-    store[`elec-${part}-2026`] = { ...current, electionId: `elec-${part}-2026` };
-  }
+  // NOTE: Do NOT write short-name alias keys (e.g. "ui", "nesa") — they cause cross-org
+  // status bleed when multiple orgs share the same institution slug.
+  // Only the exact electionId key is written.
 
   writeElectionRulesStore(store);
 
@@ -908,11 +1004,8 @@ export async function updateResultsVisibilityAction(
   current.resultsVisibility = visibility;
   store[electionId] = current;
 
-  const parts = electionId.toLowerCase().split("-").filter((p) => p !== "elec" && p !== "2026");
-  for (const part of parts) {
-    store[part] = { ...current, electionId: part };
-    store[`elec-${part}-2026`] = { ...current, electionId: `elec-${part}-2026` };
-  }
+  // NOTE: Do NOT write short-name alias keys — they cause cross-org status bleed.
+  // Only write the exact electionId key.
 
   writeElectionRulesStore(store);
 
@@ -962,11 +1055,8 @@ export async function updateElectionRulesAction(rules: ElectionRulesState) {
   const store = readElectionRulesStore();
   store[rules.electionId] = rules;
 
-  const parts = rules.electionId.toLowerCase().split("-").filter(p => p !== "elec" && p !== "2026");
-  for (const part of parts) {
-    store[part] = { ...rules, electionId: part };
-    store[`elec-${part}-2026`] = { ...rules, electionId: `elec-${part}-2026` };
-  }
+  // NOTE: Do NOT write short-name alias keys — they cause cross-org rule/status bleed.
+  // Only write the exact electionId key.
 
   writeElectionRulesStore(store);
 
@@ -1382,4 +1472,58 @@ export async function getOrgLicenseInfoAction(orgSlug: string, instSlug: string)
   }
 }
 
+/**
+ * Get all organizations registered under a given institution slug.
+ * Used by the org switcher dropdown in the admin dashboard.
+ */
+export async function getInstitutionOrgsAction(
+  instSlug: string
+): Promise<{ orgSlug: string; orgName: string; id: string }[]> {
+  const cleanInst = (instSlug || "ui").toLowerCase().trim();
+  const results: { orgSlug: string; orgName: string; id: string }[] = [];
 
+  // 1. Read from local org-licenses-store.json (primary source of truth for licensed orgs)
+  try {
+    const licensesFile = path.join(DATA_DIR, "org-licenses-store.json");
+    if (fs.existsSync(licensesFile)) {
+      const raw = fs.readFileSync(licensesFile, "utf8");
+      const list = JSON.parse(raw);
+      if (Array.isArray(list)) {
+        for (const l of list) {
+          const lInst = (l.institutionSlug || "").toLowerCase().trim();
+          if (!lInst || lInst === cleanInst) {
+            const slug = (l.orgSlug || "").toLowerCase().trim();
+            if (slug && !results.find((r) => r.orgSlug === slug)) {
+              results.push({
+                orgSlug: slug,
+                orgName: l.orgName || slug.toUpperCase(),
+                id: l.id || `org-${cleanInst}-${slug}`,
+              });
+            }
+          }
+        }
+      }
+    }
+  } catch (_) {}
+
+  // 2. Also check Supabase organizations table for any orgs not yet in local store
+  try {
+    const { data: supaOrgs } = await supabase
+      .from("organizations")
+      .select("id, slug, name")
+      .eq("institution_id", `inst-${cleanInst}`);
+
+    for (const o of supaOrgs || []) {
+      const slug = (o.slug || "").toLowerCase().trim();
+      if (slug && !results.find((r) => r.orgSlug === slug)) {
+        results.push({
+          orgSlug: slug,
+          orgName: o.name || slug.toUpperCase(),
+          id: o.id,
+        });
+      }
+    }
+  } catch (_) {}
+
+  return results;
+}

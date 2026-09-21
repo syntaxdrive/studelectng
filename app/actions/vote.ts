@@ -318,7 +318,11 @@ export async function getRealtimeElectionTelemetryAction(
     const { getOrgVoterRollAction } = await import("./student-register");
 
     const rawPosts = await getElectionPostsAndCandidatesAction(electionId);
-    const ballots = readBallotsStore();
+    const allBallots = readBallotsStore();
+
+    // STRICT ISOLATION: only count ballots that belong to THIS election.
+    // Previously ballots.length was the total of ALL orgs' ballots.
+    const ballots = allBallots.filter((b) => b.electionId === electionId);
 
     // 1. Get exact registered voters count for this election (cached 30s)
     const totalRegistered = await fetchWithCache(
@@ -491,13 +495,14 @@ export async function getElectionBallotCountAction(
     const cleanInst = (instSlug || "ui").toLowerCase().trim();
     const cleanOrg = (orgSlug || "").toLowerCase().trim();
 
-    // Check Supabase ballots table directly
+    // STRICT ISOLATION: only count ballots for this specific election.
+    // Do NOT include institution-wide fallback IDs like `elec-${cleanInst}-2026`
+    // which would span ALL orgs at the institution.
     const targetIds = [
       electionId,
-      `elec-${cleanInst}-${cleanOrg}-2026`,
-      `elec-${cleanOrg}-2026`,
-      `elec-${cleanInst}-2026`,
-    ].filter(Boolean);
+      cleanOrg ? `elec-${cleanInst}-${cleanOrg}-2026` : null,
+      cleanOrg ? `elec-${cleanOrg}-2026` : null,
+    ].filter(Boolean) as string[];
 
     const { count, error } = await supabase
       .from("ballots")
@@ -508,7 +513,7 @@ export async function getElectionBallotCountAction(
       return { success: true, count };
     }
 
-    // Fallback to local store
+    // Fallback to local store — also scoped to this election only
     const localBallots = readBallotsStore();
     const matched = localBallots.filter((b: any) => targetIds.includes(b.electionId));
     return { success: true, count: matched.length };
