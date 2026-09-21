@@ -21,11 +21,16 @@ import {
   deleteWholeOrganizationAction,
   assignCommissionerOrgAction,
   restoreCampusesAction,
+  getPartnerPerksAction,
+  savePartnerPerkAction,
+  deletePartnerPerkAction,
+  togglePartnerPerkStatusAction,
   SuperAdminTelemetry,
   SuperAdminCampus,
   SuperAdminCommissioner,
   SuperAdminOrgLicense,
 } from "@/app/actions/super-admin";
+import { PartnerPerk, PerkPlacement, PerkMediaType } from "@/lib/perks";
 import { logoutAction } from "@/app/actions/auth";
 import {
   Building2,
@@ -57,10 +62,14 @@ import {
   EyeOff,
   Mail,
   Copy,
+  Sparkles,
+  Gift,
+  Video,
+  Image as ImageIcon,
 } from "lucide-react";
 
 export default function SuperAdminDashboard() {
-  const [activeTab, setActiveTab] = useState<"ORGANIZATIONS" | "CAMPUSES" | "COMMISSIONERS">("ORGANIZATIONS");
+  const [activeTab, setActiveTab] = useState<"ORGANIZATIONS" | "CAMPUSES" | "COMMISSIONERS" | "PERKS">("ORGANIZATIONS");
   const [campuses, setCampuses] = useState<SuperAdminCampus[]>([]);
   const [commissioners, setCommissioners] = useState<SuperAdminCommissioner[]>([]);
   const [orgLicenses, setOrgLicenses] = useState<SuperAdminOrgLicense[]>([]);
@@ -126,6 +135,33 @@ export default function SuperAdminDashboard() {
     role: "ELCOM_CHAIRMAN",
   });
 
+  // ── Partner Perks & Sponsor Campaigns State ────────────────────────────────
+  const [perks, setPerks] = useState<PartnerPerk[]>([]);
+  const [isPerkModalOpen, setIsPerkModalOpen] = useState(false);
+  const [editingPerk, setEditingPerk] = useState<PartnerPerk | null>(null);
+  const [isPerkSaving, setIsPerkSaving] = useState(false);
+  const [perkToDelete, setPerkToDelete] = useState<PartnerPerk | null>(null);
+  const [isDeletePerkModalOpen, setIsDeletePerkModalOpen] = useState(false);
+  const [perkSearchQuery, setPerkSearchQuery] = useState("");
+
+  const defaultPerkForm: Partial<PartnerPerk> = {
+    title: "",
+    badge: "Exclusive Student Perk",
+    sponsorName: "",
+    sponsorLogoUrl: "",
+    description: "",
+    mediaType: "NONE",
+    mediaUrl: "",
+    ctaText: "Claim Student Perk →",
+    ctaUrl: "",
+    placements: ["POST_VOTE_RECEIPT"],
+    targetInstitutions: ["ALL"],
+    active: true,
+    priority: 1,
+  };
+
+  const [perkFormData, setPerkFormData] = useState<Partial<PartnerPerk>>(defaultPerkForm);
+
   // Assign Org to Commissioner Modal State
   const [assigningCom, setAssigningCom] = useState<SuperAdminCommissioner | null>(null);
   const [isAssignComModalOpen, setIsAssignComModalOpen] = useState(false);
@@ -149,16 +185,18 @@ export default function SuperAdminDashboard() {
   const loadData = async () => {
     setIsLoading(true);
     try {
-      const [stats, campusList, comList, orgList] = await Promise.all([
+      const [stats, campusList, comList, orgList, perksRes] = await Promise.all([
         getSuperAdminTelemetryAction(),
         getSuperAdminCampusesAction(),
         getSuperAdminCommissionersAction(),
         getSuperAdminOrgLicensesAction(),
+        getPartnerPerksAction({ activeOnly: false }),
       ]);
       setTelemetry(stats);
       setCampuses(campusList);
       setCommissioners(comList);
       setOrgLicenses(orgList);
+      if (perksRes.success) setPerks(perksRes.perks);
       if (campusList.length > 0 && !comFormData.institutionId) {
         setComFormData((prev) => ({ ...prev, institutionId: campusList[0].id }));
         setNewOrgFormData((prev) => ({ ...prev, institutionId: campusList[0].id }));
@@ -167,6 +205,93 @@ export default function SuperAdminDashboard() {
       console.warn("Failed to load SuperAdmin data:", err);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleOpenAddPerk = () => {
+    setEditingPerk(null);
+    setPerkFormData({
+      ...defaultPerkForm,
+      priority: perks.length + 1,
+    });
+    setIsPerkModalOpen(true);
+  };
+
+  const handleOpenEditPerk = (p: PartnerPerk) => {
+    setEditingPerk(p);
+    setPerkFormData({ ...p });
+    setIsPerkModalOpen(true);
+  };
+
+  const handleSavePerk = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!perkFormData.title?.trim() || !perkFormData.sponsorName?.trim()) {
+      alert("Please provide both Campaign Title and Sponsor Name.");
+      return;
+    }
+    setIsPerkSaving(true);
+    try {
+      const res = await savePartnerPerkAction({
+        ...(editingPerk ? { id: editingPerk.id } : {}),
+        title: perkFormData.title.trim(),
+        sponsorName: perkFormData.sponsorName.trim(),
+        badge: perkFormData.badge?.trim() || "Exclusive Student Perk",
+        description: perkFormData.description?.trim() || "",
+        sponsorLogoUrl: perkFormData.sponsorLogoUrl?.trim() || undefined,
+        mediaType: perkFormData.mediaType || "NONE",
+        mediaUrl: perkFormData.mediaUrl?.trim() || undefined,
+        ctaText: perkFormData.ctaText?.trim() || "Claim Student Perk →",
+        ctaUrl: perkFormData.ctaUrl?.trim() || "#",
+        placements: perkFormData.placements && perkFormData.placements.length > 0 ? perkFormData.placements : ["POST_VOTE_RECEIPT"],
+        targetInstitutions: perkFormData.targetInstitutions && perkFormData.targetInstitutions.length > 0 ? perkFormData.targetInstitutions : ["ALL"],
+        active: perkFormData.active !== false,
+        priority: Number(perkFormData.priority) || 1,
+      });
+
+      if (res.success) {
+        setIsPerkModalOpen(false);
+        setStatusMessage(res.message);
+        setTimeout(() => setStatusMessage(null), 4000);
+        await loadData();
+      } else {
+        alert(res.message);
+      }
+    } catch (err: any) {
+      alert(err.message || "Failed to save perk.");
+    } finally {
+      setIsPerkSaving(false);
+    }
+  };
+
+  const handleTogglePerkActive = async (perkId: string, currentActive: boolean) => {
+    setPerks((prev) =>
+      prev.map((p) => (p.id === perkId ? { ...p, active: !currentActive } : p))
+    );
+    const res = await togglePartnerPerkStatusAction(perkId, !currentActive);
+    if (res.success) {
+      setStatusMessage(res.message);
+      setTimeout(() => setStatusMessage(null), 3000);
+    } else {
+      await loadData();
+    }
+  };
+
+  const handleDeletePerk = async () => {
+    if (!perkToDelete) return;
+    setIsPerkSaving(true);
+    try {
+      const res = await deletePartnerPerkAction(perkToDelete.id);
+      if (res.success) {
+        setStatusMessage(res.message);
+        setTimeout(() => setStatusMessage(null), 4000);
+        setIsDeletePerkModalOpen(false);
+        setPerkToDelete(null);
+        await loadData();
+      } else {
+        alert(res.message);
+      }
+    } finally {
+      setIsPerkSaving(false);
     }
   };
 
@@ -649,6 +774,19 @@ export default function SuperAdminDashboard() {
         >
           <Users className="w-4 h-4" />
           <span>Commissioners & Admins ({commissioners.length})</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab("PERKS")}
+          className={`px-4 py-2 rounded-lg transition flex items-center gap-2 ${
+            activeTab === "PERKS"
+              ? "bg-zinc-900 text-white shadow-xs"
+              : "text-zinc-600 hover:bg-zinc-100"
+          }`}
+        >
+          <Sparkles className="w-4 h-4 text-amber-500 fill-amber-400" />
+          <span>Student Perks & Sponsors ({perks.length})</span>
         </button>
       </div>
 
@@ -1158,6 +1296,215 @@ export default function SuperAdminDashboard() {
                 })}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* TAB 4: STUDENT PERKS & SPONSOR CAMPAIGNS                                  */}
+      {/* ========================================================================= */}
+      {activeTab === "PERKS" && (
+        <div className="space-y-6 animate-in fade-in duration-150">
+          {/* Header & New Campaign Button */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 rounded-2xl bg-white border border-zinc-200 shadow-xs">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-zinc-500">
+                  MONETIZATION & CAMPUS PERKS
+                </span>
+              </div>
+              <h2 className="text-xl font-bold text-zinc-900 mt-1">
+                Student Perks, Campus Rewards & Sponsor Campaigns
+              </h2>
+              <p className="text-xs text-zinc-500 mt-0.5">
+                Curate non-disruptive, high-value partner rewards shown to students on vote receipts and registration slips.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleOpenAddPerk}
+              className="px-4 py-2.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-xs flex-shrink-0"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>New Sponsor Perk</span>
+            </button>
+          </div>
+
+          {/* Performance Analytics Metric Cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
+            <div className="p-4 rounded-xl bg-white border border-zinc-200 space-y-1 shadow-2xs">
+              <span className="text-[10px] font-mono font-bold uppercase text-zinc-400">Total Campaigns</span>
+              <p className="text-xl font-bold text-zinc-900">{perks.length}</p>
+              <p className="text-[10px] text-zinc-500">{perks.filter((p) => p.active).length} active right now</p>
+            </div>
+
+            <div className="p-4 rounded-xl bg-white border border-zinc-200 space-y-1 shadow-2xs">
+              <span className="text-[10px] font-mono font-bold uppercase text-zinc-400">Student Impressions</span>
+              <p className="text-xl font-bold text-zinc-900">
+                {perks.reduce((acc, p) => acc + (p.impressionsCount || 0), 0).toLocaleString()}
+              </p>
+              <p className="text-[10px] text-zinc-500">Verified post-action views</p>
+            </div>
+
+            <div className="p-4 rounded-xl bg-white border border-zinc-200 space-y-1 shadow-2xs">
+              <span className="text-[10px] font-mono font-bold uppercase text-zinc-400">Student Clicks</span>
+              <p className="text-xl font-bold text-emerald-600">
+                {perks.reduce((acc, p) => acc + (p.clicksCount || 0), 0).toLocaleString()}
+              </p>
+              <p className="text-[10px] text-zinc-500">Engaged outbound leads</p>
+            </div>
+
+            <div className="p-4 rounded-xl bg-white border border-zinc-200 space-y-1 shadow-2xs">
+              <span className="text-[10px] font-mono font-bold uppercase text-zinc-400">Avg. Click-Through Rate</span>
+              <p className="text-xl font-bold text-indigo-600">
+                {(() => {
+                  const totalImp = perks.reduce((acc, p) => acc + (p.impressionsCount || 0), 0);
+                  const totalClk = perks.reduce((acc, p) => acc + (p.clicksCount || 0), 0);
+                  return totalImp > 0 ? `${((totalClk / totalImp) * 100).toFixed(1)}%` : "0.0%";
+                })()}
+              </p>
+              <p className="text-[10px] text-zinc-500">High-intent student conversion</p>
+            </div>
+          </div>
+
+          {/* Search & Filter Bar */}
+          <div className="p-3.5 rounded-xl bg-zinc-50 border border-zinc-200 flex items-center justify-between gap-3 text-xs">
+            <div className="relative flex-1 max-w-sm">
+              <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="text"
+                placeholder="Search perk campaigns by sponsor or title..."
+                value={perkSearchQuery}
+                onChange={(e) => setPerkSearchQuery(e.target.value)}
+                className="w-full pl-8 pr-3 py-1.5 rounded-lg bg-white border border-zinc-300 text-xs focus:ring-1 focus:ring-zinc-900 focus:outline-none"
+              />
+            </div>
+            <div className="text-[11px] text-zinc-500">
+              Showing {perks.filter(p => !perkSearchQuery || p.title.toLowerCase().includes(perkSearchQuery.toLowerCase()) || p.sponsorName.toLowerCase().includes(perkSearchQuery.toLowerCase())).length} campaigns
+            </div>
+          </div>
+
+          {/* Campaigns Cards Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {perks
+              .filter(
+                (p) =>
+                  !perkSearchQuery ||
+                  p.title.toLowerCase().includes(perkSearchQuery.toLowerCase()) ||
+                  p.sponsorName.toLowerCase().includes(perkSearchQuery.toLowerCase())
+              )
+              .map((p) => (
+                <div
+                  key={p.id}
+                  className="rounded-xl bg-white border border-zinc-200 shadow-2xs hover:shadow-xs transition p-4 space-y-3.5 text-xs flex flex-col justify-between"
+                >
+                  <div className="space-y-2.5">
+                    {/* Top Row: Sponsor, Badge, Active Switch */}
+                    <div className="flex items-start justify-between gap-2 border-b border-zinc-100 pb-2.5">
+                      <div className="flex items-center gap-2">
+                        {p.sponsorLogoUrl ? (
+                          <img
+                            src={p.sponsorLogoUrl}
+                            alt={p.sponsorName}
+                            className="w-7 h-7 rounded-full object-cover border border-zinc-200"
+                          />
+                        ) : (
+                          <div className="w-7 h-7 rounded-full bg-zinc-100 flex items-center justify-center font-bold text-zinc-700 text-xs">
+                            {p.sponsorName.charAt(0).toUpperCase()}
+                          </div>
+                        )}
+                        <div>
+                          <h4 className="font-bold text-zinc-900 leading-none">{p.sponsorName}</h4>
+                          <span className="text-[10px] text-zinc-400 font-mono">Priority #{p.priority}</span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleTogglePerkActive(p.id, p.active)}
+                          className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase transition flex items-center gap-1 ${
+                            p.active
+                              ? "bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100"
+                              : "bg-zinc-100 text-zinc-500 border border-zinc-200 hover:bg-zinc-200"
+                          }`}
+                        >
+                          <span className={`w-1.5 h-1.5 rounded-full ${p.active ? "bg-emerald-500" : "bg-zinc-400"}`} />
+                          <span>{p.active ? "Active" : "Paused"}</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Media Thumbnail (if applicable) */}
+                    {p.mediaType === "IMAGE" && p.mediaUrl && (
+                      <div className="w-full h-28 rounded-lg overflow-hidden border border-zinc-200 bg-zinc-100">
+                        <img src={p.mediaUrl} alt={p.title} className="w-full h-full object-cover" />
+                      </div>
+                    )}
+
+                    {p.mediaType === "VIDEO" && p.mediaUrl && (
+                      <div className="p-2.5 rounded-lg bg-zinc-900 text-white flex items-center gap-2 text-[11px]">
+                        <Video className="w-4 h-4 text-amber-400 flex-shrink-0" />
+                        <span className="truncate">Video Asset: {p.mediaUrl}</span>
+                      </div>
+                    )}
+
+                    {/* Title & Description */}
+                    <div>
+                      <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-900 border border-amber-200/60 mb-1">
+                        {p.badge}
+                      </span>
+                      <h3 className="font-bold text-zinc-900 text-sm">{p.title}</h3>
+                      <p className="text-zinc-600 line-clamp-2 mt-1 text-[11px]">{p.description}</p>
+                    </div>
+
+                    {/* Placements & Campuses Tag Pills */}
+                    <div className="flex flex-wrap gap-1.5 pt-1">
+                      {p.placements.map((plc) => (
+                        <span key={plc} className="text-[9px] font-mono px-2 py-0.5 rounded bg-zinc-100 text-zinc-600 border border-zinc-200">
+                          {plc === "POST_VOTE_RECEIPT" ? "🗳️ Ballot Receipt" : plc === "PIN_REGISTRATION" ? "🔑 PIN Slip" : "🏛️ Campus Hub"}
+                        </span>
+                      ))}
+                      <span className="text-[9px] font-mono px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
+                        📍 {p.targetInstitutions.includes("ALL") ? "All Campuses (National)" : p.targetInstitutions.join(", ").toUpperCase()}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Analytics & Actions Bar */}
+                  <div className="pt-3 border-t border-zinc-100 flex items-center justify-between text-[11px]">
+                    <div className="flex items-center gap-3 text-zinc-500 font-mono">
+                      <span>👁️ {(p.impressionsCount || 0).toLocaleString()} views</span>
+                      <span>👆 {(p.clicksCount || 0).toLocaleString()} clicks</span>
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenEditPerk(p)}
+                        className="px-2.5 py-1 rounded-md border border-zinc-200 hover:bg-zinc-100 text-zinc-700 transition flex items-center gap-1 font-semibold"
+                      >
+                        <Edit2 className="w-3 h-3 text-zinc-500" />
+                        <span>Edit</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPerkToDelete(p);
+                          setIsDeletePerkModalOpen(true);
+                        }}
+                        className="p-1 rounded-md text-zinc-400 hover:text-rose-600 hover:bg-rose-50 transition"
+                        title="Delete perk"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
           </div>
         </div>
       )}
@@ -1850,6 +2197,393 @@ export default function SuperAdminDashboard() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL: CREATE OR EDIT PARTNER PERK / SPONSOR CAMPAIGN                      */}
+      {/* ========================================================================= */}
+      {isPerkModalOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in overflow-y-auto">
+          <div className="bg-white rounded-2xl border border-zinc-200 shadow-2xl max-w-4xl w-full p-6 space-y-5 text-xs max-h-[92vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
+              <div>
+                <span className="text-[10px] font-mono font-bold uppercase text-amber-600 flex items-center gap-1">
+                  <Sparkles className="w-3 h-3" /> Campus Partner Campaign
+                </span>
+                <h3 className="text-base font-bold text-zinc-900 mt-0.5">
+                  {editingPerk ? "Edit Student Perk / Sponsor Offer" : "Create New Student Perk / Sponsor Offer"}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsPerkModalOpen(false)}
+                className="text-zinc-400 hover:text-zinc-700 p-1 rounded"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+              {/* Form Fields (7 cols) */}
+              <form onSubmit={handleSavePerk} className="lg:col-span-7 space-y-4">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-semibold uppercase text-zinc-700 mb-1 font-mono text-[11px]">
+                      Sponsor / Brand Name <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. Piggyvest, MTN, Kuda"
+                      value={perkFormData.sponsorName || ""}
+                      onChange={(e) => setPerkFormData((prev) => ({ ...prev, sponsorName: e.target.value }))}
+                      className="w-full px-3 py-2 rounded-lg border border-zinc-300 text-xs focus:ring-1 focus:ring-zinc-900 focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold uppercase text-zinc-700 mb-1 font-mono text-[11px]">
+                      Badge Tag
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Exclusive Student Perk"
+                      value={perkFormData.badge || ""}
+                      onChange={(e) => setPerkFormData((prev) => ({ ...prev, badge: e.target.value }))}
+                      className="w-full px-3 py-2 rounded-lg border border-zinc-300 text-xs focus:ring-1 focus:ring-zinc-900 focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block font-semibold uppercase text-zinc-700 mb-1 font-mono text-[11px]">
+                    Campaign Headline / Title <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Claim ₦1,000 Welcome Bonus on Your First Savings Lock"
+                    value={perkFormData.title || ""}
+                    onChange={(e) => setPerkFormData((prev) => ({ ...prev, title: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-lg border border-zinc-300 text-xs font-semibold focus:ring-1 focus:ring-zinc-900 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-semibold uppercase text-zinc-700 mb-1 font-mono text-[11px]">
+                    Friendly Description (Copy)
+                  </label>
+                  <textarea
+                    rows={3}
+                    placeholder="Friendly, helpful explanation of the perk or student benefit..."
+                    value={perkFormData.description || ""}
+                    onChange={(e) => setPerkFormData((prev) => ({ ...prev, description: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-lg border border-zinc-300 text-xs focus:ring-1 focus:ring-zinc-900 focus:outline-none leading-relaxed"
+                  />
+                </div>
+
+                {/* Media Type Selection */}
+                <div className="space-y-2 p-3 rounded-xl bg-zinc-50 border border-zinc-200">
+                  <label className="block font-semibold uppercase text-zinc-700 font-mono text-[11px]">
+                    Media Asset Type
+                  </label>
+                  <div className="flex gap-2">
+                    {(["NONE", "IMAGE", "VIDEO"] as const).map((t) => (
+                      <button
+                        key={t}
+                        type="button"
+                        onClick={() => setPerkFormData((prev) => ({ ...prev, mediaType: t }))}
+                        className={`px-3 py-1.5 rounded-lg border text-xs font-bold transition flex items-center gap-1.5 ${
+                          perkFormData.mediaType === t
+                            ? "bg-zinc-900 text-white border-zinc-900"
+                            : "bg-white text-zinc-700 border-zinc-300 hover:bg-zinc-100"
+                        }`}
+                      >
+                        {t === "NONE" && <span>Text Only</span>}
+                        {t === "IMAGE" && (
+                          <>
+                            <ImageIcon className="w-3.5 h-3.5" />
+                            <span>Image Banner</span>
+                          </>
+                        )}
+                        {t === "VIDEO" && (
+                          <>
+                            <Video className="w-3.5 h-3.5" />
+                            <span>Video Link</span>
+                          </>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+
+                  {perkFormData.mediaType === "IMAGE" && (
+                    <div className="space-y-2 pt-1">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          placeholder="Image URL (e.g. https://...)"
+                          value={perkFormData.mediaUrl || ""}
+                          onChange={(e) => setPerkFormData((prev) => ({ ...prev, mediaUrl: e.target.value }))}
+                          className="flex-1 px-3 py-1.5 rounded-lg border border-zinc-300 text-xs focus:ring-1 focus:ring-zinc-900 focus:outline-none"
+                        />
+                        <label className="px-3 py-1.5 rounded-lg bg-white border border-zinc-300 hover:bg-zinc-100 text-zinc-700 cursor-pointer font-semibold flex items-center gap-1">
+                          <ImageIcon className="w-3.5 h-3.5" />
+                          <span>Upload</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (!file) return;
+                              const reader = new FileReader();
+                              reader.onload = () => {
+                                if (typeof reader.result === "string") {
+                                  setPerkFormData((prev) => ({
+                                    ...prev,
+                                    mediaType: "IMAGE",
+                                    mediaUrl: reader.result as string,
+                                  }));
+                                }
+                              };
+                              reader.readAsDataURL(file);
+                            }}
+                          />
+                        </label>
+                      </div>
+                    </div>
+                  )}
+
+                  {perkFormData.mediaType === "VIDEO" && (
+                    <div className="pt-1">
+                      <input
+                        type="text"
+                        placeholder="YouTube, Vimeo, or MP4 video URL (e.g. https://youtu.be/...)"
+                        value={perkFormData.mediaUrl || ""}
+                        onChange={(e) => setPerkFormData((prev) => ({ ...prev, mediaUrl: e.target.value }))}
+                        className="w-full px-3 py-1.5 rounded-lg border border-zinc-300 text-xs focus:ring-1 focus:ring-zinc-900 focus:outline-none"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {/* CTA Button Label & Destination Link */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-semibold uppercase text-zinc-700 mb-1 font-mono text-[11px]">
+                      Call-to-Action Button Text
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Claim ₦1,000 Bonus →"
+                      value={perkFormData.ctaText || ""}
+                      onChange={(e) => setPerkFormData((prev) => ({ ...prev, ctaText: e.target.value }))}
+                      className="w-full px-3 py-2 rounded-lg border border-zinc-300 text-xs font-bold focus:ring-1 focus:ring-zinc-900 focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold uppercase text-zinc-700 mb-1 font-mono text-[11px]">
+                      Destination Link (URL) <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="url"
+                      required
+                      placeholder="https://sponsor.com/student-deal"
+                      value={perkFormData.ctaUrl || ""}
+                      onChange={(e) => setPerkFormData((prev) => ({ ...prev, ctaUrl: e.target.value }))}
+                      className="w-full px-3 py-2 rounded-lg border border-zinc-300 text-xs focus:ring-1 focus:ring-zinc-900 focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                {/* Placements & Targeting */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-semibold uppercase text-zinc-700 mb-1 font-mono text-[11px]">
+                      Placements
+                    </label>
+                    <div className="space-y-1.5 text-[11px]">
+                      {[
+                        { id: "POST_VOTE_RECEIPT" as const, label: "Post-Vote Ballot Receipt" },
+                        { id: "PIN_REGISTRATION" as const, label: "PIN Registration Slip" },
+                        { id: "CAMPUS_HUB" as const, label: "Campus Results & Hub" },
+                      ].map((plc) => (
+                        <label key={plc.id} className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={perkFormData.placements?.includes(plc.id)}
+                            onChange={(e) => {
+                              const checked = e.target.checked;
+                              setPerkFormData((prev) => {
+                                const curr = prev.placements || [];
+                                return {
+                                  ...prev,
+                                  placements: checked
+                                    ? [...curr, plc.id]
+                                    : curr.filter((x) => x !== plc.id),
+                                };
+                              });
+                            }}
+                            className="rounded border-zinc-300 text-zinc-900 focus:ring-zinc-900"
+                          />
+                          <span>{plc.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold uppercase text-zinc-700 mb-1 font-mono text-[11px]">
+                      Target Campuses
+                    </label>
+                    <select
+                      value={perkFormData.targetInstitutions?.[0] || "ALL"}
+                      onChange={(e) =>
+                        setPerkFormData((prev) => ({
+                          ...prev,
+                          targetInstitutions: [e.target.value],
+                        }))
+                      }
+                      className="w-full px-3 py-2 rounded-lg border border-zinc-300 text-xs"
+                    >
+                      <option value="ALL">All Universities (Nationwide)</option>
+                      {campuses.map((c) => (
+                        <option key={c.slug} value={c.slug}>
+                          {c.name} ({c.code})
+                        </option>
+                      ))}
+                    </select>
+
+                    <div className="mt-3 flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        id="perkActiveToggle"
+                        checked={perkFormData.active !== false}
+                        onChange={(e) => setPerkFormData((prev) => ({ ...prev, active: e.target.checked }))}
+                        className="rounded border-zinc-300 text-zinc-900 focus:ring-zinc-900"
+                      />
+                      <label htmlFor="perkActiveToggle" className="font-semibold text-zinc-800 cursor-pointer">
+                        Publish Campaign Immediately (Active)
+                      </label>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-4 border-t border-zinc-100">
+                  <button
+                    type="button"
+                    onClick={() => setIsPerkModalOpen(false)}
+                    className="px-4 py-2 border rounded-lg text-zinc-700 hover:bg-zinc-50 font-medium"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isPerkSaving}
+                    className="px-5 py-2 bg-zinc-900 text-white font-bold rounded-lg hover:bg-zinc-800 transition flex items-center gap-1.5 shadow-xs"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                    <span>{isPerkSaving ? "Saving Campaign..." : "Save Partner Perk"}</span>
+                  </button>
+                </div>
+              </form>
+
+              {/* Real-Time Live Preview (5 cols) */}
+              <div className="lg:col-span-5 space-y-2 border-t lg:border-t-0 lg:border-l border-zinc-200 lg:pl-6 pt-4 lg:pt-0">
+                <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-zinc-400 block">
+                  LIVE STUDENT VIEW PREVIEW
+                </span>
+                <p className="text-[11px] text-zinc-500">
+                  How this offer appears to students on post-action screens:
+                </p>
+
+                {/* Exact Simulated Card */}
+                <div className="rounded-2xl border border-zinc-200 bg-gradient-to-b from-white via-zinc-50/50 to-zinc-50 p-4 shadow-xs space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider bg-amber-50 text-amber-800 border border-amber-200/60 shadow-2xs">
+                      <Sparkles className="w-2.5 h-2.5 text-amber-600 fill-amber-500" />
+                      <span>{perkFormData.badge || "Exclusive Student Perk"}</span>
+                    </span>
+                    <span className="text-[10px] text-zinc-500">
+                      By <strong className="text-zinc-800">{perkFormData.sponsorName || "Sponsor"}</strong>
+                    </span>
+                  </div>
+
+                  {perkFormData.mediaType === "IMAGE" && perkFormData.mediaUrl && (
+                    <div className="overflow-hidden rounded-lg border border-zinc-200 bg-zinc-100 max-h-36">
+                      <img
+                        src={perkFormData.mediaUrl}
+                        alt="Preview"
+                        className="w-full h-full object-cover max-h-36"
+                      />
+                    </div>
+                  )}
+
+                  <div className="space-y-1">
+                    <h4 className="text-xs font-bold text-zinc-900 leading-snug">
+                      {perkFormData.title || "Your Campaign Headline Here"}
+                    </h4>
+                    <p className="text-[11px] text-zinc-600 leading-relaxed line-clamp-3">
+                      {perkFormData.description || "Your friendly perk description explaining the benefit..."}
+                    </p>
+                  </div>
+
+                  <div className="pt-2 border-t border-zinc-200/70 flex items-center justify-between gap-2">
+                    <span className="text-[9px] text-zinc-400 font-mono">Zero Spam Guarantee</span>
+                    <div className="px-3 py-1.5 rounded-lg bg-zinc-900 text-white text-[11px] font-bold shadow-xs">
+                      {perkFormData.ctaText || "Claim Student Perk →"}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Perk Confirmation Modal */}
+      {isDeletePerkModalOpen && perkToDelete && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full border border-rose-200 overflow-hidden animate-in fade-in zoom-in duration-150">
+            <div className="bg-rose-50 border-b border-rose-100 p-4 flex items-center gap-3">
+              <div className="p-2 bg-rose-600 text-white rounded-lg shrink-0">
+                <AlertCircle className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-rose-950">Remove Perk Campaign</h3>
+                <p className="text-[11px] text-rose-800">
+                  Are you sure you want to delete this partner campaign?
+                </p>
+              </div>
+            </div>
+            <div className="p-4 space-y-3 text-xs text-zinc-600">
+              <p>
+                Deleting <strong>"{perkToDelete.title}"</strong> ({perkToDelete.sponsorName}) will remove it from all student post-vote screens immediately.
+              </p>
+              <div className="flex justify-end gap-2 pt-2 border-t border-zinc-100">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsDeletePerkModalOpen(false);
+                    setPerkToDelete(null);
+                  }}
+                  className="px-3.5 py-1.5 border rounded-lg text-zinc-700 hover:bg-zinc-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDeletePerk}
+                  disabled={isPerkSaving}
+                  className="px-4 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-lg transition"
+                >
+                  {isPerkSaving ? "Deleting..." : "Confirm Delete"}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

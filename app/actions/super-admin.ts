@@ -8,11 +8,14 @@ import fs from "fs";
 import path from "path";
 import crypto from "crypto";
 
+import { PartnerPerk, DEFAULT_PARTNER_PERKS, PerkPlacement } from "@/lib/perks";
+
 const DATA_DIR = path.join(process.cwd(), "data");
 const ORG_LICENSES_FILE = path.join(DATA_DIR, "org-licenses-store.json");
 const COMMISSIONER_ASSIGNMENTS_FILE = path.join(DATA_DIR, "commissioner-assignments.json");
 const DELETED_ORGS_FILE = path.join(DATA_DIR, "deleted-orgs-store.json");
 const DELETED_CAMPUSES_FILE = path.join(DATA_DIR, "deleted-campuses-store.json");
+const PARTNER_PERKS_FILE = path.join(DATA_DIR, "partner-perks-store.json");
 
 function readDeletedCampusesStore(): string[] {
   try {
@@ -1613,6 +1616,209 @@ export async function deleteWholeOrganizationAction(
   } catch (err: any) {
     console.error("deleteWholeOrganizationAction exception:", err);
     return { success: false, message: err.message };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PARTNER PERKS & SPONSORED REWARDS STORE & ACTIONS
+// ─────────────────────────────────────────────────────────────────────────────
+
+function readPartnerPerksStore(): PartnerPerk[] {
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+    if (!fs.existsSync(PARTNER_PERKS_FILE)) {
+      try {
+        fs.writeFileSync(PARTNER_PERKS_FILE, JSON.stringify(DEFAULT_PARTNER_PERKS, null, 2), "utf8");
+      } catch (_) {}
+      return [...DEFAULT_PARTNER_PERKS];
+    }
+    const content = fs.readFileSync(PARTNER_PERKS_FILE, "utf8");
+    const parsed = JSON.parse(content);
+    return Array.isArray(parsed) ? parsed : [...DEFAULT_PARTNER_PERKS];
+  } catch {
+    return [...DEFAULT_PARTNER_PERKS];
+  }
+}
+
+function writePartnerPerksStore(perks: PartnerPerk[]) {
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+    fs.writeFileSync(PARTNER_PERKS_FILE, JSON.stringify(perks, null, 2), "utf8");
+  } catch (err) {
+    console.warn("writePartnerPerksStore error:", err);
+  }
+}
+
+/**
+ * Retrieve Partner Perks
+ * Options can filter by placement (e.g. POST_VOTE_RECEIPT, PIN_REGISTRATION), institution, and activeOnly.
+ */
+export async function getPartnerPerksAction(options?: {
+  placement?: PerkPlacement;
+  institutionSlug?: string;
+  activeOnly?: boolean;
+}): Promise<{ success: boolean; perks: PartnerPerk[] }> {
+  try {
+    let list = readPartnerPerksStore();
+    const inst = (options?.institutionSlug || "").toLowerCase().trim();
+
+    if (options?.activeOnly !== false) {
+      list = list.filter((p) => p.active);
+    }
+
+    if (options?.placement) {
+      list = list.filter((p) => p.placements.includes(options.placement!));
+    }
+
+    if (inst) {
+      list = list.filter(
+        (p) =>
+          p.targetInstitutions.includes("ALL") ||
+          p.targetInstitutions.map((i) => i.toLowerCase()).includes(inst)
+      );
+    }
+
+    list.sort((a, b) => a.priority - b.priority);
+
+    return { success: true, perks: list };
+  } catch (err: any) {
+    console.error("getPartnerPerksAction error:", err);
+    return { success: false, perks: [] };
+  }
+}
+
+/**
+ * Save or update a Partner Perk
+ */
+export async function savePartnerPerkAction(
+  perk: Partial<PartnerPerk> & { title: string; sponsorName: string }
+): Promise<{ success: boolean; perk?: PartnerPerk; message: string }> {
+  try {
+    const list = readPartnerPerksStore();
+    const isNew = !perk.id;
+    const perkId =
+      perk.id ||
+      `perk-${perk.sponsorName.toLowerCase().replace(/[^a-z0-9]/g, "")}-${Date.now().toString(36)}`;
+
+    const existing = list.find((p) => p.id === perkId);
+
+    const updatedPerk: PartnerPerk = {
+      id: perkId,
+      title: perk.title.trim(),
+      badge: (perk.badge || "Campus Partner Perk").trim(),
+      description: (perk.description || "").trim(),
+      sponsorName: perk.sponsorName.trim(),
+      sponsorLogoUrl: perk.sponsorLogoUrl?.trim() || undefined,
+      mediaType: perk.mediaType || "NONE",
+      mediaUrl: perk.mediaUrl?.trim() || undefined,
+      ctaText: (perk.ctaText || "Claim Student Perk →").trim(),
+      ctaUrl: (perk.ctaUrl || "#").trim(),
+      placements: perk.placements && perk.placements.length > 0 ? perk.placements : ["POST_VOTE_RECEIPT"],
+      targetInstitutions: perk.targetInstitutions && perk.targetInstitutions.length > 0 ? perk.targetInstitutions : ["ALL"],
+      active: perk.active !== false,
+      priority: typeof perk.priority === "number" ? perk.priority : (existing?.priority || list.length + 1),
+      createdAt: existing?.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      impressionsCount: existing?.impressionsCount || 0,
+      clicksCount: existing?.clicksCount || 0,
+    };
+
+    let nextList: PartnerPerk[];
+    if (existing) {
+      nextList = list.map((p) => (p.id === perkId ? updatedPerk : p));
+    } else {
+      nextList = [updatedPerk, ...list];
+    }
+
+    writePartnerPerksStore(nextList);
+    revalidatePath("/super-admin");
+
+    return {
+      success: true,
+      perk: updatedPerk,
+      message: isNew
+        ? `Created perk campaign "${updatedPerk.title}" successfully.`
+        : `Updated perk campaign "${updatedPerk.title}".`,
+    };
+  } catch (err: any) {
+    console.error("savePartnerPerkAction error:", err);
+    return { success: false, message: err.message || "Failed to save perk." };
+  }
+}
+
+/**
+ * Delete a Partner Perk
+ */
+export async function deletePartnerPerkAction(
+  perkId: string
+): Promise<{ success: boolean; message: string }> {
+  try {
+    const list = readPartnerPerksStore();
+    const target = list.find((p) => p.id === perkId);
+    const nextList = list.filter((p) => p.id !== perkId);
+    writePartnerPerksStore(nextList);
+    revalidatePath("/super-admin");
+
+    return {
+      success: true,
+      message: `Deleted perk campaign "${target?.title || perkId}".`,
+    };
+  } catch (err: any) {
+    console.error("deletePartnerPerkAction error:", err);
+    return { success: false, message: err.message || "Failed to delete perk." };
+  }
+}
+
+/**
+ * Toggle Active status for a Partner Perk
+ */
+export async function togglePartnerPerkStatusAction(
+  perkId: string,
+  active: boolean
+): Promise<{ success: boolean; message: string }> {
+  try {
+    const list = readPartnerPerksStore();
+    const nextList = list.map((p) => (p.id === perkId ? { ...p, active, updatedAt: new Date().toISOString() } : p));
+    writePartnerPerksStore(nextList);
+    revalidatePath("/super-admin");
+
+    return {
+      success: true,
+      message: `Campaign is now ${active ? "ACTIVE" : "PAUSED"}.`,
+    };
+  } catch (err: any) {
+    console.error("togglePartnerPerkStatusAction error:", err);
+    return { success: false, message: err.message };
+  }
+}
+
+/**
+ * Track Impression or Click for a Partner Perk
+ */
+export async function trackPerkInteractionAction(
+  perkId: string,
+  type: "impression" | "click"
+): Promise<{ success: boolean }> {
+  try {
+    const list = readPartnerPerksStore();
+    const nextList = list.map((p) => {
+      if (p.id === perkId) {
+        return {
+          ...p,
+          impressionsCount: type === "impression" ? (p.impressionsCount || 0) + 1 : p.impressionsCount,
+          clicksCount: type === "click" ? (p.clicksCount || 0) + 1 : p.clicksCount,
+        };
+      }
+      return p;
+    });
+    writePartnerPerksStore(nextList);
+    return { success: true };
+  } catch {
+    return { success: false };
   }
 }
 

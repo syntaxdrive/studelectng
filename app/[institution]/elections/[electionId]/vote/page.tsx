@@ -30,6 +30,7 @@ import { accreditVoterAction } from "@/app/actions/accredit";
 import { castBallotAction } from "@/app/actions/vote";
 import { getElectionPostsAndCandidatesAction } from "@/app/actions/candidates";
 import { verifyElectionExistsAction } from "@/app/actions/student-register";
+import { StudentPerkCard } from "@/app/_components/StudentPerkCard";
 
 export default function VotingPage({
   params,
@@ -674,6 +675,13 @@ export default function VotingPage({
               </button>
             </div>
           </div>
+
+          {/* Friendly, Non-Disruptive Campus Partner Perk */}
+          <StudentPerkCard
+            placement="POST_VOTE_RECEIPT"
+            institutionSlug={resolvedParams.institution}
+            className="my-3 text-left"
+          />
 
           <div className="flex items-center justify-center gap-3 pt-2 text-xs">
             <Link

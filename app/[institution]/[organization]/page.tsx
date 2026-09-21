@@ -15,6 +15,7 @@ import {
 } from "@/app/actions/student-register";
 import { getElectionPostsAndCandidatesAction } from "@/app/actions/candidates";
 import { validateAndNormalizeNigerianPhone } from "@/lib/phone-normalizer";
+import { StudentPerkCard } from "@/app/_components/StudentPerkCard";
 import { useLiveElection } from "@/lib/hooks/use-live-election";
 import { QRCodeSVG } from "qrcode.react";
 import {
@@ -1733,6 +1734,13 @@ export default function OrganizationPortalPage({
                         <span>Send to WhatsApp</span>
                       </a>
                     </div>
+
+                    {/* Friendly, Non-Disruptive Campus Partner Perk */}
+                    <StudentPerkCard
+                      placement="PIN_REGISTRATION"
+                      institutionSlug={instSlug}
+                      className="my-3 text-left"
+                    />
 
                     {/* PIN recovery note */}
                     <div className="text-[11px] text-zinc-500 border-t border-zinc-100 pt-3">
