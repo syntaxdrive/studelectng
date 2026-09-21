@@ -190,6 +190,15 @@ export default function InstitutionAdminPage({
   const [voterSearch, setVoterSearch] = useState("");
   const [currentAdminUser, setCurrentAdminUser] = useState<any | null>(null);
 
+  // ── Voter PIN Slips Search & Filter State ────────────────────────────────────
+  const [pinSearchQuery, setPinSearchQuery] = useState("");
+  const [pinLevelFilter, setPinLevelFilter] = useState<number | "ALL">("ALL");
+  const [pinStatusFilter, setPinStatusFilter] = useState<"ALL" | "ASSIGNED" | "MISSING">("ALL");
+  const [copiedPinMatric, setCopiedPinMatric] = useState<string | null>(null);
+  const [copiedSlipMatric, setCopiedSlipMatric] = useState<string | null>(null);
+  const [visiblePinLimit, setVisiblePinLimit] = useState(48);
+  const [printMode, setPrintMode] = useState<"CERTIFICATE" | "PIN_SLIPS">("CERTIFICATE");
+
   // New Post Modal State
   const [isAddPostModalOpen, setIsAddPostModalOpen] = useState(false);
   const [newPostTitle, setNewPostTitle] = useState("");
@@ -878,6 +887,27 @@ export default function InstitutionAdminPage({
     if (levelCounts[s.level] !== undefined) levelCounts[s.level]++;
   });
   const maxLevelCount = Math.max(...Object.values(levelCounts), 1);
+
+  // Filtered Voter Access PIN Slips (excludes staff/admin, filters by name, matric, dept, pin, level, status)
+  const filteredPinSlips = voterRoll.filter((s) => {
+    if (s.isAdmin) return false;
+    const q = pinSearchQuery.toLowerCase().trim();
+    const matchSearch =
+      !q ||
+      s.fullName?.toLowerCase().includes(q) ||
+      s.matricNo?.toLowerCase().includes(q) ||
+      s.department?.toLowerCase().includes(q) ||
+      s.portalPin?.toLowerCase().includes(q);
+
+    const matchLevel = pinLevelFilter === "ALL" || s.level === pinLevelFilter;
+
+    const matchStatus =
+      pinStatusFilter === "ALL" ||
+      (pinStatusFilter === "ASSIGNED" && !!s.portalPin) ||
+      (pinStatusFilter === "MISSING" && !s.portalPin);
+
+    return matchSearch && matchLevel && matchStatus;
+  });
 
   // Image Upload handler for Candidate Photo
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -3471,44 +3501,308 @@ export default function InstitutionAdminPage({
       {/* TAB: VOTER PIN SLIPS                                                      */}
       {/* ========================================================================= */}
       {activeTab === "PINS" && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
+        <div className="space-y-5 animate-in fade-in duration-150">
+          {/* Header & Export Actions */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 rounded-2xl bg-white border border-zinc-200 shadow-xs">
             <div>
-              <h2 className="text-base font-bold text-zinc-900">Pre-Generated Voter Access PINs</h2>
-              <p className="text-xs text-zinc-500">
-                Export 8-character voter PIN scratch slips for offline accreditation verification.
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-indigo-500" />
+                <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-zinc-500">
+                  OFFLINE ACCREDITATION DESK
+                </span>
+              </div>
+              <h2 className="text-xl font-bold text-zinc-900 mt-1">Pre-Generated Voter Access PIN Slips</h2>
+              <p className="text-xs text-zinc-500 mt-0.5">
+                Search student names, inspect credentials, and print or export 8-character voter PIN scratch slips for manual accreditation.
               </p>
             </div>
 
-            <button
-              type="button"
-              onClick={() => exportVoterPinsToExcel(voterRoll, resolvedParams.institution)}
-              className="px-4 py-2 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-xs"
-            >
-              <FileDown className="w-3.5 h-3.5" />
-              <span>Export PIN Slips (Excel)</span>
-            </button>
+            <div className="flex flex-wrap items-center gap-2 flex-shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  setPrintMode("PIN_SLIPS");
+                  setIsPreviewPrintOpen(false);
+                  setTimeout(() => window.print(), 150);
+                }}
+                className="px-3.5 py-2 rounded-lg border border-zinc-300 hover:bg-zinc-100 text-zinc-700 text-xs font-bold transition flex items-center gap-1.5 shadow-2xs bg-white"
+                title="Print physical paper slip cut-outs"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                <span>Print Slips</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() =>
+                  exportVoterPinsToExcel(
+                    filteredPinSlips.length > 0 ? filteredPinSlips : voterRoll,
+                    resolvedParams.institution
+                  )
+                }
+                className="px-4 py-2 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-xs"
+              >
+                <FileDown className="w-3.5 h-3.5" />
+                <span>
+                  {pinSearchQuery.trim() || pinLevelFilter !== "ALL" || pinStatusFilter !== "ALL"
+                    ? `Export Filtered (${filteredPinSlips.length})`
+                    : "Export PIN Slips (Excel)"}
+                </span>
+              </button>
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-            {voterRoll.slice(0, 12).map((s) => (
-              <div
-                key={s.matricNo}
-                className="p-3.5 rounded-xl bg-white border border-zinc-200 space-y-2 text-xs"
-              >
-                <div className="flex items-center justify-between border-b border-zinc-100 pb-2">
-                  <span className="font-bold text-zinc-900 truncate">{s.fullName}</span>
-                  <span className="font-mono text-[10px] text-zinc-500">{s.matricNo}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-semibold text-zinc-400 uppercase">ACCESS PIN:</span>
-                  <span className="font-mono font-bold text-sm bg-zinc-100 px-2 py-0.5 rounded text-zinc-900">
-                    {s.portalPin || "—"}
-                  </span>
-                </div>
+          {/* Search Bar & Multi-Filter Toolbar */}
+          <div className="p-4 rounded-xl bg-zinc-50 border border-zinc-200 space-y-3 text-xs">
+            <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+              {/* Primary Search Bar */}
+              <div className="relative sm:col-span-7">
+                <Search className="w-4 h-4 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="text"
+                  placeholder="Search student by name, matric no, department, or PIN..."
+                  value={pinSearchQuery}
+                  onChange={(e) => {
+                    setPinSearchQuery(e.target.value);
+                    setVisiblePinLimit(48);
+                  }}
+                  className="w-full pl-9 pr-9 py-2.5 rounded-lg bg-white border border-zinc-300 text-xs focus:ring-1 focus:ring-zinc-900 focus:outline-none"
+                />
+                {pinSearchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setPinSearchQuery("")}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-zinc-600 rounded"
+                    title="Clear search"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
               </div>
-            ))}
+
+              {/* Level Filter */}
+              <div className="sm:col-span-3">
+                <select
+                  value={pinLevelFilter}
+                  onChange={(e) => {
+                    setPinLevelFilter(e.target.value === "ALL" ? "ALL" : Number(e.target.value));
+                    setVisiblePinLimit(48);
+                  }}
+                  className="w-full px-3 py-2.5 rounded-lg bg-white border border-zinc-300 text-xs font-medium focus:ring-1 focus:ring-zinc-900 focus:outline-none"
+                >
+                  <option value="ALL">All Academic Levels</option>
+                  <option value={100}>100 Level Only</option>
+                  <option value={200}>200 Level Only</option>
+                  <option value={300}>300 Level Only</option>
+                  <option value={400}>400 Level Only</option>
+                  <option value={500}>500 Level Only</option>
+                </select>
+              </div>
+
+              {/* PIN Status Filter */}
+              <div className="sm:col-span-2">
+                <select
+                  value={pinStatusFilter}
+                  onChange={(e) => {
+                    setPinStatusFilter(e.target.value as any);
+                    setVisiblePinLimit(48);
+                  }}
+                  className="w-full px-3 py-2.5 rounded-lg bg-white border border-zinc-300 text-xs font-medium focus:ring-1 focus:ring-zinc-900 focus:outline-none"
+                >
+                  <option value="ALL">All Statuses</option>
+                  <option value="ASSIGNED">PIN Issued</option>
+                  <option value="MISSING">No PIN</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Results Count & Reset Link */}
+            <div className="flex items-center justify-between text-[11px] pt-1 border-t border-zinc-200/60">
+              <div className="flex items-center gap-2 text-zinc-500">
+                <span>
+                  Showing <strong className="text-zinc-900">{Math.min(filteredPinSlips.length, visiblePinLimit)}</strong> of{" "}
+                  <strong className="text-zinc-900">{filteredPinSlips.length}</strong> matching voter PIN slips
+                  {studentVoters.length !== filteredPinSlips.length && (
+                    <span className="text-zinc-400"> (filtered from {studentVoters.length} total voters)</span>
+                  )}
+                </span>
+              </div>
+
+              {(pinSearchQuery || pinLevelFilter !== "ALL" || pinStatusFilter !== "ALL") && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPinSearchQuery("");
+                    setPinLevelFilter("ALL");
+                    setPinStatusFilter("ALL");
+                    setVisiblePinLimit(48);
+                  }}
+                  className="text-zinc-700 hover:text-zinc-900 font-semibold underline underline-offset-2 flex items-center gap-1"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  <span>Reset filters</span>
+                </button>
+              )}
+            </div>
           </div>
+
+          {/* Cards Grid */}
+          {filteredPinSlips.length === 0 ? (
+            <div className="p-12 text-center bg-white border border-zinc-200 rounded-xl space-y-3">
+              <div className="w-12 h-12 rounded-full bg-zinc-100 flex items-center justify-center mx-auto text-zinc-400">
+                <Search className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-zinc-900">No matching voter PIN slips found</h3>
+                <p className="text-xs text-zinc-500 max-w-sm mx-auto mt-1">
+                  {pinSearchQuery
+                    ? `No students found matching "${pinSearchQuery}". Check for typos or search by matriculation number.`
+                    : "No voter records found under this filter criteria."}
+                </p>
+              </div>
+              {(pinSearchQuery || pinLevelFilter !== "ALL" || pinStatusFilter !== "ALL") && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPinSearchQuery("");
+                    setPinLevelFilter("ALL");
+                    setPinStatusFilter("ALL");
+                  }}
+                  className="px-4 py-2 rounded-lg bg-zinc-900 text-white text-xs font-bold hover:bg-zinc-800 transition"
+                >
+                  Clear Filters & Show All Slips
+                </button>
+              )}
+            </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 gap-3.5">
+                {filteredPinSlips.slice(0, visiblePinLimit).map((s) => {
+                  const isCopied = copiedPinMatric === s.matricNo;
+                  const isSlipCopied = copiedSlipMatric === s.matricNo;
+
+                  return (
+                    <div
+                      key={s.matricNo}
+                      className="p-4 rounded-xl bg-white border border-zinc-200 hover:border-zinc-300 shadow-2xs hover:shadow-xs transition space-y-3 text-xs relative group"
+                    >
+                      {/* Top Row: Name & Matric */}
+                      <div className="flex items-start justify-between gap-2 border-b border-zinc-100 pb-2.5">
+                        <div className="min-w-0">
+                          <h4 className="font-bold text-zinc-900 text-sm truncate" title={s.fullName}>
+                            {s.fullName}
+                          </h4>
+                          <p className="text-[11px] text-zinc-500 truncate mt-0.5">
+                            {s.level ? `${s.level}L • ` : ""}{s.department || "General Member"}
+                          </p>
+                        </div>
+                        <span className="font-mono text-[11px] font-semibold text-zinc-700 bg-zinc-100 px-2 py-0.5 rounded flex-shrink-0">
+                          {s.matricNo}
+                        </span>
+                      </div>
+
+                      {/* Access PIN Box */}
+                      <div className="bg-zinc-50 p-3 rounded-lg border border-zinc-200/80 flex items-center justify-between gap-2">
+                        <div>
+                          <span className="text-[9px] font-bold uppercase tracking-wider text-zinc-400 block font-mono">
+                            VOTER ACCESS PIN
+                          </span>
+                          <span className="font-mono font-extrabold text-base tracking-widest text-zinc-900">
+                            {s.portalPin || "—"}
+                          </span>
+                        </div>
+
+                        {s.portalPin && (
+                          <div className="flex items-center gap-1 flex-shrink-0">
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                await safeCopyToClipboard(s.portalPin);
+                                setCopiedPinMatric(s.matricNo);
+                                setTimeout(() => setCopiedPinMatric(null), 2000);
+                              }}
+                              className={`p-1.5 rounded-md border text-xs font-semibold transition flex items-center gap-1 ${
+                                isCopied
+                                  ? "bg-emerald-50 border-emerald-300 text-emerald-700"
+                                  : "bg-white border-zinc-200 hover:bg-zinc-100 text-zinc-700"
+                              }`}
+                              title="Copy PIN only"
+                            >
+                              {isCopied ? (
+                                <>
+                                  <Check className="w-3.5 h-3.5 text-emerald-600" />
+                                  <span className="text-[10px]">Copied</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Copy className="w-3.5 h-3.5 text-zinc-500" />
+                                  <span className="text-[10px]">PIN</span>
+                                </>
+                              )}
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                const slipText =
+                                  `*${activeOrgSlug.toUpperCase()} ELCOM VOTER PIN SLIP*\n\n` +
+                                  `👤 Voter: ${s.fullName}\n` +
+                                  `🎓 Matric No: ${s.matricNo}\n` +
+                                  `🔑 Access PIN: ${s.portalPin}\n\n` +
+                                  `⚠️ Keep this PIN private. Required to cast your official ballot.`;
+                                await safeCopyToClipboard(slipText);
+                                setCopiedSlipMatric(s.matricNo);
+                                setTimeout(() => setCopiedSlipMatric(null), 2000);
+                              }}
+                              className={`p-1.5 rounded-md border text-xs font-semibold transition flex items-center gap-1 ${
+                                isSlipCopied
+                                  ? "bg-emerald-50 border-emerald-300 text-emerald-700"
+                                  : "bg-white border-zinc-200 hover:bg-zinc-100 text-zinc-700"
+                              }`}
+                              title="Copy complete formatted slip message for WhatsApp / SMS"
+                            >
+                              {isSlipCopied ? (
+                                <Check className="w-3.5 h-3.5 text-emerald-600" />
+                              ) : (
+                                <Share2 className="w-3.5 h-3.5 text-zinc-500" />
+                              )}
+                              <span className="text-[10px]">Slip</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Footer Info / Status */}
+                      <div className="flex items-center justify-between text-[10px] text-zinc-400 font-mono">
+                        <span>
+                          STATUS:{" "}
+                          <strong className={s.duesPaid ? "text-emerald-600" : "text-amber-600"}>
+                            {s.duesPaid ? "CLEARED" : "DUES PENDING"}
+                          </strong>
+                        </span>
+                        <span className="text-zinc-400">
+                          {s.programType || "REGULAR"}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Show More Pagination */}
+              {filteredPinSlips.length > visiblePinLimit && (
+                <div className="text-center pt-4">
+                  <button
+                    type="button"
+                    onClick={() => setVisiblePinLimit((prev) => prev + 48)}
+                    className="px-5 py-2.5 rounded-lg border border-zinc-300 hover:bg-zinc-100 text-zinc-800 text-xs font-bold transition shadow-xs bg-white"
+                  >
+                    Load More PIN Slips ({filteredPinSlips.length - visiblePinLimit} remaining)
+                  </button>
+                </div>
+              )}
+            </>
+          )}
         </div>
       )}
 
@@ -4313,6 +4607,7 @@ export default function InstitutionAdminPage({
                 <button
                   type="button"
                   onClick={() => {
+                    setPrintMode("CERTIFICATE");
                     setIsPreviewPrintOpen(false);
                     setTimeout(() => window.print(), 300);
                   }}
@@ -4528,10 +4823,65 @@ export default function InstitutionAdminPage({
       )}
 
       {/* ========================================================================= */}
+      {/* PRINT-ONLY: PHYSICAL VOTER PIN SCRATCH SLIPS CUT-OUTS                     */}
+      {/* ========================================================================= */}
+      {printMode === "PIN_SLIPS" && (
+        <div className="print-only hidden print:block bg-white text-black p-4 font-sans text-xs space-y-4">
+          <div className="border-b-2 border-black pb-3 text-center space-y-1">
+            <h1 className="text-base font-extrabold uppercase tracking-tight text-black">
+              {instSlug.toUpperCase()} UNIVERSITY • {activeOrgSlug.toUpperCase()} ELCOM
+            </h1>
+            <p className="text-[11px] font-bold uppercase text-zinc-700">
+              Official Voter Access PIN Scratch Slips
+            </p>
+            <div className="flex items-center justify-between text-[9px] font-mono text-zinc-600 pt-1">
+              <span>TOTAL SLIPS: {filteredPinSlips.length}</span>
+              <span suppressHydrationWarning>DATE: {new Date().toLocaleDateString("en-NG")}</span>
+              <span>CONFIDENTIAL • SINGLE BALLOT ISSUANCE</span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-3">
+            {filteredPinSlips.map((s) => (
+              <div
+                key={s.matricNo}
+                className="border-2 border-dashed border-zinc-400 p-3 rounded-lg space-y-2 page-break-inside-avoid text-left"
+              >
+                <div className="flex items-start justify-between border-b border-zinc-300 pb-1.5 gap-1">
+                  <div className="min-w-0">
+                    <p className="font-bold text-[11px] truncate uppercase text-black">{s.fullName}</p>
+                    <p className="text-[9px] text-zinc-600 truncate">{s.department || "General Member"}</p>
+                  </div>
+                  <span className="font-mono text-[9px] font-bold bg-zinc-100 px-1.5 py-0.5 rounded border border-zinc-300 flex-shrink-0">
+                    {s.matricNo}
+                  </span>
+                </div>
+
+                <div className="bg-zinc-100 p-2 rounded border border-zinc-300 text-center">
+                  <span className="text-[8px] font-mono font-bold uppercase tracking-widest text-zinc-600 block">
+                    VOTER ACCESS PIN
+                  </span>
+                  <span className="font-mono font-extrabold text-sm tracking-widest text-black block mt-0.5">
+                    {s.portalPin || "—"}
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between text-[8px] font-mono text-zinc-500 pt-0.5 border-t border-zinc-200">
+                  <span>{s.level}L • {activeOrgSlug.toUpperCase()}</span>
+                  <span>Keep Confidential</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
       {/* PRINT-ONLY: OFFICIAL CERTIFIED RESULTS RETURN SHEET                       */}
       {/* Strictly rendered during physical printing or browser PDF export           */}
       {/* ========================================================================= */}
-      <div className="print-only hidden print:block bg-white text-black p-6 font-sans text-xs space-y-6">
+      {printMode === "CERTIFICATE" && (
+        <div className="print-only hidden print:block bg-white text-black p-6 font-sans text-xs space-y-6">
         {/* Official Header */}
         <div className="border-b-2 border-black pb-4 text-center space-y-1">
           <div className="flex items-center justify-center gap-3 mb-2">
@@ -4726,6 +5076,7 @@ export default function InstitutionAdminPage({
           </div>
         </div>
       </div>
+      )}
     </>
   );
 }
