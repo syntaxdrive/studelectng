@@ -18,6 +18,7 @@ build
 
 # Data stores — live runtime state, not tracked in source control
 data/*.json
+!data/partner-perks-store.json
 
 # Debug / Logs
 npm-debug.log*
