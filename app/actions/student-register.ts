@@ -131,11 +131,19 @@ export async function registerStudentAccountAction(input: StudentRegisterInput) 
   const dept = (input.department || "General Studies").trim();
 
   try {
-    // 0. Strict Whitelist Enforcement Check (if enabled by ELCOM)
+    // 0. Registration Closure Check (ELCOM Master Switch)
     const cleanOrgSlug = (input.orgSlug || "nesa").toLowerCase().trim();
     const electionId = (input as any).electionId || `elec-${cleanInstSlug}-${cleanOrgSlug}-2026`;
     const rules = await getElectionRulesAction(electionId, cleanInstSlug, cleanOrgSlug);
 
+    if (rules?.registrationOpen === false) {
+      return {
+        success: false,
+        message: "Voter registration has been officially closed by the Electoral Commission (ELCOM). New profiles cannot be created. If you already have a PIN, please sign in to cast your vote.",
+      };
+    }
+
+    // 0b. Strict Whitelist Enforcement Check (if enabled by ELCOM)
     let matchedWhitelist: WhitelistEntry | undefined;
     if (rules?.requireWhitelistMatch) {
       const whitelist = readWhitelistStore(cleanInstSlug, cleanOrgSlug);
@@ -620,6 +628,8 @@ export interface ElectionRulesState {
   isPaymentHalted?: boolean;
   paymentStatus?: "ACTIVE" | "PENDING_PAYMENT" | "LOCKED" | "CONCLUDED" | string;
   autoPauseAt?: string | null;
+  /** When false, students cannot create new accounts — sign-in still works */
+  registrationOpen?: boolean;
 }
 
 const DATA_DIR = path.join(process.cwd(), "data");
@@ -1132,6 +1142,45 @@ export async function updateElectionRulesAction(rules: ElectionRulesState) {
   invalidateCache();
   revalidatePath("/", "layout");
   return { success: true, message: "Election rules and voting restrictions saved successfully." };
+}
+
+/**
+ * Open or close student account registration for an election.
+ * When closed, existing students can still sign in — only new account creation is blocked.
+ */
+export async function toggleRegistrationAction(
+  electionId: string,
+  open: boolean
+): Promise<{ success: boolean; message: string }> {
+  try {
+    const store = readElectionRulesStore();
+    const existing = store[electionId];
+    store[electionId] = {
+      ...(existing || {}),
+      electionId,
+      status: existing?.status || "DRAFT",
+      requireDuesPayment: existing?.requireDuesPayment ?? true,
+      requireGoodDisciplinaryStanding: existing?.requireGoodDisciplinaryStanding ?? true,
+      requireFullTimeOnly: existing?.requireFullTimeOnly ?? false,
+      requireSessionRegistration: existing?.requireSessionRegistration ?? true,
+      allowedLevels: existing?.allowedLevels || [100, 200, 300, 400, 500],
+      authMode: existing?.authMode || "PIN_SLIP",
+      resultsVisibility: existing?.resultsVisibility || "SEALED_UNTIL_CLOSE",
+      registrationOpen: open,
+    };
+    writeElectionRulesStore(store);
+    invalidateCache();
+    revalidatePath("/", "layout");
+    return {
+      success: true,
+      message: open
+        ? "✅ Student registration is now OPEN — new students can create accounts."
+        : "🔒 Student registration is now CLOSED — existing students can still sign in.",
+    };
+  } catch (err: any) {
+    console.error("toggleRegistrationAction error:", err);
+    return { success: false, message: err.message || "Failed to update registration status." };
+  }
 }
 
 /**

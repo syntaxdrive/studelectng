@@ -92,6 +92,7 @@ export default function OrganizationPortalPage({
   const [electionStatus, setElectionStatus] = useState<string>("LIVE");
   const [resultsVisibility, setResultsVisibility] = useState<string>("SEALED_UNTIL_CLOSE");
   const [isPaymentHalted, setIsPaymentHalted] = useState<boolean>(false);
+  const [registrationOpen, setRegistrationOpen] = useState<boolean>(true);
 
   const safeCopyToClipboard = async (text: string) => {
     try {
@@ -355,6 +356,8 @@ export default function OrganizationPortalPage({
           if (rules.status) setElectionStatus(rules.status);
           if (rules.resultsVisibility) setResultsVisibility(rules.resultsVisibility);
           setIsPaymentHalted(!!rules.isPaymentHalted);
+          // registrationOpen defaults to true if not explicitly set
+          setRegistrationOpen(rules.registrationOpen !== false);
         }
       } catch (_) {}
     }
@@ -811,7 +814,27 @@ export default function OrganizationPortalPage({
           }`}
         >
           <Vote className="w-4 h-4" />
-          <span>Cast My Vote</span>
+          <span>1. Sign In & Vote</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab("REGISTER")}
+          className={`px-4 py-2 rounded-lg transition flex items-center gap-1.5 ${
+            activeTab === "REGISTER"
+              ? "bg-zinc-900 text-white shadow-xs"
+              : "text-zinc-600 hover:bg-zinc-100"
+          }`}
+        >
+          <UserPlus className="w-4 h-4" />
+          <span>2. New Voter? Get PIN</span>
+          {!registrationOpen ? (
+            <span className="text-[9px] px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 font-mono font-bold">
+              CLOSED
+            </span>
+          ) : (
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 hidden sm:inline-block" />
+          )}
         </button>
 
         <button
@@ -825,19 +848,6 @@ export default function OrganizationPortalPage({
         >
           <Users className="w-4 h-4" />
           <span>Candidates & Manifestos</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab("REGISTER")}
-          className={`px-4 py-2 rounded-lg transition flex items-center gap-1.5 ${
-            activeTab === "REGISTER"
-              ? "bg-zinc-900 text-white shadow-xs"
-              : "text-zinc-600 hover:bg-zinc-100"
-          }`}
-        >
-          <UserPlus className="w-4 h-4" />
-          <span>New Voter? Get PIN</span>
         </button>
 
         <button
@@ -861,7 +871,35 @@ export default function OrganizationPortalPage({
         <div className="space-y-6">
           {/* STEP 1: LOGIN WITH MATRIC + PIN */}
           {voteStep === "LOGIN" && (
-            <div className="space-y-6 max-w-xl mx-auto">
+            <div className="space-y-4 max-w-xl mx-auto">
+              {/* High-Visibility Segmented Switcher: Sign In vs Get PIN */}
+              <div className="grid grid-cols-2 p-1 bg-zinc-100 rounded-xl border border-zinc-200 text-xs font-bold">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab("VOTE");
+                    setVoteStep("LOGIN");
+                  }}
+                  className="py-2.5 px-3 rounded-lg bg-white text-zinc-900 shadow-xs flex items-center justify-center gap-1.5 transition"
+                >
+                  <Key className="w-3.5 h-3.5 text-zinc-900" />
+                  <span>1. Sign In & Vote</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("REGISTER")}
+                  className="py-2.5 px-3 rounded-lg text-zinc-600 hover:text-zinc-900 hover:bg-zinc-200/50 flex items-center justify-center gap-1.5 transition"
+                >
+                  <UserPlus className="w-3.5 h-3.5 text-amber-600" />
+                  <span>2. New Voter? Get PIN</span>
+                  {registrationOpen ? (
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 hidden sm:inline-block" />
+                  ) : (
+                    <span className="text-[9px] px-1 rounded bg-rose-100 text-rose-800 font-mono">CLOSED</span>
+                  )}
+                </button>
+              </div>
+
               <div className="bg-white p-6 sm:p-8 rounded-2xl border border-zinc-200 shadow-sm space-y-6 text-xs">
                 <div className="text-center space-y-1.5">
                   <div className="w-12 h-12 rounded-xl bg-zinc-100 border border-zinc-200 flex items-center justify-center mx-auto text-zinc-900">
@@ -990,15 +1028,35 @@ export default function OrganizationPortalPage({
                   </button>
                 </form>
 
-                <div className="text-center pt-2 border-t border-zinc-100">
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab("REGISTER")}
-                    className="text-xs text-zinc-600 hover:text-zinc-900 font-semibold underline"
-                  >
-                    Don't have a PIN? Click here to activate your student voter profile →
-                  </button>
-                </div>
+                {/* High-Visibility "Don't have a PIN?" Action Banner */}
+                {registrationOpen ? (
+                  <div className="p-4 rounded-xl bg-gradient-to-r from-amber-50 via-orange-50/40 to-amber-50 border border-amber-200 text-left flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-1.5 font-bold text-xs text-amber-950">
+                        <Sparkles className="w-3.5 h-3.5 text-amber-600 fill-amber-400" />
+                        <span>First time voter or don't have a PIN?</span>
+                      </div>
+                      <p className="text-[11px] text-amber-800 leading-snug">
+                        Activate your student profile in 30 seconds to generate your official voting PIN.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab("REGISTER")}
+                      className="px-4 py-2.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white font-bold text-xs transition flex items-center justify-center gap-1.5 shrink-0 shadow-xs"
+                    >
+                      <UserPlus className="w-3.5 h-3.5 text-amber-300" />
+                      <span>Create Account / Get PIN →</span>
+                    </button>
+                  </div>
+                ) : (
+                  <div className="p-3.5 rounded-xl bg-zinc-100 border border-zinc-200 text-left flex items-center gap-2.5 text-zinc-600 text-[11px]">
+                    <Lock className="w-4 h-4 text-zinc-500 shrink-0" />
+                    <span>
+                      <strong>Voter Registration Closed:</strong> The Electoral Commission has closed new account creation. If you already have your PIN, sign in above to vote.
+                    </span>
+                  </div>
+                )}
 
                 {elcomContact && (
                   <div className="pt-3 border-t border-zinc-100">
@@ -1629,8 +1687,83 @@ export default function OrganizationPortalPage({
       {/* TAB 3: FIRST TIME VOTER REGISTRATION / ACTIVATE PIN                      */}
       {/* ========================================================================= */}
       {activeTab === "REGISTER" && (
-        <div className="max-w-xl mx-auto space-y-6">
-          <div className="bg-white p-6 rounded-xl border border-zinc-200 shadow-sm space-y-4 text-xs">
+        <div className="max-w-xl mx-auto space-y-5">
+          {/* High-Visibility Segmented Switcher: Sign In vs Get PIN */}
+          <div className="grid grid-cols-2 p-1 bg-zinc-100 rounded-xl border border-zinc-200 text-xs font-bold">
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab("VOTE");
+                setVoteStep("LOGIN");
+              }}
+              className="py-2.5 px-3 rounded-lg text-zinc-600 hover:text-zinc-900 hover:bg-zinc-200/50 flex items-center justify-center gap-1.5 transition"
+            >
+              <Key className="w-3.5 h-3.5 text-zinc-500" />
+              <span>1. Sign In & Vote</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("REGISTER")}
+              className="py-2.5 px-3 rounded-lg bg-white text-zinc-900 shadow-xs flex items-center justify-center gap-1.5 transition"
+            >
+              <UserPlus className="w-3.5 h-3.5 text-zinc-900" />
+              <span>2. New Voter (Get PIN)</span>
+            </button>
+          </div>
+
+          {/* Quick Notice: Already have a PIN? */}
+          <div className="p-3 px-4 rounded-xl bg-zinc-50 border border-zinc-200 flex items-center justify-between gap-3 text-xs">
+            <span className="text-zinc-600">
+              Already activated your profile or have your PIN?
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab("VOTE");
+                setVoteStep("LOGIN");
+              }}
+              className="font-bold text-zinc-900 hover:text-black underline flex items-center gap-1 shrink-0"
+            >
+              <span>Go to Sign In & Vote →</span>
+            </button>
+          </div>
+
+          {/* ── Registration Closed Gate ─────────────────────────────────────── */}
+          {!registrationOpen ? (
+            <div className="bg-white p-8 rounded-xl border border-zinc-200 shadow-sm text-center space-y-5">
+              <div className="w-14 h-14 rounded-full bg-rose-50 border border-rose-200 flex items-center justify-center mx-auto">
+                <Lock className="w-6 h-6 text-rose-500" />
+              </div>
+              <div>
+                <span className="text-[10px] font-mono font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-rose-50 text-rose-700 border border-rose-200">
+                  Registration Closed
+                </span>
+                <h2 className="text-base font-bold text-zinc-900 mt-3">
+                  Voter Registration is Closed
+                </h2>
+                <p className="text-xs text-zinc-500 mt-2 leading-relaxed max-w-sm mx-auto">
+                  The {currentOrg.name} Electoral Commission has closed new voter registrations.
+                  If you already have a voter PIN, you can still sign in and cast your ballot.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab("VOTE");
+                  setVoteStep("LOGIN");
+                }}
+                className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold transition shadow-xs"
+              >
+                <Key className="w-3.5 h-3.5" />
+                <span>Go to Sign In & Vote</span>
+              </button>
+              <p className="text-[10px] text-zinc-400">
+                Contact your ELCOM desk if you believe this is a mistake.
+              </p>
+            </div>
+          ) : (
+            <>
+              <div className="bg-white p-6 rounded-xl border border-zinc-200 shadow-sm space-y-4 text-xs">
             <div>
               <h2 className="text-base font-bold text-zinc-900">
                 Activate Student Voting Profile
@@ -1945,8 +2078,10 @@ export default function OrganizationPortalPage({
               </div>
             </div>
           )}
-        </div>
+        </>
       )}
+    </div>
+  )}
 
 
       {/* ========================================================================= */}

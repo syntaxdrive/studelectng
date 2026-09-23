@@ -65,6 +65,7 @@ import {
   Share2,
   ExternalLink,
   UserCheck,
+  UserPlus,
   ShieldCheck,
   FileDown,
   CheckCircle2,
@@ -106,6 +107,7 @@ import {
   History,
   LifeBuoy,
   AlertTriangle,
+  Lock,
 } from "lucide-react";
 
 export default function InstitutionAdminPage({
@@ -816,6 +818,21 @@ export default function InstitutionAdminPage({
     setTimeout(() => setAdminActionMessage(null), 5000);
   };
 
+  const handleToggleRegistration = async () => {
+    const isCurrentlyOpen = electionRules.registrationOpen !== false;
+    const willOpen = !isCurrentlyOpen;
+    const msg = willOpen
+      ? "Re-open student registration? New students will be able to create accounts again."
+      : "Close student registration? New account creation will be blocked — existing students can still sign in.";
+    if (!confirm(msg)) return;
+    // Optimistic update
+    setElectionRules((prev) => ({ ...prev, registrationOpen: willOpen }));
+    const { toggleRegistrationAction } = await import("@/app/actions/student-register");
+    const res = await toggleRegistrationAction(electionId, willOpen);
+    setAdminActionMessage(res.message);
+    setTimeout(() => setAdminActionMessage(null), 6000);
+  };
+
   const exportVoterRollCSV = () => {
     const rows = filteredVoters.map((s) => [
       s.matricNo,
@@ -1402,6 +1419,29 @@ export default function InstitutionAdminPage({
             >
               <Clock className="w-3.5 h-3.5 text-zinc-500" />
               <span>Set Timer</span>
+            </button>
+          )}
+
+          {/* Registration Open / Close Toggle */}
+          {electionRules.registrationOpen === false ? (
+            <button
+              type="button"
+              onClick={handleToggleRegistration}
+              className="px-3.5 py-2.5 rounded-lg border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold text-xs transition flex items-center gap-1.5 shadow-2xs"
+              title="Re-open student account registration"
+            >
+              <UserPlus className="w-3.5 h-3.5 text-emerald-600" />
+              <span>Open Registration</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={handleToggleRegistration}
+              className="px-3.5 py-2.5 rounded-lg border border-rose-300 bg-rose-50 hover:bg-rose-100 text-rose-800 font-bold text-xs transition flex items-center gap-1.5 shadow-2xs"
+              title="Close student account registration — existing students can still sign in"
+            >
+              <Lock className="w-3.5 h-3.5 text-rose-600" />
+              <span>Close Registration</span>
             </button>
           )}
         </div>
