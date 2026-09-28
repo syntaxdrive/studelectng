@@ -370,8 +370,28 @@ export default function InstitutionAdminPage({
 
   useEffect(() => {
     async function loadRules() {
+      try {
+        const saved = activeOrgSlug
+          ? localStorage.getItem(`studelect_registration_open_${instSlug}_${activeOrgSlug}`)
+          : localStorage.getItem(`studelect_registration_open_${instSlug}`);
+        if (saved !== null) {
+          setElectionRules((prev) => ({ ...prev, registrationOpen: saved === "true" }));
+        }
+      } catch (_) {}
+
       const res = await getElectionRulesAction(electionId, instSlug, activeOrgSlug);
-      if (res) setElectionRules(res);
+      if (res) {
+        let effectiveReg = res.registrationOpen !== false;
+        try {
+          const saved = activeOrgSlug
+            ? localStorage.getItem(`studelect_registration_open_${instSlug}_${activeOrgSlug}`)
+            : localStorage.getItem(`studelect_registration_open_${instSlug}`);
+          if (saved !== null) {
+            effectiveReg = saved === "true";
+          }
+        } catch (_) {}
+        setElectionRules({ ...res, registrationOpen: effectiveReg });
+      }
     }
     loadRules();
     loadWhitelistData();
@@ -937,15 +957,33 @@ export default function InstitutionAdminPage({
       ? "Re-open student registration? New students will be able to create accounts again."
       : "Close student registration? New account creation will be blocked — existing students can still sign in.";
     if (!confirm(msg)) return;
-    // Optimistic update
+
+    // 1. Optimistic update in React state immediately
     setElectionRules((prev) => ({ ...prev, registrationOpen: willOpen }));
+
+    // 2. Persist in localStorage immediately so it never reverts on render/re-mount
+    try {
+      localStorage.setItem(`studelect_registration_open_${instSlug}`, String(willOpen));
+      if (activeOrgSlug) {
+        localStorage.setItem(`studelect_registration_open_${instSlug}_${activeOrgSlug}`, String(willOpen));
+      }
+    } catch (_) {}
+
+    // 3. Persist to server store and Supabase
     const { toggleRegistrationAction, getElectionRulesAction } = await import("@/app/actions/student-register");
     const res = await toggleRegistrationAction(electionId, willOpen, instSlug, activeOrgSlug);
     setAdminActionMessage(res.message);
     setTimeout(() => setAdminActionMessage(null), 6000);
+
+    // 4. Re-sync other election rule fields from server while strictly keeping registrationOpen = willOpen
     try {
       const refreshed = await getElectionRulesAction(electionId, instSlug, activeOrgSlug);
-      if (refreshed) setElectionRules(refreshed);
+      if (refreshed) {
+        setElectionRules({
+          ...refreshed,
+          registrationOpen: willOpen,
+        });
+      }
     } catch (_) {}
   };
 

@@ -323,6 +323,9 @@ export default function OrganizationPortalPage({
         const savedVisibility = localStorage.getItem(`studelect_results_visibility_${instSlug}_${orgSlug}`);
         if (savedVisibility) setResultsVisibility(savedVisibility);
         else setResultsVisibility("SEALED_UNTIL_CLOSE");
+        const savedReg = localStorage.getItem(`studelect_registration_open_${instSlug}_${orgSlug}`)
+          ?? localStorage.getItem(`studelect_registration_open_${instSlug}`);
+        if (savedReg !== null) setRegistrationOpen(savedReg === "true");
       } catch (_) {}
     }
     loadInst();
@@ -368,8 +371,13 @@ export default function OrganizationPortalPage({
           if (rules.status) setElectionStatus(rules.status);
           if (rules.resultsVisibility) setResultsVisibility(rules.resultsVisibility);
           setIsPaymentHalted(!!rules.isPaymentHalted);
-          // registrationOpen defaults to true if not explicitly set
-          setRegistrationOpen(rules.registrationOpen !== false);
+          let effectiveReg = rules.registrationOpen !== false;
+          try {
+            const savedReg = localStorage.getItem(`studelect_registration_open_${instSlug}_${orgSlug}`)
+              ?? localStorage.getItem(`studelect_registration_open_${instSlug}`);
+            if (savedReg !== null) effectiveReg = savedReg === "true";
+          } catch (_) {}
+          setRegistrationOpen(effectiveReg);
         }
       } catch (_) {}
     }
@@ -402,6 +410,13 @@ export default function OrganizationPortalPage({
         e.newValue
       ) {
         setResultsVisibility(e.newValue);
+      }
+      if (
+        (e.key === `studelect_registration_open_${instSlug}_${orgSlug}` ||
+          e.key === `studelect_registration_open_${instSlug}`) &&
+        e.newValue !== null
+      ) {
+        setRegistrationOpen(e.newValue === "true");
       }
     };
     window.addEventListener("storage", onStorage);

@@ -1340,10 +1340,13 @@ export async function toggleRegistrationAction(
 
     // Sync to Supabase elections table
     try {
-      const { data: elecRecords } = await supabase
-        .from("elections")
-        .select("id, multi_sig_approvals")
-        .in("id", keysToUpdate);
+      let query = supabase.from("elections").select("id, multi_sig_approvals");
+      if (cleanOrg) {
+        query = query.or(`id.in.(${keysToUpdate.join(",")}),id.ilike.%${cleanOrg}%`);
+      } else {
+        query = query.in("id", keysToUpdate);
+      }
+      const { data: elecRecords } = await query;
 
       if (elecRecords && elecRecords.length > 0) {
         for (const rec of elecRecords) {
@@ -1491,9 +1494,9 @@ export async function getElectionRulesAction(
   let baseRules: ElectionRulesState | null = null;
 
   // 1. Local Store First (0ms, 0 Database Connections)
-  // Completely eliminates database connection pool exhaustion when thousands of students poll.
+  // If local store has an explicit registrationOpen flag, return immediately.
   for (const c of candidates) {
-    if (store[c]) {
+    if (store[c] && store[c].registrationOpen !== undefined) {
       return {
         ...store[c],
         registrationOpen: store[c].registrationOpen !== false,
@@ -1501,14 +1504,16 @@ export async function getElectionRulesAction(
     }
   }
 
-  // 2. Cloud Fallback: Query Supabase only if not found in local store (Single batch query, no loop)
+  // 2. Cloud Fallback: Query Supabase
   try {
-    const { data } = await supabase
-      .from("elections")
-      .select("*")
-      .in("id", candidates)
-      .limit(1)
-      .maybeSingle();
+    let query = supabase.from("elections").select("*");
+    if (organizationSlug) {
+      const cleanOrg = organizationSlug.toLowerCase().trim();
+      query = query.or(`id.in.(${candidates.join(",")}),id.ilike.%${cleanOrg}%`);
+    } else {
+      query = query.in("id", candidates);
+    }
+    const { data } = await query.limit(1).maybeSingle();
 
     if (data) {
       const approvals = (data.multi_sig_approvals as any) || {};
