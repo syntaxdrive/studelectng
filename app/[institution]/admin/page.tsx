@@ -451,6 +451,7 @@ export default function InstitutionAdminPage({
           loadAuditLogs(),
           loadWhitelistData(),
           loadPublicContact(),
+          loadVoterRoll(activeOrgSlug),
         ]);
       } else {
         alert("Import failed: " + res.message);
@@ -4288,7 +4289,7 @@ export default function InstitutionAdminPage({
                 Export Complete Election Bundle &amp; Instant 1-Click Restore
               </h3>
               <p className="text-xs text-zinc-400 leading-relaxed">
-                Download a tamper-evident, portable JSON archive of this election — including all contested offices, cleared candidates, cast ballots, vote tallies, voter accreditation states, and ELCOM rules. If ever needed, restore the entire election with one click.
+                Download a tamper-evident, portable JSON archive of this election — including all registered student voter profiles &amp; PIN slips, pre-authorized electorate whitelists, contested offices, cleared candidates, verified cast ballots, audit ledger entries, and ELCOM rules. If ever needed, restore the entire election with one click.
               </p>
             </div>
 
