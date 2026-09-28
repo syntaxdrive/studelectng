@@ -52,12 +52,17 @@ import {
 } from "@/lib/excel/excel-engine";
 import { getRealtimeElectionTelemetryAction } from "@/app/actions/vote";
 import {
+  exportElectionBackupAction,
+  importElectionBackupAction,
+} from "@/app/actions/election-backup";
+import {
   UploadCloud,
   FileSpreadsheet,
   Users,
   Key,
   ShieldAlert,
   Download,
+  Database,
   ArrowLeft,
   Search,
   RefreshCw,
@@ -385,6 +390,77 @@ export default function InstitutionAdminPage({
     setIsSavingContact(false);
     setAdminActionMessage(res.message);
     setTimeout(() => setAdminActionMessage(null), 5000);
+  };
+
+  // ── 1-Click Election Data Backup & Disaster Recovery ───────────────────────
+  const [isExportingBackup, setIsExportingBackup] = useState(false);
+  const [isImportingBackup, setIsImportingBackup] = useState(false);
+
+  const handleExportBackup = async () => {
+    setIsExportingBackup(true);
+    try {
+      const res = await exportElectionBackupAction(
+        electionId,
+        activeOrgSlug || "nesa",
+        instSlug
+      );
+      if (res.success && res.bundle) {
+        const jsonStr = JSON.stringify(res.bundle, null, 2);
+        const blob = new Blob([jsonStr], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        const orgName = (activeOrgSlug || "nesa").toUpperCase();
+        a.download = `StudElect_Backup_${instSlug.toUpperCase()}_${orgName}_${new Date().toISOString().slice(0, 10)}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        setAdminActionMessage(`✅ Full election backup exported for ${orgName}!`);
+        setTimeout(() => setAdminActionMessage(null), 5000);
+      } else {
+        alert(res.message || "Failed to export backup.");
+      }
+    } catch (err: any) {
+      alert("Export failed: " + (err.message || String(err)));
+    } finally {
+      setIsExportingBackup(false);
+    }
+  };
+
+  const handleImportBackup = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (
+      !confirm(
+        `Are you sure you want to restore election data from "${file.name}"? This will restore candidates, posts, ballots, and configuration for this election.`
+      )
+    ) {
+      e.target.value = "";
+      return;
+    }
+    setIsImportingBackup(true);
+    try {
+      const text = await file.text();
+      const res = await importElectionBackupAction(text);
+      if (res.success) {
+        setAdminActionMessage(res.message);
+        setTimeout(() => setAdminActionMessage(null), 8000);
+        await Promise.all([
+          loadTelemetry(),
+          loadAuditLogs(),
+          loadWhitelistData(),
+          loadPublicContact(),
+        ]);
+      } else {
+        alert("Import failed: " + res.message);
+      }
+    } catch (err: any) {
+      alert("Failed to read backup file: " + (err.message || String(err)));
+    } finally {
+      setIsImportingBackup(false);
+      e.target.value = "";
+    }
   };
 
   useEffect(() => {
@@ -1301,6 +1377,33 @@ export default function InstitutionAdminPage({
               </button>
             </div>
           )}
+
+          {/* Export & Restore Backup Buttons */}
+          <button
+            type="button"
+            onClick={handleExportBackup}
+            disabled={isExportingBackup}
+            className="px-3.5 py-2 rounded-lg border border-zinc-300 hover:bg-zinc-100 text-zinc-700 text-xs font-semibold transition flex items-center gap-1.5 shadow-xs disabled:opacity-50"
+            title="Export full election data (candidates, ballots, rules, assignments) as a portable JSON backup file"
+          >
+            <Download className="w-3.5 h-3.5 text-zinc-600" />
+            <span>{isExportingBackup ? "Exporting..." : "Export Backup"}</span>
+          </button>
+
+          <label
+            className="px-3.5 py-2 rounded-lg border border-zinc-300 hover:bg-zinc-100 text-zinc-700 text-xs font-semibold cursor-pointer transition flex items-center gap-1.5 shadow-xs"
+            title="Restore election data in 1-click from a previously saved JSON backup file"
+          >
+            <UploadCloud className="w-3.5 h-3.5 text-zinc-600" />
+            <span>{isImportingBackup ? "Restoring..." : "Restore Backup"}</span>
+            <input
+              type="file"
+              accept=".json,application/json"
+              onChange={handleImportBackup}
+              disabled={isImportingBackup}
+              className="hidden"
+            />
+          </label>
 
           <label className="px-3.5 py-2 rounded-lg border border-zinc-300 hover:bg-zinc-100 text-zinc-700 text-xs font-semibold cursor-pointer transition flex items-center gap-1.5 shadow-xs">
             <ImageIcon className="w-3.5 h-3.5 text-zinc-600" />
@@ -4169,6 +4272,50 @@ export default function InstitutionAdminPage({
                 <ShieldCheck className="w-4 h-4" />
                 <span>SHA-256 Valid</span>
               </div>
+            </div>
+          </div>
+
+          {/* Electoral Data Vault & 1-Click Disaster Recovery Card */}
+          <div className="p-6 rounded-2xl bg-zinc-900 text-white border border-zinc-800 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-6">
+            <div className="space-y-1.5 max-w-xl">
+              <div className="flex items-center gap-2">
+                <Database className="w-4 h-4 text-emerald-400" />
+                <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-emerald-400">
+                  ELECTORAL DATA VAULT &amp; DISASTER RECOVERY
+                </span>
+              </div>
+              <h3 className="text-base font-bold text-white">
+                Export Complete Election Bundle &amp; Instant 1-Click Restore
+              </h3>
+              <p className="text-xs text-zinc-400 leading-relaxed">
+                Download a tamper-evident, portable JSON archive of this election — including all contested offices, cleared candidates, cast ballots, vote tallies, voter accreditation states, and ELCOM rules. If ever needed, restore the entire election with one click.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2.5 flex-shrink-0">
+              <button
+                type="button"
+                onClick={handleExportBackup}
+                disabled={isExportingBackup}
+                className="px-4 py-2.5 rounded-xl bg-white hover:bg-zinc-100 text-zinc-900 text-xs font-bold transition flex items-center gap-2 shadow-xs disabled:opacity-50"
+              >
+                <Download className="w-4 h-4 text-zinc-900" />
+                <span>{isExportingBackup ? "Generating Vault..." : "Export Full Backup"}</span>
+              </button>
+
+              <label
+                className="px-4 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-bold cursor-pointer transition flex items-center gap-2 border border-zinc-700 shadow-xs"
+              >
+                <UploadCloud className="w-4 h-4 text-emerald-400" />
+                <span>{isImportingBackup ? "Restoring Vault..." : "Restore Backup (.JSON)"}</span>
+                <input
+                  type="file"
+                  accept=".json,application/json"
+                  onChange={handleImportBackup}
+                  disabled={isImportingBackup}
+                  className="hidden"
+                />
+              </label>
             </div>
           </div>
 
