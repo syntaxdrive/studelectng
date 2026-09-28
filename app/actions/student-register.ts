@@ -1234,7 +1234,17 @@ export async function updateResultsVisibilityAction(
  */
 export async function updateElectionRulesAction(rules: ElectionRulesState) {
   const store = readElectionRulesStore();
-  store[rules.electionId] = rules;
+  const existing = store[rules.electionId];
+  const finalRules: ElectionRulesState = {
+    ...rules,
+    registrationOpen:
+      rules.registrationOpen !== undefined
+        ? rules.registrationOpen
+        : existing?.registrationOpen !== undefined
+        ? existing.registrationOpen
+        : true,
+  };
+  store[rules.electionId] = finalRules;
 
   // NOTE: Do NOT write short-name alias keys — they cause cross-org rule/status bleed.
   // Only write the exact electionId key.
@@ -1242,6 +1252,14 @@ export async function updateElectionRulesAction(rules: ElectionRulesState) {
   writeElectionRulesStore(store);
 
   try {
+    const { data: existingElec } = await supabase
+      .from("elections")
+      .select("multi_sig_approvals")
+      .eq("id", rules.electionId)
+      .maybeSingle();
+
+    const currentApprovals = (existingElec?.multi_sig_approvals as any) || {};
+
     await supabase.from("elections").upsert({
       id: rules.electionId,
       status: rules.status,
@@ -1250,6 +1268,10 @@ export async function updateElectionRulesAction(rules: ElectionRulesState) {
       require_full_time_only: rules.requireFullTimeOnly,
       auth_mode: rules.authMode,
       results_visibility: rules.resultsVisibility,
+      multi_sig_approvals: {
+        ...currentApprovals,
+        registrationOpen: finalRules.registrationOpen,
+      },
     });
   } catch (_) {}
 
@@ -1261,30 +1283,117 @@ export async function updateElectionRulesAction(rules: ElectionRulesState) {
 /**
  * Open or close student account registration for an election.
  * When closed, existing students can still sign in — only new account creation is blocked.
+ * Persists to both local store (with aliases) and Supabase database.
  */
 export async function toggleRegistrationAction(
   electionId: string,
-  open: boolean
+  open: boolean,
+  institutionSlug?: string,
+  organizationSlug?: string
 ): Promise<{ success: boolean; message: string }> {
   try {
+    const cleanInst = (institutionSlug || "").toLowerCase().trim().replace(/^inst-/, "");
+    const cleanOrg = (organizationSlug || "").toLowerCase().trim().replace(/^org-/, "");
+
+    const keysToUpdate = Array.from(
+      new Set(
+        [
+          electionId,
+          cleanInst && cleanOrg ? `elec-${cleanInst}-${cleanOrg}-2026` : null,
+          cleanInst && cleanOrg ? `elec-${cleanOrg}-${cleanInst}-2026` : null,
+          cleanOrg ? `elec-${cleanOrg}-2026` : null,
+          cleanInst ? `elec-${cleanInst}-2026` : null,
+          electionId ? electionId.replace(/^elec-/, "").replace(/-2026$/, "") : null,
+        ].filter(Boolean) as string[]
+      )
+    );
+
     const store = readElectionRulesStore();
-    const existing = store[electionId];
-    store[electionId] = {
-      ...(existing || {}),
-      electionId,
-      status: existing?.status || "DRAFT",
-      requireDuesPayment: existing?.requireDuesPayment ?? true,
-      requireGoodDisciplinaryStanding: existing?.requireGoodDisciplinaryStanding ?? true,
-      requireFullTimeOnly: existing?.requireFullTimeOnly ?? false,
-      requireSessionRegistration: existing?.requireSessionRegistration ?? true,
-      allowedLevels: existing?.allowedLevels || [100, 200, 300, 400, 500],
-      authMode: existing?.authMode || "PIN_SLIP",
-      resultsVisibility: existing?.resultsVisibility || "SEALED_UNTIL_CLOSE",
+    let existingRule: ElectionRulesState | undefined;
+    for (const k of keysToUpdate) {
+      if (store[k]) {
+        existingRule = store[k];
+        break;
+      }
+    }
+
+    const updatedRule: ElectionRulesState = {
+      ...(existingRule || {}),
+      electionId: existingRule?.electionId || electionId,
+      status: existingRule?.status || "LIVE",
+      requireDuesPayment: existingRule?.requireDuesPayment ?? true,
+      requireGoodDisciplinaryStanding: existingRule?.requireGoodDisciplinaryStanding ?? true,
+      requireFullTimeOnly: existingRule?.requireFullTimeOnly ?? false,
+      requireSessionRegistration: existingRule?.requireSessionRegistration ?? true,
+      requireWhitelistMatch: existingRule?.requireWhitelistMatch ?? false,
+      allowedLevels: existingRule?.allowedLevels || [100, 200, 300, 400, 500],
+      authMode: existingRule?.authMode || "PIN_SLIP",
+      resultsVisibility: existingRule?.resultsVisibility || "SEALED_UNTIL_CLOSE",
+      autoPauseAt: existingRule?.autoPauseAt || null,
       registrationOpen: open,
     };
+
+    for (const k of keysToUpdate) {
+      store[k] = { ...updatedRule, electionId: k, registrationOpen: open };
+    }
     writeElectionRulesStore(store);
+
+    // Sync to Supabase elections table
+    try {
+      const { data: elecRecords } = await supabase
+        .from("elections")
+        .select("id, multi_sig_approvals")
+        .in("id", keysToUpdate);
+
+      if (elecRecords && elecRecords.length > 0) {
+        for (const rec of elecRecords) {
+          const curApprovals = (rec.multi_sig_approvals as any) || {};
+          await supabase
+            .from("elections")
+            .update({
+              multi_sig_approvals: {
+                ...curApprovals,
+                registrationOpen: open,
+                registrationClosedAt: open ? null : new Date().toISOString(),
+              },
+            })
+            .eq("id", rec.id);
+        }
+      } else if (cleanInst) {
+        const { data: matched } = await supabase
+          .from("elections")
+          .select("id, multi_sig_approvals")
+          .ilike("id", `%${cleanInst}%`)
+          .limit(3);
+        if (matched) {
+          for (const rec of matched) {
+            const curApprovals = (rec.multi_sig_approvals as any) || {};
+            await supabase
+              .from("elections")
+              .update({
+                multi_sig_approvals: {
+                  ...curApprovals,
+                  registrationOpen: open,
+                  registrationClosedAt: open ? null : new Date().toISOString(),
+                },
+              })
+              .eq("id", rec.id);
+          }
+        }
+      }
+    } catch (supabaseErr) {
+      console.warn("toggleRegistrationAction Supabase sync error:", supabaseErr);
+    }
+
     invalidateCache();
     revalidatePath("/", "layout");
+    if (cleanInst) {
+      revalidatePath(`/${cleanInst}/admin`);
+      if (cleanOrg) {
+        revalidatePath(`/${cleanInst}/${cleanOrg}`);
+      }
+    }
+
     return {
       success: true,
       message: open
@@ -1385,7 +1494,10 @@ export async function getElectionRulesAction(
   // Completely eliminates database connection pool exhaustion when thousands of students poll.
   for (const c of candidates) {
     if (store[c]) {
-      return store[c];
+      return {
+        ...store[c],
+        registrationOpen: store[c].registrationOpen !== false,
+      };
     }
   }
 
@@ -1412,6 +1524,11 @@ export async function getElectionRulesAction(
         store[electionId]?.autoPauseAt ||
         null;
 
+      const registrationOpen =
+        approvals.registrationOpen !== undefined
+          ? approvals.registrationOpen !== false
+          : (store[data.id]?.registrationOpen ?? store[electionId]?.registrationOpen ?? true);
+
       baseRules = {
         electionId: data.id || electionId,
         status: effectiveStatus,
@@ -1425,7 +1542,7 @@ export async function getElectionRulesAction(
         authMode: data.auth_mode || "PIN_SLIP",
         resultsVisibility: effectiveVisibility,
         autoPauseAt,
-        registrationOpen: approvals.registrationOpen !== false,
+        registrationOpen,
       };
 
       // Keep local store in sync with cloud
@@ -1466,6 +1583,11 @@ export async function getElectionRulesAction(
             store[electionId]?.autoPauseAt ||
             null;
 
+          const registrationOpen =
+            approvals.registrationOpen !== undefined
+              ? approvals.registrationOpen !== false
+              : (store[matchedElec.id]?.registrationOpen ?? store[electionId]?.registrationOpen ?? true);
+
           baseRules = {
             electionId: matchedElec.id || electionId,
             status: effectiveStatus,
@@ -1480,6 +1602,7 @@ export async function getElectionRulesAction(
             authMode: matchedElec.auth_mode || "PIN_SLIP",
             resultsVisibility: effectiveVisibility,
             autoPauseAt,
+            registrationOpen,
           };
           store[electionId] = baseRules;
           if (matchedElec.id) store[matchedElec.id] = baseRules;
@@ -1495,11 +1618,11 @@ export async function getElectionRulesAction(
   if (!baseRules) {
     for (const c of candidates) {
       if (store[c]) {
-        baseRules = store[c];
+        baseRules = { ...store[c], registrationOpen: store[c].registrationOpen !== false };
         break;
       }
       if (store[c.toLowerCase()]) {
-        baseRules = store[c.toLowerCase()];
+        baseRules = { ...store[c.toLowerCase()], registrationOpen: store[c.toLowerCase()].registrationOpen !== false };
         break;
       }
     }
@@ -1512,7 +1635,7 @@ export async function getElectionRulesAction(
       for (const [key, rules] of Object.entries(store)) {
         const k = key.toLowerCase();
         if (cleanC.includes(k) || k.includes(cleanC)) {
-          baseRules = rules;
+          baseRules = { ...rules, registrationOpen: rules.registrationOpen !== false };
           break;
         }
       }
@@ -1534,6 +1657,7 @@ export async function getElectionRulesAction(
       authMode: "PIN_SLIP",
       resultsVisibility: "SEALED_UNTIL_CLOSE",
       autoPauseAt: store[electionId]?.autoPauseAt || null,
+      registrationOpen: store[electionId]?.registrationOpen !== false,
     };
   }
 

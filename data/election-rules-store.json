@@ -16,7 +16,8 @@
     ],
     "authMode": "PIN_SLIP",
     "resultsVisibility": "SEALED_UNTIL_CLOSE",
-    "autoPauseAt": null
+    "autoPauseAt": null,
+    "registrationOpen": false
   },
   "elec-ui-renarsa-2026": {
     "electionId": "elec-ui-nesa-2026",
@@ -35,7 +36,8 @@
     ],
     "authMode": "PIN_SLIP",
     "resultsVisibility": "SEALED_UNTIL_CLOSE",
-    "autoPauseAt": null
+    "autoPauseAt": null,
+    "registrationOpen": false
   },
   "elec-nesa-ui-2026": {
     "electionId": "elec-ui-nesa-2026",
@@ -54,6 +56,7 @@
     ],
     "authMode": "PIN_SLIP",
     "resultsVisibility": "SEALED_UNTIL_CLOSE",
-    "autoPauseAt": null
+    "autoPauseAt": null,
+    "registrationOpen": false
   }
 }

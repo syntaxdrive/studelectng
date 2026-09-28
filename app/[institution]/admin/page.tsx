@@ -258,6 +258,7 @@ export default function InstitutionAdminPage({
     allowedLevels: [100, 200, 300, 400, 500],
     authMode: "PIN_SLIP",
     resultsVisibility: "SEALED_UNTIL_CLOSE",
+    registrationOpen: true,
   });
   const [isSavingRules, setIsSavingRules] = useState(false);
 
@@ -938,10 +939,14 @@ export default function InstitutionAdminPage({
     if (!confirm(msg)) return;
     // Optimistic update
     setElectionRules((prev) => ({ ...prev, registrationOpen: willOpen }));
-    const { toggleRegistrationAction } = await import("@/app/actions/student-register");
-    const res = await toggleRegistrationAction(electionId, willOpen);
+    const { toggleRegistrationAction, getElectionRulesAction } = await import("@/app/actions/student-register");
+    const res = await toggleRegistrationAction(electionId, willOpen, instSlug, activeOrgSlug);
     setAdminActionMessage(res.message);
     setTimeout(() => setAdminActionMessage(null), 6000);
+    try {
+      const refreshed = await getElectionRulesAction(electionId, instSlug, activeOrgSlug);
+      if (refreshed) setElectionRules(refreshed);
+    } catch (_) {}
   };
 
   const exportVoterRollCSV = () => {
