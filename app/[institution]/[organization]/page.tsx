@@ -418,6 +418,18 @@ export default function OrganizationPortalPage({
       ) {
         setRegistrationOpen(e.newValue === "true");
       }
+      if (
+        (e.key === `studelect_contact_${instSlug}_${orgSlug}` ||
+          e.key === `studelect_contact_${instSlug}`) &&
+        e.newValue
+      ) {
+        try {
+          const parsed = JSON.parse(e.newValue);
+          if (parsed && parsed.name) {
+            setElcomContact(parsed);
+          }
+        } catch (_) {}
+      }
     };
     window.addEventListener("storage", onStorage);
 
@@ -432,9 +444,24 @@ export default function OrganizationPortalPage({
   // ── ELCOM Public Contact Loader ─────────────────────────────────────────────
   useEffect(() => {
     let isMounted = true;
+    try {
+      const cached =
+        localStorage.getItem(`studelect_contact_${instSlug}_${orgSlug}`) ||
+        localStorage.getItem(`studelect_contact_${instSlug}`);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed && parsed.name) {
+          setElcomContact(parsed);
+        }
+      }
+    } catch (_) {}
+
     getOrgPublicContactAction(instSlug, orgSlug).then((res) => {
       if (isMounted && res?.success && res.contact) {
         setElcomContact(res.contact);
+        try {
+          localStorage.setItem(`studelect_contact_${instSlug}_${orgSlug}`, JSON.stringify(res.contact));
+        } catch (_) {}
       }
     });
     return () => {

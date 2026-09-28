@@ -779,49 +779,92 @@ export async function getOrgPublicContactAction(institutionSlug: string, orgSlug
     const cleanOrg = (orgSlug || "nesa").toLowerCase().trim();
     let contact: { name: string; email: string; phone?: string; role?: string; orgName?: string } | null = null;
 
-    // 1. Look in commissioner assignments (chairman who initialized/created the org)
-    const assignmentsFile = path.join(DATA_DIR, "commissioner-assignments.json");
-    if (fs.existsSync(assignmentsFile)) {
-      try {
-        const raw = fs.readFileSync(assignmentsFile, "utf8");
-        const assignments = JSON.parse(raw);
-        for (const [_, assn] of Object.entries<any>(assignments)) {
-          const assnOrg = (assn.orgSlug || assn.orgId || "").toLowerCase();
-          const assnInst = (assn.institutionSlug || assn.institutionId || "").toLowerCase().replace(/^inst-/, "");
-          if (
-            (assnOrg === cleanOrg || assnOrg === `org-${cleanInst}-${cleanOrg}`) &&
-            (!assnInst || assnInst === cleanInst)
-          ) {
-            const phone = assn.phone || assn.phoneNumber || undefined;
-            contact = {
-              name: assn.fullName || "ELCOM Chairman",
-              email: assn.email || "",
-              phone: phone && phone !== "2349164221215" ? phone : undefined,
-              role: assn.role || "ELCOM Chairman",
-              orgName: assn.orgName,
-            };
-            break;
-          }
+    // 0. Cloud Authority First: Check Supabase elections table multi_sig_approvals.contact
+    try {
+      const candidates = [
+        `elec-${cleanInst}-${cleanOrg}-2026`,
+        `elec-${cleanOrg}-${cleanInst}-2026`,
+        `elec-${cleanOrg}-2026`,
+        `elec-${cleanInst}-2026`,
+      ];
+      let query = supabase.from("elections").select("multi_sig_approvals");
+      if (cleanOrg) {
+        query = query.or(`id.in.(${candidates.join(",")}),id.ilike.%${cleanOrg}%`);
+      } else {
+        query = query.in("id", candidates);
+      }
+      const { data: elecList } = await query.limit(1).maybeSingle();
+      if (elecList?.multi_sig_approvals) {
+        const approvals = elecList.multi_sig_approvals as any;
+        if (approvals.contact && approvals.contact.name) {
+          const ph = approvals.contact.phone && approvals.contact.phone !== "2349164221215" ? approvals.contact.phone : undefined;
+          contact = {
+            name: approvals.contact.name,
+            email: approvals.contact.email || "",
+            phone: ph,
+            role: approvals.contact.role || "ELCOM Chairman",
+            orgName: approvals.contact.orgName || cleanOrg.toUpperCase(),
+          };
+        } else if (approvals.license?.contactAdminName) {
+          const ph = approvals.license.contactAdminPhone && approvals.license.contactAdminPhone !== "2349164221215" ? approvals.license.contactAdminPhone : undefined;
+          contact = {
+            name: approvals.license.contactAdminName,
+            email: approvals.license.contactAdminEmail || "",
+            phone: ph,
+            role: "ELCOM Chairman",
+            orgName: approvals.license.orgName || cleanOrg.toUpperCase(),
+          };
         }
-      } catch (_) {}
+      }
+    } catch (supErr) {
+      console.warn("getOrgPublicContactAction Supabase lookup error:", supErr);
+    }
+
+    // 1. Fallback to commissioner assignments (chairman who initialized/created the org)
+    if (!contact) {
+      const assignmentsFile = path.join(DATA_DIR, "commissioner-assignments.json");
+      if (fs.existsSync(assignmentsFile)) {
+        try {
+          const raw = fs.readFileSync(assignmentsFile, "utf8");
+          const assignments = JSON.parse(raw);
+          for (const [_, assn] of Object.entries<any>(assignments)) {
+            const assnOrg = (assn.orgSlug || assn.orgId || "").toLowerCase();
+            const assnInst = (assn.institutionSlug || assn.institutionId || "").toLowerCase().replace(/^inst-/, "");
+            if (
+              (assnOrg === cleanOrg || assnOrg === `org-${cleanInst}-${cleanOrg}`) &&
+              (!assnInst || assnInst === cleanInst)
+            ) {
+              const phone = assn.phone || assn.phoneNumber || undefined;
+              contact = {
+                name: assn.fullName || "ELCOM Chairman",
+                email: assn.email || "",
+                phone: phone && phone !== "2349164221215" ? phone : undefined,
+                role: assn.role || "ELCOM Chairman",
+                orgName: assn.orgName,
+              };
+              break;
+            }
+          }
+        } catch (_) {}
+      }
     }
 
     // 2. Supplement or fallback with org license store contact
-    const licensesFile = path.join(DATA_DIR, "org-licenses-store.json");
-    if (fs.existsSync(licensesFile)) {
-      try {
-        const raw = fs.readFileSync(licensesFile, "utf8");
-        const list = JSON.parse(raw);
-        const lic = list.find(
-          (l: any) =>
-            (l.orgSlug?.toLowerCase() === cleanOrg && l.institutionSlug?.toLowerCase() === cleanInst) ||
-            l.id?.toLowerCase() === `org-${cleanInst}-${cleanOrg}`
-        );
-        if (lic) {
-          const licPhone = lic.contactAdminPhone && lic.contactAdminPhone !== "2349164221215" ? lic.contactAdminPhone : undefined;
-          const licEmail = lic.contactAdminEmail && lic.contactAdminEmail !== "elcom@studelect.com.ng" ? lic.contactAdminEmail : undefined;
+    if (!contact) {
+      const licensesFile = path.join(DATA_DIR, "org-licenses-store.json");
+      if (fs.existsSync(licensesFile)) {
+        try {
+          const raw = fs.readFileSync(licensesFile, "utf8");
+          const list = JSON.parse(raw);
+          const lic = list.find(
+            (l: any) =>
+              (l.orgSlug?.toLowerCase() === cleanOrg && l.institutionSlug?.toLowerCase() === cleanInst) ||
+              l.id?.toLowerCase() === `org-${cleanInst}-${cleanOrg}`
+          );
+          if (lic) {
+            const licPhone = lic.contactAdminPhone && lic.contactAdminPhone !== "2349164221215" ? lic.contactAdminPhone : undefined;
+            const licEmail = lic.contactAdminEmail && lic.contactAdminEmail !== "elcom@studelect.com.ng" ? lic.contactAdminEmail : undefined;
 
-          if (!contact) {
             contact = {
               name: lic.contactAdminName || "ELCOM Chairman",
               email: licEmail || "",
@@ -829,19 +872,9 @@ export async function getOrgPublicContactAction(institutionSlug: string, orgSlug
               role: "ELCOM Chairman",
               orgName: lic.orgName,
             };
-          } else {
-            if (licPhone && !contact.phone) {
-              contact.phone = licPhone;
-            }
-            if (licEmail && !contact.email) {
-              contact.email = licEmail;
-            }
-            if (lic.orgName && !contact.orgName) {
-              contact.orgName = lic.orgName;
-            }
           }
-        }
-      } catch (_) {}
+        } catch (_) {}
+      }
     }
 
     return {
@@ -863,8 +896,8 @@ export async function getOrgPublicContactAction(institutionSlug: string, orgSlug
 
 /**
  * Update the official public contact details for an organization's ELCOM desk.
- * Updates commissioner-assignments.json and org-licenses-store.json so changes
- * immediately reflect on the student polling booth and registration screen.
+ * Updates commissioner-assignments.json, org-licenses-store.json, and Supabase
+ * so changes immediately reflect across both cloud serverless and local environments.
  */
 export async function updateOrgPublicContactAction(input: {
   institutionSlug: string;
@@ -873,7 +906,7 @@ export async function updateOrgPublicContactAction(input: {
   email: string;
   phone?: string;
   role?: string;
-}): Promise<{ success: boolean; message: string }> {
+}): Promise<{ success: boolean; message: string; contact?: any }> {
   const cleanInst = (input.institutionSlug || "ui").toLowerCase().trim().replace(/^inst-/, "");
   const cleanOrg = (input.orgSlug || "nesa").toLowerCase().trim();
   const cleanEmail = (input.email || "").trim().toLowerCase();
@@ -882,12 +915,20 @@ export async function updateOrgPublicContactAction(input: {
   const cleanRole = (input.role || "ELCOM Chairman").trim();
   const orgId = `org-${cleanInst}-${cleanOrg}`;
 
+  const contactData = {
+    name: cleanName || `${cleanOrg.toUpperCase()} ELCOM Chairman`,
+    email: cleanEmail,
+    phone: cleanPhone || undefined,
+    role: cleanRole,
+    orgName: cleanOrg.toUpperCase(),
+  };
+
   try {
     if (!fs.existsSync(DATA_DIR)) {
       fs.mkdirSync(DATA_DIR, { recursive: true });
     }
 
-    // 1. Update commissioner assignments
+    // 1. Update commissioner assignments in local store
     const assignmentsFile = path.join(DATA_DIR, "commissioner-assignments.json");
     let assignments: Record<string, any> = {};
     if (fs.existsSync(assignmentsFile)) {
@@ -931,9 +972,11 @@ export async function updateOrgPublicContactAction(input: {
         role: cleanRole,
       };
     }
-    fs.writeFileSync(assignmentsFile, JSON.stringify(assignments, null, 2), "utf8");
+    try {
+      fs.writeFileSync(assignmentsFile, JSON.stringify(assignments, null, 2), "utf8");
+    } catch (_) {}
 
-    // 2. Update org licenses store
+    // 2. Update org licenses store in local store
     const licensesFile = path.join(DATA_DIR, "org-licenses-store.json");
     if (fs.existsSync(licensesFile)) {
       try {
@@ -957,10 +1000,54 @@ export async function updateOrgPublicContactAction(input: {
       } catch (_) {}
     }
 
+    // 3. PERSIST TO SUPABASE (Cloud Authority)
+    try {
+      const candidates = [
+        `elec-${cleanInst}-${cleanOrg}-2026`,
+        `elec-${cleanOrg}-${cleanInst}-2026`,
+        `elec-${cleanOrg}-2026`,
+        `elec-${cleanInst}-2026`,
+      ];
+      let query = supabase.from("elections").select("id, multi_sig_approvals");
+      if (cleanOrg) {
+        query = query.or(`id.in.(${candidates.join(",")}),id.ilike.%${cleanOrg}%`);
+      } else {
+        query = query.in("id", candidates);
+      }
+      const { data: elecRecords } = await query;
+      if (elecRecords && elecRecords.length > 0) {
+        for (const rec of elecRecords) {
+          const curApprovals = (rec.multi_sig_approvals as any) || {};
+          const curLicense = curApprovals.license || {};
+          await supabase
+            .from("elections")
+            .update({
+              multi_sig_approvals: {
+                ...curApprovals,
+                contact: contactData,
+                license: {
+                  ...curLicense,
+                  contactAdminName: cleanName || curLicense.contactAdminName,
+                  contactAdminEmail: cleanEmail || curLicense.contactAdminEmail,
+                  contactAdminPhone: cleanPhone || curLicense.contactAdminPhone,
+                },
+              },
+            })
+            .eq("id", rec.id);
+        }
+      }
+    } catch (supabaseErr) {
+      console.warn("updateOrgPublicContactAction Supabase sync error:", supabaseErr);
+    }
+
     invalidateCache();
     revalidatePath("/", "layout");
+    revalidatePath(`/${cleanInst}/admin`);
+    revalidatePath(`/${cleanInst}/${cleanOrg}`);
+
     return {
       success: true,
+      contact: contactData,
       message: "ELCOM public contact details updated successfully.",
     };
   } catch (err: any) {

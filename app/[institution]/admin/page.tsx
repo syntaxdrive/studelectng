@@ -360,11 +360,27 @@ export default function InstitutionAdminPage({
 
   const loadPublicContact = async (orgToUse?: string) => {
     const org = orgToUse || activeOrgSlug || "nesa";
+    try {
+      const cached =
+        localStorage.getItem(`studelect_contact_${instSlug}_${org}`) ||
+        localStorage.getItem(`studelect_contact_${instSlug}`);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed) {
+          if (parsed.name) setContactName(parsed.name);
+          if (parsed.email) setContactEmail(parsed.email);
+          if (parsed.phone) setContactPhone(parsed.phone);
+        }
+      }
+    } catch (_) {}
     const res = await getOrgPublicContactAction(instSlug, org);
     if (res?.success && res.contact) {
       setContactName(res.contact.name || "");
       setContactEmail(res.contact.email || "");
       setContactPhone(res.contact.phone || "");
+      try {
+        localStorage.setItem(`studelect_contact_${instSlug}_${org}`, JSON.stringify(res.contact));
+      } catch (_) {}
     }
   };
 
@@ -401,6 +417,18 @@ export default function InstitutionAdminPage({
   const handleSaveContactDetails = async () => {
     setIsSavingContact(true);
     const org = activeOrgSlug || "nesa";
+    const payload = {
+      name: contactName.trim(),
+      email: contactEmail.trim(),
+      phone: contactPhone.trim(),
+      role: "ELCOM Chairman",
+      orgName: org.toUpperCase(),
+    };
+    try {
+      localStorage.setItem(`studelect_contact_${instSlug}_${org}`, JSON.stringify(payload));
+      localStorage.setItem(`studelect_contact_${instSlug}`, JSON.stringify(payload));
+    } catch (_) {}
+
     const res = await updateOrgPublicContactAction({
       institutionSlug: instSlug,
       orgSlug: org,
