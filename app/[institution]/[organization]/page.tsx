@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, use, useMemo } from "react";
+import React, { useState, useEffect, use, useMemo, useRef } from "react";
 import Link from "next/link";
 import { getInstitutionBySlug, CANONICAL_INSTITUTIONS } from "@/lib/db/institutions";
 import { MOCK_ELECTIONS, MOCK_STUDENTS, MockElection, MockStudent, MockPost, MockCandidate } from "@/lib/mock-data";
@@ -104,6 +104,7 @@ export default function OrganizationPortalPage({
   const [resultsVisibility, setResultsVisibility] = useState<string>("SEALED_UNTIL_CLOSE");
   const [isPaymentHalted, setIsPaymentHalted] = useState<boolean>(false);
   const [registrationOpen, setRegistrationOpen] = useState<boolean>(true);
+  const isSubmittingVoteRef = useRef(false);
 
   const safeCopyToClipboard = async (text: string) => {
     try {
@@ -586,8 +587,10 @@ export default function OrganizationPortalPage({
     }));
   };
 
-  // Cast Ballot
+  // Cast Ballot (Protected against rapid double-clicks and network retry drops)
   const handleCastBallot = async () => {
+    if (isSubmittingVoteRef.current) return;
+    isSubmittingVoteRef.current = true;
     setIsLoading(true);
     setAuthError(null);
 
@@ -598,40 +601,64 @@ export default function OrganizationPortalPage({
       signature: "direct-token",
     };
 
-    const res = await castBallotAction({
-      ballotToken: tokenToUse,
-      matricNo: authenticatedStudent?.matricNo,
-      selections: selectedCandidates,
-      votes: Object.entries(selectedCandidates).map(([postId, candidateId]) => ({
-        postId,
-        candidateId,
-      })),
-      voterLevel: authenticatedStudent?.level || 300,
-    });
+    try {
+      const res = await castBallotAction({
+        ballotToken: tokenToUse,
+        matricNo: authenticatedStudent?.matricNo,
+        selections: selectedCandidates,
+        votes: Object.entries(selectedCandidates).map(([postId, candidateId]) => ({
+          postId,
+          candidateId,
+        })),
+        voterLevel: authenticatedStudent?.level || 300,
+      });
 
-    setIsLoading(false);
+      if (res.success && res.receipt) {
+        setReceiptCode(res.receipt.receiptCode);
+        setCastTimestamp(res.receipt.timestamp);
+        setVoteStep("RECEIPT");
+        setRealBallotsCast((prev) => prev + 1);
 
-    if (res.success && res.receipt) {
-      setReceiptCode(res.receipt.receiptCode);
-      setCastTimestamp(res.receipt.timestamp);
-      setVoteStep("RECEIPT");
-      setRealBallotsCast((prev) => prev + 1);
-
-      try {
-        sessionStorage.setItem(
-          sessionKey,
-          JSON.stringify({
-            student: authenticatedStudent,
-            blindToken: tokenToUse,
-            voteStep: "RECEIPT",
-            selectedCandidates,
-            receiptCode: res.receipt.receiptCode,
-            castTimestamp: res.receipt.timestamp,
-          })
-        );
-      } catch (_) {}
-    } else {
-      setAuthError(res.message || "Failed to record ballot.");
+        try {
+          sessionStorage.setItem(
+            sessionKey,
+            JSON.stringify({
+              student: authenticatedStudent,
+              blindToken: tokenToUse,
+              voteStep: "RECEIPT",
+              selectedCandidates,
+              receiptCode: res.receipt.receiptCode,
+              castTimestamp: res.receipt.timestamp,
+            })
+          );
+        } catch (_) {}
+      } else if (res.alreadyVoted && res.receiptHash) {
+        // Network Recovery: If student's network dropped after vote was received,
+        // the server returns their certified receiptHash so they smoothly land on RECEIPT.
+        setReceiptCode(res.receiptHash);
+        setCastTimestamp(Date.now());
+        setVoteStep("RECEIPT");
+        try {
+          sessionStorage.setItem(
+            sessionKey,
+            JSON.stringify({
+              student: authenticatedStudent,
+              blindToken: tokenToUse,
+              voteStep: "RECEIPT",
+              selectedCandidates,
+              receiptCode: res.receiptHash,
+              castTimestamp: Date.now(),
+            })
+          );
+        } catch (_) {}
+      } else {
+        setAuthError(res.message || "Failed to record ballot.");
+      }
+    } catch (err: any) {
+      setAuthError(err?.message || "Network issue during vote submission. Please check your connection.");
+    } finally {
+      setIsLoading(false);
+      isSubmittingVoteRef.current = false;
     }
   };
 

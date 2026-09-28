@@ -1381,50 +1381,58 @@ export async function getElectionRulesAction(
 
   let baseRules: ElectionRulesState | null = null;
 
-  // 1. Cloud First: Query Supabase for authoritative live state
+  // 1. Local Store First (0ms, 0 Database Connections)
+  // Completely eliminates database connection pool exhaustion when thousands of students poll.
+  for (const c of candidates) {
+    if (store[c]) {
+      return store[c];
+    }
+  }
+
+  // 2. Cloud Fallback: Query Supabase only if not found in local store (Single batch query, no loop)
   try {
-    for (const c of candidates) {
-      const { data } = await supabase
-        .from("elections")
-        .select("*")
-        .eq("id", c)
-        .maybeSingle();
+    const { data } = await supabase
+      .from("elections")
+      .select("*")
+      .in("id", candidates)
+      .limit(1)
+      .maybeSingle();
 
-      if (data) {
-        const approvals = (data.multi_sig_approvals as any) || {};
-        const effectiveStatus =
-          approvals.operationalStatus ||
-          data.status ||
-          "LIVE";
-        const effectiveVisibility =
-          data.results_visibility || "SEALED_UNTIL_CLOSE";
-        const autoPauseAt =
-          approvals.autoPauseAt ||
-          store[data.id]?.autoPauseAt ||
-          store[electionId]?.autoPauseAt ||
-          null;
+    if (data) {
+      const approvals = (data.multi_sig_approvals as any) || {};
+      const effectiveStatus =
+        approvals.operationalStatus ||
+        data.status ||
+        "LIVE";
+      const effectiveVisibility =
+        data.results_visibility || "SEALED_UNTIL_CLOSE";
+      const autoPauseAt =
+        approvals.autoPauseAt ||
+        store[data.id]?.autoPauseAt ||
+        store[electionId]?.autoPauseAt ||
+        null;
 
-        baseRules = {
-          electionId: data.id || electionId,
-          status: effectiveStatus,
-          requireDuesPayment: data.require_dues_payment !== false,
-          requireGoodDisciplinaryStanding:
-            data.require_good_disciplinary_standing !== false,
-          requireFullTimeOnly: !!data.require_full_time_only,
-          requireSessionRegistration: data.require_session_registration !== false,
-          requireWhitelistMatch: !!(data as any).require_whitelist_match,
-          allowedLevels: [100, 200, 300, 400, 500],
-          authMode: data.auth_mode || "PIN_SLIP",
-          resultsVisibility: effectiveVisibility,
-          autoPauseAt,
-        };
+      baseRules = {
+        electionId: data.id || electionId,
+        status: effectiveStatus,
+        requireDuesPayment: data.require_dues_payment !== false,
+        requireGoodDisciplinaryStanding:
+          data.require_good_disciplinary_standing !== false,
+        requireFullTimeOnly: !!data.require_full_time_only,
+        requireSessionRegistration: data.require_session_registration !== false,
+        requireWhitelistMatch: !!(data as any).require_whitelist_match,
+        allowedLevels: [100, 200, 300, 400, 500],
+        authMode: data.auth_mode || "PIN_SLIP",
+        resultsVisibility: effectiveVisibility,
+        autoPauseAt,
+        registrationOpen: approvals.registrationOpen !== false,
+      };
 
-        // Keep local store in sync with cloud
-        store[electionId] = baseRules;
-        if (data.id) store[data.id] = baseRules;
-        writeElectionRulesStore(store);
-        break;
-      }
+      // Keep local store in sync with cloud
+      store[electionId] = baseRules;
+      if (data.id) store[data.id] = baseRules;
+      writeElectionRulesStore(store);
+      return baseRules;
     }
 
     // Secondary Supabase match by institution slug if candidates didn't match directly

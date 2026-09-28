@@ -123,28 +123,43 @@ function recordVotedStudentInStore(record: VotedStudentRecord) {
   }
 }
 
-export async function hasStudentVotedAction(
-  electionId: string,
-  normalizedMatric: string
-): Promise<{ voted: boolean; record?: VotedStudentRecord }> {
-  const list = readVotedStudentsStore();
-  const clean = (normalizedMatric || "").toLowerCase().replace(/[^a-z0-9]/g, "");
-  const found = list.find(
-    (r) => r.electionId === electionId && r.normalizedMatric.toLowerCase() === clean
-  );
-  return { voted: !!found, record: found };
+export interface VotedStudentRecord {
+  electionId: string;
+  normalizedMatric: string;
+  tokenId?: string;
+  studentId?: string;
+  receiptHash: string;
+  castAt: number;
 }
 
 function internalHasStudentVoted(
   electionId: string,
-  normalizedMatric: string
+  normalizedMatric: string,
+  tokenId?: string
 ): { voted: boolean; record?: VotedStudentRecord } {
   const list = readVotedStudentsStore();
-  const clean = (normalizedMatric || "").toLowerCase().replace(/[^a-z0-9]/g, "");
-  const found = list.find(
-    (r) => r.electionId === electionId && r.normalizedMatric.toLowerCase() === clean
-  );
+  const cleanMatric = (normalizedMatric || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const cleanToken = (tokenId || "").trim();
+
+  const found = list.find((r) => {
+    if (r.electionId !== electionId) return false;
+    if (cleanMatric && r.normalizedMatric && r.normalizedMatric.toLowerCase() === cleanMatric) {
+      return true;
+    }
+    if (cleanToken && r.tokenId && r.tokenId === cleanToken) {
+      return true;
+    }
+    return false;
+  });
   return { voted: !!found, record: found };
+}
+
+export async function hasStudentVotedAction(
+  electionId: string,
+  normalizedMatric: string,
+  tokenId?: string
+): Promise<{ voted: boolean; record?: VotedStudentRecord }> {
+  return internalHasStudentVoted(electionId, normalizedMatric, tokenId);
 }
 
 function readBallotsStore(): StoredBallot[] {
@@ -243,18 +258,16 @@ export async function castBallotAction(input: CastBallotInput) {
         }
       } catch (_) {}
 
-      // 1. Strict One-Vote Enforcement (Guaranteed atomic check)
-      if (normMatric) {
-        const voteCheck = internalHasStudentVoted(electionId, normMatric);
-        if (voteCheck.voted) {
-          return {
-            success: false,
-            alreadyVoted: true,
-            receiptHash: voteCheck.record?.receiptHash,
-            message:
-              "You have already cast your official ballot for this election. Multiple voting is strictly prohibited.",
-          };
-        }
+      // 1. Strict One-Vote Enforcement (Guaranteed atomic check against matric AND token)
+      const voteCheck = internalHasStudentVoted(electionId, normMatric, tokenId);
+      if (voteCheck.voted) {
+        return {
+          success: false,
+          alreadyVoted: true,
+          receiptHash: voteCheck.record?.receiptHash,
+          message:
+            "You have already cast your official ballot for this election. Multiple voting is strictly prohibited.",
+        };
       }
 
       const receiptHash = generateReceiptHash(electionId, tokenId, timestamp);
@@ -284,16 +297,15 @@ export async function castBallotAction(input: CastBallotInput) {
         voterLevel: input.voterLevel || 300,
       });
 
-      // 3. Mark Student as Voted
-      if (normMatric) {
-        recordVotedStudentInStore({
-          electionId,
-          normalizedMatric: normMatric,
-          studentId: input.studentId,
-          receiptHash,
-          castAt: timestamp,
-        });
-      }
+      // 3. Mark Student as Voted in Atomic Ledger (Records both Matric and Token ID)
+      recordVotedStudentInStore({
+        electionId,
+        normalizedMatric: normMatric,
+        tokenId,
+        studentId: input.studentId,
+        receiptHash,
+        castAt: timestamp,
+      });
 
       // Invalidate live telemetry cache so the new vote is counted immediately
       telemetryCache.delete(electionId);
