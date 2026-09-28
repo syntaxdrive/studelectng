@@ -779,7 +779,7 @@ export async function getOrgPublicContactAction(institutionSlug: string, orgSlug
     const cleanOrg = (orgSlug || "nesa").toLowerCase().trim();
     let contact: { name: string; email: string; phone?: string; role?: string; orgName?: string } | null = null;
 
-    // 1. Look in commissioner assignments
+    // 1. Look in commissioner assignments (chairman who initialized/created the org)
     const assignmentsFile = path.join(DATA_DIR, "commissioner-assignments.json");
     if (fs.existsSync(assignmentsFile)) {
       try {
@@ -792,10 +792,12 @@ export async function getOrgPublicContactAction(institutionSlug: string, orgSlug
             (assnOrg === cleanOrg || assnOrg === `org-${cleanInst}-${cleanOrg}`) &&
             (!assnInst || assnInst === cleanInst)
           ) {
+            const phone = assn.phone || assn.phoneNumber || undefined;
             contact = {
-              name: assn.fullName || "ELCOM Administrator",
-              email: assn.email,
-              role: assn.role || "ELCOM Commissioner",
+              name: assn.fullName || "ELCOM Chairman",
+              email: assn.email || "",
+              phone: phone && phone !== "2349164221215" ? phone : undefined,
+              role: assn.role || "ELCOM Chairman",
               orgName: assn.orgName,
             };
             break;
@@ -816,16 +818,23 @@ export async function getOrgPublicContactAction(institutionSlug: string, orgSlug
             l.id?.toLowerCase() === `org-${cleanInst}-${cleanOrg}`
         );
         if (lic) {
+          const licPhone = lic.contactAdminPhone && lic.contactAdminPhone !== "2349164221215" ? lic.contactAdminPhone : undefined;
+          const licEmail = lic.contactAdminEmail && lic.contactAdminEmail !== "elcom@studelect.com.ng" ? lic.contactAdminEmail : undefined;
+
           if (!contact) {
             contact = {
               name: lic.contactAdminName || "ELCOM Chairman",
-              email: "elcom@" + cleanOrg + "." + cleanInst + ".edu.ng",
-              phone: lic.contactAdminPhone || undefined,
+              email: licEmail || "",
+              phone: licPhone,
+              role: "ELCOM Chairman",
               orgName: lic.orgName,
             };
           } else {
-            if (lic.contactAdminPhone && !contact.phone) {
-              contact.phone = lic.contactAdminPhone;
+            if (licPhone && !contact.phone) {
+              contact.phone = licPhone;
+            }
+            if (licEmail && !contact.email) {
+              contact.email = licEmail;
             }
             if (lic.orgName && !contact.orgName) {
               contact.orgName = lic.orgName;
@@ -838,20 +847,125 @@ export async function getOrgPublicContactAction(institutionSlug: string, orgSlug
     return {
       success: true,
       contact: contact || {
-        name: `${cleanOrg.toUpperCase()} ELCOM Office`,
-        email: `elcom@studelect.com.ng`,
-        phone: process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || "2349164221215",
+        name: `${cleanOrg.toUpperCase()} Electoral Commission`,
+        email: "",
+        phone: undefined,
+        role: "ELCOM Desk",
       },
     };
   } catch (err: any) {
     return {
       success: false,
-      contact: {
-        name: "ELCOM Support",
-        email: "support@studelect.com.ng",
-        phone: "2349164221215",
-      },
+      contact: null,
     };
+  }
+}
+
+/**
+ * Update the official public contact details for an organization's ELCOM desk.
+ * Updates commissioner-assignments.json and org-licenses-store.json so changes
+ * immediately reflect on the student polling booth and registration screen.
+ */
+export async function updateOrgPublicContactAction(input: {
+  institutionSlug: string;
+  orgSlug: string;
+  name: string;
+  email: string;
+  phone?: string;
+  role?: string;
+}): Promise<{ success: boolean; message: string }> {
+  const cleanInst = (input.institutionSlug || "ui").toLowerCase().trim().replace(/^inst-/, "");
+  const cleanOrg = (input.orgSlug || "nesa").toLowerCase().trim();
+  const cleanEmail = (input.email || "").trim().toLowerCase();
+  const cleanName = (input.name || "").trim();
+  const cleanPhone = (input.phone || "").trim();
+  const cleanRole = (input.role || "ELCOM Chairman").trim();
+  const orgId = `org-${cleanInst}-${cleanOrg}`;
+
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+
+    // 1. Update commissioner assignments
+    const assignmentsFile = path.join(DATA_DIR, "commissioner-assignments.json");
+    let assignments: Record<string, any> = {};
+    if (fs.existsSync(assignmentsFile)) {
+      try {
+        assignments = JSON.parse(fs.readFileSync(assignmentsFile, "utf8"));
+      } catch (_) {}
+    }
+
+    let found = false;
+    for (const [key, assn] of Object.entries<any>(assignments)) {
+      const assnOrg = (assn.orgSlug || assn.orgId || "").toLowerCase();
+      const assnInst = (assn.institutionSlug || assn.institutionId || "").toLowerCase().replace(/^inst-/, "");
+      if (
+        (assnOrg === cleanOrg || assnOrg === orgId) &&
+        (!assnInst || assnInst === cleanInst)
+      ) {
+        assignments[key] = {
+          ...assn,
+          fullName: cleanName || assn.fullName,
+          email: cleanEmail || assn.email,
+          phone: cleanPhone || undefined,
+          phoneNumber: cleanPhone || undefined,
+          role: cleanRole || assn.role,
+        };
+        found = true;
+        break;
+      }
+    }
+
+    if (!found && cleanEmail) {
+      assignments[cleanEmail] = {
+        email: cleanEmail,
+        fullName: cleanName,
+        phone: cleanPhone || undefined,
+        phoneNumber: cleanPhone || undefined,
+        institutionId: `inst-${cleanInst}`,
+        institutionSlug: cleanInst,
+        orgId,
+        orgSlug: cleanOrg,
+        orgName: cleanOrg.toUpperCase(),
+        role: cleanRole,
+      };
+    }
+    fs.writeFileSync(assignmentsFile, JSON.stringify(assignments, null, 2), "utf8");
+
+    // 2. Update org licenses store
+    const licensesFile = path.join(DATA_DIR, "org-licenses-store.json");
+    if (fs.existsSync(licensesFile)) {
+      try {
+        const raw = fs.readFileSync(licensesFile, "utf8");
+        const list = JSON.parse(raw);
+        const nextList = (list || []).map((l: any) => {
+          if (
+            (l.orgSlug?.toLowerCase() === cleanOrg && l.institutionSlug?.toLowerCase() === cleanInst) ||
+            l.id?.toLowerCase() === orgId
+          ) {
+            return {
+              ...l,
+              contactAdminName: cleanName || l.contactAdminName,
+              contactAdminEmail: cleanEmail || l.contactAdminEmail,
+              contactAdminPhone: cleanPhone || undefined,
+            };
+          }
+          return l;
+        });
+        fs.writeFileSync(licensesFile, JSON.stringify(nextList, null, 2), "utf8");
+      } catch (_) {}
+    }
+
+    invalidateCache();
+    revalidatePath("/", "layout");
+    return {
+      success: true,
+      message: "ELCOM public contact details updated successfully.",
+    };
+  } catch (err: any) {
+    console.error("updateOrgPublicContactAction error:", err);
+    return { success: false, message: err.message || "Failed to update contact details." };
   }
 }
 

@@ -36,5 +36,24 @@
     "authMode": "PIN_SLIP",
     "resultsVisibility": "SEALED_UNTIL_CLOSE",
     "autoPauseAt": null
+  },
+  "elec-nesa-ui-2026": {
+    "electionId": "elec-ui-nesa-2026",
+    "status": "LIVE",
+    "requireDuesPayment": true,
+    "requireGoodDisciplinaryStanding": true,
+    "requireFullTimeOnly": true,
+    "requireSessionRegistration": true,
+    "requireWhitelistMatch": false,
+    "allowedLevels": [
+      100,
+      200,
+      300,
+      400,
+      500
+    ],
+    "authMode": "PIN_SLIP",
+    "resultsVisibility": "SEALED_UNTIL_CLOSE",
+    "autoPauseAt": null
   }
 }

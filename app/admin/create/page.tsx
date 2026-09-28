@@ -56,6 +56,7 @@ export default function AdminCreateElectionPage() {
   const [selectedCampus, setSelectedCampus] = useState("ui");
   const [commissionerName, setCommissionerName] = useState("");
   const [commissionerEmail, setCommissionerEmail] = useState("");
+  const [commissionerPhone, setCommissionerPhone] = useState("");
   const [password, setPassword] = useState("");
 
   // Step 2: Association & Election State
@@ -192,6 +193,7 @@ export default function AdminCreateElectionPage() {
       institutionSlug: selectedCampus,
       commissionerName,
       commissionerEmail,
+      commissionerPhone: commissionerPhone.trim() || undefined,
       password,
       orgName,
       orgSlug: orgSlug.toLowerCase().replace(/[^a-z0-9-]/g, ""),
@@ -403,6 +405,31 @@ export default function AdminCreateElectionPage() {
               className="w-full px-3.5 py-2.5 rounded-lg border border-zinc-300 focus:ring-1 focus:ring-zinc-900 focus:outline-none font-medium"
               required
             />
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block font-semibold uppercase text-zinc-700">
+                Official Phone / WhatsApp Number
+              </label>
+              <span className="text-[10px] text-zinc-400 font-mono">11 digits</span>
+            </div>
+            <input
+              type="tel"
+              placeholder="e.g. 08012345678"
+              value={commissionerPhone}
+              maxLength={11}
+              onChange={(e) => {
+                const val = e.target.value.replace(/\D/g, "");
+                if (val.length <= 11) {
+                  setCommissionerPhone(val);
+                }
+              }}
+              className="w-full px-3.5 py-2.5 rounded-lg border border-zinc-300 focus:ring-1 focus:ring-zinc-900 focus:outline-none font-mono"
+            />
+            <p className="text-[10px] text-zinc-500 mt-1">
+              This WhatsApp number is displayed on the student polling booth so voters can contact you for PIN and accreditation assistance.
+            </p>
           </div>
 
           <div>

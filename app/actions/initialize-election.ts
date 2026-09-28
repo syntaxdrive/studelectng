@@ -11,6 +11,7 @@ export interface InitializeElectionInput {
   institutionSlug: string;
   commissionerName: string;
   commissionerEmail: string;
+  commissionerPhone?: string;
   password: string;
   orgType?: "SUG" | "FACULTY" | "DEPARTMENT" | "HALL";
   orgName: string;
@@ -73,6 +74,8 @@ export async function initializeElectionAndAccountAction(input: InitializeElecti
     const quota = input.voterQuota || (plan === "MICRO_500" ? 500 : plan === "FACULTY_3000" ? 3000 : plan === "SUG_UNLIMITED" ? 10000 : 1000);
     const price = input.agreedAmountNgn || (plan === "MICRO_500" ? 15000 : plan === "FACULTY_3000" ? 65000 : plan === "SUG_UNLIMITED" ? 150000 : 30000);
 
+    const cleanPhone = (input.commissionerPhone || "").trim();
+
     // ── 1. Instant Local Stores Write (0ms - guarantees instant portal response) ─
     try {
       if (!fs.existsSync(DATA_DIR)) {
@@ -90,6 +93,8 @@ export async function initializeElectionAndAccountAction(input: InitializeElecti
       assignments[cleanEmail] = {
         email: cleanEmail,
         fullName: input.commissionerName.trim(),
+        phone: cleanPhone || undefined,
+        phoneNumber: cleanPhone || undefined,
         institutionId,
         institutionSlug: cleanInstSlug,
         orgId,
@@ -150,6 +155,8 @@ export async function initializeElectionAndAccountAction(input: InitializeElecti
         voterQuota: quota,
         agreedAmountNgn: price,
         contactAdminName: input.commissionerName.trim(),
+        contactAdminEmail: cleanEmail,
+        contactAdminPhone: cleanPhone || undefined,
         registeredVotersCount: 0,
         ballotsCastCount: 0,
         licenseStatus: "ACTIVE",

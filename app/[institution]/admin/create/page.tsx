@@ -46,6 +46,7 @@ export default function InitializeElectionPage({
   // Commissioner Account State
   const [commissionerName, setCommissionerName] = useState("");
   const [commissionerEmail, setCommissionerEmail] = useState("");
+  const [commissionerPhone, setCommissionerPhone] = useState("");
   const [password, setPassword] = useState("");
 
   // Association & Election State
@@ -107,6 +108,7 @@ export default function InitializeElectionPage({
       institutionSlug: instSlug,
       commissionerName,
       commissionerEmail,
+      commissionerPhone: commissionerPhone.trim() || undefined,
       password,
       orgType,
       orgName,
@@ -224,6 +226,31 @@ export default function InitializeElectionPage({
               className="w-full px-3.5 py-2.5 rounded-lg border border-zinc-300 focus:ring-1 focus:ring-zinc-900 focus:outline-none"
               required
             />
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block font-semibold uppercase text-zinc-700">
+                Official Phone / WhatsApp Number
+              </label>
+              <span className="text-[10px] text-zinc-400 font-mono">11 digits</span>
+            </div>
+            <input
+              type="tel"
+              placeholder="e.g. 08012345678"
+              value={commissionerPhone}
+              maxLength={11}
+              onChange={(e) => {
+                const val = e.target.value.replace(/\D/g, "");
+                if (val.length <= 11) {
+                  setCommissionerPhone(val);
+                }
+              }}
+              className="w-full px-3.5 py-2.5 rounded-lg border border-zinc-300 focus:ring-1 focus:ring-zinc-900 focus:outline-none font-mono"
+            />
+            <p className="text-[10px] text-zinc-500 mt-1">
+              This contact number will be displayed on the student polling booth so voters can reach you directly for PIN and accreditation support.
+            </p>
           </div>
 
           <div>
