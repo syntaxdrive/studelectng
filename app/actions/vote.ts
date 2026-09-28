@@ -310,10 +310,31 @@ export async function castBallotAction(input: CastBallotInput) {
       // Invalidate live telemetry cache so the new vote is counted immediately
       telemetryCache.delete(electionId);
 
-      // 4. Non-Blocking Background Synchronization to Supabase
-      // Ensures database latency never delays or fails the voter's ballot.
+      // 4. Non-Blocking Atomic Synchronization to Supabase
+      // Uses the atomic PostgreSQL transaction RPC fn_cast_secure_ballot.
+      // Database latency or connection spikes never delay or fail the voter's ballot.
       (async () => {
         try {
+          // Attempt atomic Postgres transaction RPC first
+          const { data: rpcRes, error: rpcErr } = await (supabase as any).rpc(
+            "fn_cast_secure_ballot",
+            {
+              p_election_id: electionId,
+              p_ballot_id: ballotId,
+              p_receipt_hash: receiptHash,
+              p_block_hash: blockHash,
+              p_selections: selectionsObj,
+              p_cast_at: new Date(timestamp).toISOString(),
+              p_student_id: input.studentId || null,
+              p_token_id: tokenId || null,
+            }
+          );
+
+          if (!rpcErr && rpcRes?.success) {
+            return;
+          }
+
+          // Direct table fallback if RPC is not yet registered in Supabase
           await supabase.from("ballots").insert({
             id: ballotId,
             election_id: electionId,
@@ -331,34 +352,17 @@ export async function castBallotAction(input: CastBallotInput) {
               .eq("student_id", input.studentId);
           }
 
-          // Best-effort candidate count increment in Supabase
-          for (const candidateId of Object.values(selectionsObj)) {
-            if (candidateId) {
-              const { data: cand } = await supabase
-                .from("candidates")
-                .select("vote_count")
-                .eq("id", candidateId)
-                .maybeSingle();
-
-              const currentVotes = cand?.vote_count || 0;
-              await supabase
-                .from("candidates")
-                .update({ vote_count: currentVotes + 1 })
-                .eq("id", candidateId);
-            }
-          }
-
-          // Insert audit log
           await supabase.from("audit_logs").insert({
             id: `log-${timestamp}`,
             election_id: electionId,
-            action: "BALLOT_CAST",
+            action_type: "BALLOT_CAST",
             actor_role: "VOTER",
-            ip_hash: "0x_ANONYMOUS_IP",
-            details: { receiptHash, blockHash },
+            payload: { receipt_hash: receiptHash, block_hash: blockHash },
+            prev_hash: "0x000000",
+            current_hash: blockHash,
           });
         } catch (dbErr) {
-          console.warn("Supabase vote sync background notice:", dbErr);
+          console.warn("Supabase vote sync notice:", dbErr);
         }
       })().catch(() => {});
 
