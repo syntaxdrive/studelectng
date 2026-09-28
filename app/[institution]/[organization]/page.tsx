@@ -46,6 +46,17 @@ import {
   Phone,
 } from "lucide-react";
 
+function formatWhatsAppPhone(phone: string): string {
+  let clean = (phone || "").replace(/[^0-9]/g, "");
+  if (clean.startsWith("0") && clean.length === 11) {
+    return "234" + clean.substring(1);
+  }
+  if (!clean.startsWith("234") && clean.length === 10) {
+    return "234" + clean;
+  }
+  return clean;
+}
+
 export default function OrganizationPortalPage({
   params,
 }: {
@@ -1074,7 +1085,7 @@ export default function OrganizationPortalPage({
                       <div className="flex items-center gap-2 flex-shrink-0">
                         {elcomContact.phone && (
                           <a
-                            href={`https://wa.me/${elcomContact.phone.replace(/[^0-9]/g, "")}?text=${encodeURIComponent(
+                            href={`https://wa.me/${formatWhatsAppPhone(elcomContact.phone)}?text=${encodeURIComponent(
                               `Hello, I am a voter for ${currentOrg.name} and need assistance with voter accreditation/PIN.`
                             )}`}
                             target="_blank"
@@ -2053,7 +2064,7 @@ export default function OrganizationPortalPage({
                 )}
                 {elcomContact?.phone && (
                   <a
-                    href={`https://wa.me/${elcomContact.phone.replace(/[^0-9]/g, "")}?text=${encodeURIComponent(
+                    href={`https://wa.me/${formatWhatsAppPhone(elcomContact.phone)}?text=${encodeURIComponent(
                       `Hello, I am a student attempting to register for the ${currentOrg.name} election and need accreditation assistance.`
                     )}`}
                     target="_blank"
