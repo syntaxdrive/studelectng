@@ -387,6 +387,16 @@ export default function InstitutionAdminPage({
   useEffect(() => {
     async function loadRules() {
       try {
+        const org = activeOrgSlug || "nesa";
+        const savedRules =
+          localStorage.getItem(`studelect_rules_${instSlug}_${org}`) ||
+          localStorage.getItem(`studelect_rules_${instSlug}`);
+        if (savedRules) {
+          const parsed = JSON.parse(savedRules);
+          if (parsed && typeof parsed === "object") {
+            setElectionRules((prev) => ({ ...prev, ...parsed }));
+          }
+        }
         const saved = activeOrgSlug
           ? localStorage.getItem(`studelect_registration_open_${instSlug}_${activeOrgSlug}`)
           : localStorage.getItem(`studelect_registration_open_${instSlug}`);
@@ -708,7 +718,10 @@ export default function InstitutionAdminPage({
       loadVoterRoll();
     }
     try {
-      const cached = localStorage.getItem(`studelect_org_logo_${instSlug}`);
+      const org = activeOrgSlug || "nesa";
+      const cached =
+        localStorage.getItem(`studelect_org_logo_${instSlug}_${org}`) ||
+        localStorage.getItem(`studelect_org_logo_${instSlug}`);
       if (cached) setOrgLogoUrl(cached);
     } catch (_) {}
     getInstitutionBySlug(instSlug).then((inst) => {
@@ -735,7 +748,9 @@ export default function InstitutionAdminPage({
       if (typeof reader.result === "string") {
         const dataUrl = reader.result as string;
         setOrgLogoUrl(dataUrl);
+        const org = activeOrgSlug || "nesa";
         try {
+          localStorage.setItem(`studelect_org_logo_${instSlug}_${org}`, dataUrl);
           localStorage.setItem(`studelect_org_logo_${instSlug}`, dataUrl);
         } catch (_) {}
 
@@ -841,6 +856,11 @@ export default function InstitutionAdminPage({
   const handleSaveRules = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSavingRules(true);
+    try {
+      const org = activeOrgSlug || "nesa";
+      localStorage.setItem(`studelect_rules_${instSlug}_${org}`, JSON.stringify(electionRules));
+      localStorage.setItem(`studelect_rules_${instSlug}`, JSON.stringify(electionRules));
+    } catch (_) {}
     const res = await updateElectionRulesAction(electionRules);
     setIsSavingRules(false);
     setAdminActionMessage(res.message || "Election rules saved successfully.");

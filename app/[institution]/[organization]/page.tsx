@@ -316,7 +316,9 @@ export default function OrganizationPortalPage({
       setInstitution(inst);
       setRegDept(currentOrg.dept);
       try {
-        const savedLogo = localStorage.getItem(`studelect_org_logo_${instSlug}`);
+        const savedLogo =
+          localStorage.getItem(`studelect_org_logo_${instSlug}_${orgSlug}`) ||
+          localStorage.getItem(`studelect_org_logo_${instSlug}`);
         if (savedLogo) setOrgLogoUrl(savedLogo);
         const savedStatus = localStorage.getItem(`studelect_election_status_${instSlug}_${orgSlug}`);
         if (savedStatus) setElectionStatus(savedStatus);
@@ -429,6 +431,13 @@ export default function OrganizationPortalPage({
             setElcomContact(parsed);
           }
         } catch (_) {}
+      }
+      if (
+        (e.key === `studelect_org_logo_${instSlug}_${orgSlug}` ||
+          e.key === `studelect_org_logo_${instSlug}`) &&
+        e.newValue
+      ) {
+        setOrgLogoUrl(e.newValue);
       }
     };
     window.addEventListener("storage", onStorage);

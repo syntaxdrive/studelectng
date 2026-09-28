@@ -1358,6 +1358,8 @@ export async function updateElectionRulesAction(rules: ElectionRulesState) {
       multi_sig_approvals: {
         ...currentApprovals,
         registrationOpen: finalRules.registrationOpen,
+        requireWhitelistMatch: !!finalRules.requireWhitelistMatch,
+        rules: finalRules,
       },
     });
   } catch (_) {}
@@ -1629,7 +1631,12 @@ export async function getElectionRulesAction(
           data.require_good_disciplinary_standing !== false,
         requireFullTimeOnly: !!data.require_full_time_only,
         requireSessionRegistration: data.require_session_registration !== false,
-        requireWhitelistMatch: !!(data as any).require_whitelist_match,
+        requireWhitelistMatch:
+          approvals.requireWhitelistMatch !== undefined
+            ? !!approvals.requireWhitelistMatch
+            : (approvals.rules?.requireWhitelistMatch !== undefined
+              ? !!approvals.rules.requireWhitelistMatch
+              : !!(data as any).require_whitelist_match),
         allowedLevels: [100, 200, 300, 400, 500],
         authMode: data.auth_mode || "PIN_SLIP",
         resultsVisibility: effectiveVisibility,
@@ -1689,7 +1696,12 @@ export async function getElectionRulesAction(
             requireFullTimeOnly: !!matchedElec.require_full_time_only,
             requireSessionRegistration:
               matchedElec.require_session_registration !== false,
-            requireWhitelistMatch: !!(matchedElec as any).require_whitelist_match,
+            requireWhitelistMatch:
+              approvals.requireWhitelistMatch !== undefined
+                ? !!approvals.requireWhitelistMatch
+                : (approvals.rules?.requireWhitelistMatch !== undefined
+                  ? !!approvals.rules.requireWhitelistMatch
+                  : !!(matchedElec as any).require_whitelist_match),
             allowedLevels: [100, 200, 300, 400, 500],
             authMode: matchedElec.auth_mode || "PIN_SLIP",
             resultsVisibility: effectiveVisibility,
