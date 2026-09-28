@@ -593,7 +593,7 @@ export default function OrganizationPortalPage({
 
     const tokenToUse = blindToken || {
       tokenId: `anon-${Date.now()}`,
-      electionId: `elec-${instSlug}-2026`,
+      electionId: election.id || `elec-${instSlug}-${orgSlug}-2026`,
       expiresAt: Date.now() + 3600000,
       signature: "direct-token",
     };
