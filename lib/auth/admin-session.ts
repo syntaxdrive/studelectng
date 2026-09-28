@@ -40,15 +40,7 @@ export const AUTHORIZED_SYSTEM_ADMINS: Array<{
     role: "SUPER_ADMIN",
     institutionSlug: "ui",
   },
-  {
-    email: "studelect@gmail.com",
-    password:
-      process.env.SUPERADMIN_PASSWORD ||
-      (process.env.NODE_ENV === "production" ? "" : "superadmin2026"),
-    fullName: "Platform Super Administrator",
-    role: "SUPER_ADMIN",
-    institutionSlug: "ui",
-  },
+
   {
     email: "elcom@unilag.edu.ng",
     password: "elcom2026",
@@ -152,9 +144,7 @@ export async function authenticateAdmin(
   const cleanEmail = (email || "").trim().toLowerCase();
   const trimmedPassword = (password || "").trim();
   const isSuperAdminEmail =
-    cleanEmail === "superadmin@studelect.com.ng" ||
-    cleanEmail === "superadmin@studelect.ng" ||
-    cleanEmail === "studelect@gmail.com";
+    cleanEmail === "superadmin@studelect.com.ng" || cleanEmail === "superadmin@studelect.ng";
 
   if (!cleanEmail || !trimmedPassword) {
     return {
