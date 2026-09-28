@@ -249,10 +249,10 @@ export default function CookiePolicyPage() {
               </p>
               <p className="font-mono text-xs text-zinc-400">
                 <a
-                  href="mailto:privacy@studelect.com.ng"
+                  href="mailto:studelect@gmail.com"
                   className="text-zinc-600 hover:text-zinc-900 transition"
                 >
-                  privacy@studelect.com.ng
+                  studelect@gmail.com
                 </a>
               </p>
             </div>

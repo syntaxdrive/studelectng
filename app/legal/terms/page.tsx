@@ -326,10 +326,10 @@ export default function TermsOfServicePage() {
               </p>
               <p className="font-mono text-xs text-zinc-400">
                 <a
-                  href="mailto:legal@studelect.com.ng"
+                  href="mailto:studelect@gmail.com"
                   className="text-zinc-600 hover:text-zinc-900 transition"
                 >
-                  legal@studelect.com.ng
+                  studelect@gmail.com
                 </a>
               </p>
             </div>

@@ -115,7 +115,7 @@ export default async function RootLayout({
         },
         description:
           "Nigeria's premier digital student election platform for universities, polytechnics, and colleges.",
-        email: "privacy@studelect.com.ng",
+        email: "studelect@gmail.com",
         address: {
           "@type": "PostalAddress",
           addressCountry: "NG",
@@ -253,7 +253,7 @@ export default async function RootLayout({
                 <p className="text-xs text-zinc-500 leading-relaxed max-w-xs">
                   Nigeria's cryptographically secure student election platform. Multi-campus. Real-time audit trails. Zero paper ballots.
                 </p>
-                <p className="text-[11px] text-zinc-400 font-mono">privacy@studelect.com.ng</p>
+                <p className="text-[11px] text-zinc-400 font-mono">studelect@gmail.com</p>
               </div>
 
               {/* Platform */}
@@ -274,7 +274,7 @@ export default async function RootLayout({
                   <li><Link href="/legal/privacy" className="hover:text-zinc-900 transition">Privacy Policy</Link></li>
                   <li><Link href="/legal/terms" className="hover:text-zinc-900 transition">Terms of Service</Link></li>
                   <li><Link href="/legal/cookies" className="hover:text-zinc-900 transition">Cookie Policy</Link></li>
-                  <li><a href="mailto:legal@studelect.com.ng" className="hover:text-zinc-900 transition">Contact Legal</a></li>
+                  <li><a href="mailto:studelect@gmail.com" className="hover:text-zinc-900 transition">Contact Legal</a></li>
                 </ul>
               </div>
             </div>

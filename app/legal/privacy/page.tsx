@@ -94,10 +94,10 @@ export default function PrivacyPolicyPage() {
               <p className="font-mono text-xs text-zinc-400">
                 Data Protection Contact:{" "}
                 <a
-                  href="mailto:privacy@studelect.com.ng"
+                  href="mailto:studelect@gmail.com"
                   className="text-zinc-600 hover:text-zinc-900 transition"
                 >
-                  privacy@studelect.com.ng
+                  studelect@gmail.com
                 </a>
               </p>
             </div>
@@ -300,10 +300,10 @@ export default function PrivacyPolicyPage() {
                 To exercise these rights, contact your institution's ELCOM
                 directly or email us at{" "}
                 <a
-                  href="mailto:privacy@studelect.com.ng"
+                  href="mailto:studelect@gmail.com"
                   className="text-zinc-700 underline hover:text-zinc-900 transition"
                 >
-                  privacy@studelect.com.ng
+                  studelect@gmail.com
                 </a>
                 .
               </p>
@@ -353,10 +353,10 @@ export default function PrivacyPolicyPage() {
               </p>
               <p className="font-mono text-xs text-zinc-400">
                 <a
-                  href="mailto:privacy@studelect.com.ng"
+                  href="mailto:studelect@gmail.com"
                   className="text-zinc-600 hover:text-zinc-900 transition"
                 >
-                  privacy@studelect.com.ng
+                  studelect@gmail.com
                 </a>
               </p>
               <p>
