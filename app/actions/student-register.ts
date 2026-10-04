@@ -7,6 +7,7 @@ import { generateSingleVoterPin } from "@/lib/auth/pin-generator";
 import fs from "fs";
 import path from "path";
 import { revalidatePath } from "next/cache";
+import { CANONICAL_INSTITUTIONS } from "@/lib/db/institutions";
 
 export interface StudentLookupInput {
   institutionSlug: string;
@@ -186,12 +187,14 @@ export async function registerStudentAccountAction(input: StudentRegisterInput) 
 
     // 1. Ensure Institution exists (upsert — non-fatal if it fails)
     try {
+      const canonicalInst = CANONICAL_INSTITUTIONS.find((i) => i.slug === cleanInstSlug);
       await supabase.from("institutions").upsert({
         id: institutionId,
-        name: cleanInstSlug.toUpperCase() + " University",
+        name: canonicalInst?.name || (cleanInstSlug === "ui" ? "University of Ibadan" : `${cleanInstSlug.toUpperCase()} University`),
         slug: cleanInstSlug,
-        code: cleanInstSlug.toUpperCase(),
-        tagline: "Higher Education Institution",
+        code: canonicalInst?.code || cleanInstSlug.toUpperCase(),
+        tagline: canonicalInst?.tagline || "Higher Education Institution",
+        logo_url: canonicalInst?.logoUrl,
       });
     } catch (_) {
       // Non-fatal — continue with student registration

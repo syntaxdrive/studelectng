@@ -1190,7 +1190,10 @@ export default function SuperAdminDashboard() {
                   const hasPassword = !!com.plainPassword;
 
                   // Build pre-written email
-                  const adminUrl = `https://studelect.com.ng/${(com.institutionId || "ui").replace("inst-", "")}/admin`;
+                  const orgSlugParam = com.organizationId
+                    ? `?org=${encodeURIComponent(com.organizationId.replace(/^org-[^-]+-/, "").replace(/^org-/, ""))}`
+                    : "";
+                  const adminUrl = `https://studelect.com.ng/${(com.institutionId || "ui").replace("inst-", "")}/admin${orgSlugParam}`;
                   const emailSubject = encodeURIComponent(`StudElect – Your ELCOM Admin Access (${com.organization || ""})`);
                   const emailBody = encodeURIComponent(
                     `Hello ${com.name},\n\nYour Electoral Commissioner (ELCOM) admin account has been set up on StudElect.\n\n` +
@@ -1212,7 +1215,13 @@ export default function SuperAdminDashboard() {
                       </td>
                       <td className="px-4 py-3 font-medium text-zinc-700">{com.institution}</td>
                       <td className="px-4 py-3">
-                        <span className="font-medium text-zinc-800 block">{com.organization || "All Campus Elections"}</span>
+                        <span className="font-medium text-zinc-800 block">
+                          {com.role === "SUPER ADMIN"
+                            ? "Platform Super Admin"
+                            : com.organization && com.organization !== "All Campus Elections"
+                            ? com.organization
+                            : "Unassigned / Pending Setup"}
+                        </span>
                         {com.organizationId && (
                           <span className="text-zinc-400 font-mono text-[10px]">{com.organizationId}</span>
                         )}

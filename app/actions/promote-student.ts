@@ -79,6 +79,17 @@ export async function toggleStudentAdminRoleAction(input: ToggleStudentAdminInpu
         ? "ELCOM_CHAIRMAN"
         : "POLLING_AGENT";
 
+    const cleanOrg = (
+      input.orgSlug ||
+      (student.portal_pin?.toUpperCase().startsWith("NES")
+        ? "nesa"
+        : student.portal_pin?.toUpperCase().startsWith("REN")
+        ? "renarsa"
+        : student.portal_pin?.toUpperCase().startsWith("NAC")
+        ? "nacos"
+        : "")
+    ).toLowerCase().trim();
+
     // 1. Update local persistent store for instant cross-serverless resilience
     let promotedList = readPromotedAdminsStore();
     if (input.isAdmin) {
@@ -91,11 +102,39 @@ export async function toggleStudentAdminRoleAction(input: ToggleStudentAdminInpu
         email,
         institutionSlug: cleanInstSlug,
         institutionId,
+        orgSlug: cleanOrg || undefined,
+        orgId: cleanOrg ? `org-${cleanInstSlug}-${cleanOrg}` : undefined,
         role: validRole,
         promotedAt: new Date().toISOString(),
       });
+
+      // Synchronize into commissioner-assignments store
+      try {
+        const commFile = path.join(DATA_DIR, "commissioner-assignments.json");
+        let comms: any = {};
+        if (fs.existsSync(commFile)) comms = JSON.parse(fs.readFileSync(commFile, "utf8")) || {};
+        comms[email.toLowerCase()] = {
+          email: email.toLowerCase(),
+          fullName: student.full_name,
+          institutionId,
+          institutionSlug: cleanInstSlug,
+          orgId: cleanOrg ? `org-${cleanInstSlug}-${cleanOrg}` : undefined,
+          orgSlug: cleanOrg || undefined,
+          orgName: cleanOrg ? cleanOrg.toUpperCase() : "Assigned Organization",
+          role: validRole,
+        };
+        fs.writeFileSync(commFile, JSON.stringify(comms, null, 2), "utf8");
+      } catch (_) {}
     } else {
       promotedList = promotedList.filter((p) => p.matricNo !== student.matric_no && p.email !== email && p.id !== student.id);
+      try {
+        const commFile = path.join(DATA_DIR, "commissioner-assignments.json");
+        if (fs.existsSync(commFile)) {
+          const comms = JSON.parse(fs.readFileSync(commFile, "utf8")) || {};
+          delete comms[email.toLowerCase()];
+          fs.writeFileSync(commFile, JSON.stringify(comms, null, 2), "utf8");
+        }
+      } catch (_) {}
     }
     writePromotedAdminsStore(promotedList);
 

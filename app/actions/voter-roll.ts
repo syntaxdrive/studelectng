@@ -3,6 +3,7 @@
 import { supabase } from "@/lib/supabase";
 import { normalizeMatricNo } from "@/lib/matric-normalizer";
 import { generateSingleVoterPin } from "@/lib/auth/pin-generator";
+import { CANONICAL_INSTITUTIONS } from "@/lib/db/institutions";
 
 export interface CsvStudentRow {
   matricNo: string;
@@ -44,12 +45,14 @@ export async function importVoterRollAction(
     const institutionId = `inst-${cleanInstSlug}`;
 
     // Ensure institution exists
+    const canonicalInst = CANONICAL_INSTITUTIONS.find((i) => i.slug === cleanInstSlug);
     await supabase.from("institutions").upsert({
       id: institutionId,
-      name: cleanInstSlug.toUpperCase() + " University",
+      name: canonicalInst?.name || (cleanInstSlug === "ui" ? "University of Ibadan" : `${cleanInstSlug.toUpperCase()} University`),
       slug: cleanInstSlug,
-      code: cleanInstSlug.toUpperCase(),
-      tagline: "Higher Education Institution",
+      code: canonicalInst?.code || cleanInstSlug.toUpperCase(),
+      tagline: canonicalInst?.tagline || "Higher Education Institution",
+      logo_url: canonicalInst?.logoUrl,
     });
 
     let importedCount = 0;

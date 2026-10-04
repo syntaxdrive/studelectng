@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
+import { CANONICAL_INSTITUTIONS } from "@/lib/db/institutions";
 
 export interface InitializeElectionInput {
   institutionSlug: string;
@@ -188,13 +189,15 @@ export async function initializeElectionAndAccountAction(input: InitializeElecti
     // ── 2. Optimized Parallel Supabase Cloud Write ─────────────────────────────
     try {
       // Step A: Upsert Institution & Commissioner in parallel
+      const canonicalInst = CANONICAL_INSTITUTIONS.find((i) => i.slug === cleanInstSlug);
       await Promise.allSettled([
         supabase.from("institutions").upsert({
           id: institutionId,
-          name: cleanInstSlug.toUpperCase() + " University",
+          name: canonicalInst?.name || (cleanInstSlug === "ui" ? "University of Ibadan" : `${cleanInstSlug.toUpperCase()} University`),
           slug: cleanInstSlug,
-          code: cleanInstSlug.toUpperCase(),
-          tagline: "Higher Education Institution",
+          code: canonicalInst?.code || cleanInstSlug.toUpperCase(),
+          tagline: canonicalInst?.tagline || "Higher Education Institution",
+          logo_url: canonicalInst?.logoUrl,
         }),
         supabase.from("admin_users").upsert({
           id: `admin-${Date.now()}`,

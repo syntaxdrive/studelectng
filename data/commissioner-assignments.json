@@ -29,5 +29,45 @@
     "orgName": "Renewable Natural Resources Students Association (RENARSA)",
     "electionId": "elec-ui-renarsa-2026",
     "role": "ELCOM_CHAIRMAN"
+  },
+  "sotundeinioluwa@gmail.com": {
+    "email": "sotundeinioluwa@gmail.com",
+    "fullName": "INIOLUWA OLAWANLE SOTUNDE",
+    "institutionId": "inst-ui",
+    "institutionSlug": "ui",
+    "orgId": "org-ui-nesa",
+    "orgSlug": "nesa",
+    "orgName": "Nigerian Economics Students' Association (NESA)",
+    "role": "POLLING_AGENT"
+  },
+  "amarachimunachi37@gmail.com": {
+    "email": "amarachimunachi37@gmail.com",
+    "fullName": "Amarachi Marvelous Onyebuchi",
+    "institutionId": "inst-ui",
+    "institutionSlug": "ui",
+    "orgId": "org-ui-nesa",
+    "orgSlug": "nesa",
+    "orgName": "Nigerian Economics Students' Association (NESA)",
+    "role": "POLLING_AGENT"
+  },
+  "yemzystarlyte@gmail.com": {
+    "email": "yemzystarlyte@gmail.com",
+    "fullName": "Olusanya Joy Opeloyemi",
+    "institutionId": "inst-ui",
+    "institutionSlug": "ui",
+    "orgId": "org-ui-nesa",
+    "orgSlug": "nesa",
+    "orgName": "Nigerian Economics Students' Association (NESA)",
+    "role": "POLLING_AGENT"
+  },
+  "anidivine079@gmail.com": {
+    "email": "anidivine079@gmail.com",
+    "fullName": "Ani Divine",
+    "institutionId": "inst-ui",
+    "institutionSlug": "ui",
+    "orgId": "org-ui-nesa",
+    "orgSlug": "nesa",
+    "orgName": "Nigerian Economics Students' Association (NESA)",
+    "role": "POLLING_AGENT"
   }
 }

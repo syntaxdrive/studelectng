@@ -331,6 +331,7 @@ export async function getSuperAdminCommissionersAction(): Promise<SuperAdminComm
       const { data: insts } = await supabase.from("institutions").select("id, name, code, slug");
       const { data: orgs } = await supabase.from("organizations").select("id, name, code, slug, institution_id");
       const { data: dbElections } = await supabase.from("elections").select("id, organization_id, multi_sig_approvals");
+      const { data: dbStudents } = await supabase.from("students").select("id, email, department, portal_pin, institution_id");
       const assignments = readCommissionerAssignments();
       const licenses = readOrgLicensesStore();
 
@@ -349,7 +350,7 @@ export async function getSuperAdminCommissionersAction(): Promise<SuperAdminComm
         const nameLower = (a.full_name || "").toLowerCase().trim();
         const assignment = assignments[emailLower];
 
-        let orgName = "All Campus Elections";
+        let orgName = "";
         let orgId: string | undefined = undefined;
 
         // 1. Check direct commissioner assignment
@@ -424,6 +425,46 @@ export async function getSuperAdminCommissionersAction(): Promise<SuperAdminComm
           }
         }
 
+        // 6. Check student record if this admin was promoted from the student body
+        if (!orgId && dbStudents) {
+          const student = (dbStudents || []).find(
+            (s: any) =>
+              (s.email && s.email.toLowerCase().trim() === emailLower) ||
+              (a.id && a.id.replace(/^admin-/, "") === s.id)
+          );
+          if (student) {
+            const pin = (student.portal_pin || "").toUpperCase();
+            if (pin.startsWith("NES")) {
+              orgId = `org-${(student.institution_id || "inst-ui").replace("inst-", "")}-nesa`;
+              orgName = "Nigerian Economics Students' Association (NESA)";
+            } else if (pin.startsWith("REN")) {
+              orgId = `org-${(student.institution_id || "inst-ui").replace("inst-", "")}-renarsa`;
+              orgName = "Renewable Natural Resources Students Association (RENARSA)";
+            } else if (pin.startsWith("NAC")) {
+              orgId = `org-${(student.institution_id || "inst-ui").replace("inst-", "")}-nacos`;
+              orgName = "Nigeria Association of Computing Students (NACOS)";
+            } else if (student.department) {
+              const deptLower = student.department.toLowerCase().trim();
+              const matchedOrg = (orgs || []).find(
+                (o: any) => o.slug === deptLower || o.name.toLowerCase().includes(deptLower)
+              );
+              if (matchedOrg) {
+                orgName = matchedOrg.name;
+                orgId = matchedOrg.id;
+              }
+            }
+          }
+        }
+
+        // Final fallback: SuperAdmin vs departmental ELCOM
+        if (!orgId) {
+          if (a.role === "SUPER_ADMIN") {
+            orgName = "Platform Super Admin";
+          } else {
+            orgName = "Unassigned / Pending Setup";
+          }
+        }
+
         const cleanRole = (a.role || "ELCOM_CHAIRMAN").split(":")[0].replace(/_/g, " ");
 
         return {
@@ -463,15 +504,44 @@ export async function assignCommissionerOrgAction(input: {
 
   try {
     const cleanEmail = (input.commissionerEmail || "").toLowerCase().trim();
+    const cleanOrgSlug = input.orgId.replace(/^org-[^-]+-/, "").replace(/^org-/, "").toLowerCase().trim();
+    const cleanInstSlug = (input.institutionId || "inst-ui").replace(/^inst-/, "").toLowerCase();
     const assignments = readCommissionerAssignments();
     assignments[cleanEmail] = {
       ...(assignments[cleanEmail] || {}),
       email: cleanEmail,
       orgId: input.orgId,
+      orgSlug: cleanOrgSlug,
       orgName: input.orgName,
       institutionId: input.institutionId || assignments[cleanEmail]?.institutionId || "inst-ui",
+      institutionSlug: cleanInstSlug,
     };
     writeCommissionerAssignments(assignments);
+
+    // Synchronize cloud election multi_sig_approvals in Supabase
+    try {
+      const { data: elec } = await supabase
+        .from("elections")
+        .select("id, multi_sig_approvals")
+        .eq("organization_id", input.orgId)
+        .maybeSingle();
+
+      if (elec) {
+        const existingApprovals = (elec.multi_sig_approvals as any) || {};
+        await supabase
+          .from("elections")
+          .update({
+            multi_sig_approvals: {
+              ...existingApprovals,
+              commissionerEmail: cleanEmail,
+              orgId: input.orgId,
+              orgSlug: cleanOrgSlug,
+              orgName: input.orgName,
+            },
+          })
+          .eq("id", elec.id);
+      }
+    } catch (_) {}
 
     revalidatePath("/super-admin");
     return {
@@ -731,17 +801,51 @@ export async function createCommissionerAction(input: {
       return { success: false, message: error.message };
     }
 
+    const cleanOrgSlug = assignedOrgId
+      ? assignedOrgId.replace(/^org-[^-]+-/, "").replace(/^org-/, "").toLowerCase().trim()
+      : undefined;
+    const cleanInstSlug = input.institutionId.replace(/^inst-/, "").toLowerCase();
+
     const assignments = readCommissionerAssignments();
     assignments[cleanEmail] = {
       email: cleanEmail,
       fullName: input.fullName.trim(),
       institutionId: input.institutionId,
+      institutionSlug: cleanInstSlug,
       orgId: assignedOrgId,
+      orgSlug: cleanOrgSlug,
       orgName: orgName,
       role: baseRole,
       plainPassword: defaultPassword,
     };
     writeCommissionerAssignments(assignments);
+
+    if (assignedOrgId) {
+      try {
+        const { data: elec } = await supabase
+          .from("elections")
+          .select("id, multi_sig_approvals")
+          .eq("organization_id", assignedOrgId)
+          .maybeSingle();
+
+        if (elec) {
+          const existingApprovals = (elec.multi_sig_approvals as any) || {};
+          await supabase
+            .from("elections")
+            .update({
+              multi_sig_approvals: {
+                ...existingApprovals,
+                commissionerEmail: cleanEmail,
+                commissionerName: input.fullName.trim(),
+                orgId: assignedOrgId,
+                orgSlug: cleanOrgSlug,
+                orgName,
+              },
+            })
+            .eq("id", elec.id);
+        }
+      } catch (_) {}
+    }
 
     revalidatePath("/super-admin");
     return {
@@ -819,6 +923,79 @@ export async function createOrganizationAction(input: {
     unrecordDeletedOrg(orgId, instSlug, cleanSlug);
 
     await persistOrgLicenseToSupabase(newLicense);
+
+    // ── Robust Senior-Dev Multi-Tenant Barrier Initialization ──
+    const electionId = `elec-${instSlug}-${cleanSlug}-2026`;
+    try {
+      // 1. Create isolated canonical election row in PostgreSQL
+      await supabase.from("elections").upsert({
+        id: electionId,
+        institution_id: instId,
+        organization_id: orgId,
+        title: `${input.name.trim()} Executive Council Elections`,
+        status: "DRAFT",
+        starts_at: new Date().toISOString(),
+        ends_at: new Date(Date.now() + 14 * 24 * 3600 * 1000).toISOString(),
+        multi_sig_approvals: {
+          orgId,
+          orgSlug: cleanSlug,
+          orgName: input.name.trim(),
+          license: newLicense,
+          status: "APPROVED",
+        },
+      });
+
+      // 2. Initialize isolated election rules in persistent store
+      const rulesPath = path.join(DATA_DIR, "election-rules-store.json");
+      let allRules: any = {};
+      if (fs.existsSync(rulesPath)) {
+        try { allRules = JSON.parse(fs.readFileSync(rulesPath, "utf8")) || {}; } catch (_) {}
+      }
+      allRules[electionId] = {
+        electionId,
+        status: "DRAFT",
+        requireDuesPayment: true,
+        requireGoodDisciplinaryStanding: true,
+        requireFullTimeOnly: true,
+        requireSessionRegistration: true,
+        requireWhitelistMatch: false,
+        allowedLevels: [100, 200, 300, 400, 500],
+        authMode: "PIN_SLIP",
+        resultsVisibility: "SEALED_UNTIL_CLOSE",
+        autoPauseAt: null,
+        registrationOpen: true,
+      };
+      fs.writeFileSync(rulesPath, JSON.stringify(allRules, null, 2), "utf8");
+
+      // 3. Initialize isolated posts in candidates store
+      const candPath = path.join(DATA_DIR, "candidates-store.json");
+      let candStore: any = { posts: [] };
+      if (fs.existsSync(candPath)) {
+        try { candStore = JSON.parse(fs.readFileSync(candPath, "utf8")) || { posts: [] }; } catch (_) {}
+      }
+      const existingPosts = (candStore.posts || []).filter((p: any) => p.electionId === electionId);
+      if (existingPosts.length === 0) {
+        const defaultPosts = [
+          { id: `post-${electionId}-1`, electionId, title: "President", maxSelections: 1, allowedLevels: [], candidates: [] },
+          { id: `post-${electionId}-2`, electionId, title: "Vice President", maxSelections: 1, allowedLevels: [], candidates: [] },
+          { id: `post-${electionId}-3`, electionId, title: "General Secretary", maxSelections: 1, allowedLevels: [], candidates: [] },
+          { id: `post-${electionId}-4`, electionId, title: "Financial Secretary", maxSelections: 1, allowedLevels: [], candidates: [] },
+          { id: `post-${electionId}-5`, electionId, title: "Public Relations Officer (PRO)", maxSelections: 1, allowedLevels: [], candidates: [] },
+        ];
+        candStore.posts = [...(candStore.posts || []), ...defaultPosts];
+        fs.writeFileSync(candPath, JSON.stringify(candStore, null, 2), "utf8");
+      }
+
+      // 4. Initialize empty isolated whitelist file
+      const whitelistsDir = path.join(DATA_DIR, "whitelists");
+      if (!fs.existsSync(whitelistsDir)) fs.mkdirSync(whitelistsDir, { recursive: true });
+      const wlFile = path.join(whitelistsDir, `${instSlug}-${cleanSlug}.json`);
+      if (!fs.existsSync(wlFile)) {
+        fs.writeFileSync(wlFile, "[]", "utf8");
+      }
+    } catch (barrierErr) {
+      console.warn("Notice initializing multi-tenant barriers for org:", barrierErr);
+    }
 
     revalidatePath("/super-admin");
     return {

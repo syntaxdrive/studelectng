@@ -2,6 +2,7 @@
 
 import { supabase } from "@/lib/supabase";
 import { revalidatePath } from "next/cache";
+import { CANONICAL_INSTITUTIONS } from "@/lib/db/institutions";
 
 export interface CreateElectionInput {
   institutionSlug: string;
@@ -31,12 +32,14 @@ export async function createElectionAction(input: CreateElectionInput) {
     const institutionId = `inst-${cleanInstSlug}`;
 
     // 1. Ensure Institution exists
+    const canonicalInst = CANONICAL_INSTITUTIONS.find((i) => i.slug === cleanInstSlug);
     await supabase.from("institutions").upsert({
       id: institutionId,
-      name: cleanInstSlug.toUpperCase() + " University",
+      name: canonicalInst?.name || (cleanInstSlug === "ui" ? "University of Ibadan" : `${cleanInstSlug.toUpperCase()} University`),
       slug: cleanInstSlug,
-      code: cleanInstSlug.toUpperCase(),
-      tagline: "Higher Education Institution",
+      code: canonicalInst?.code || cleanInstSlug.toUpperCase(),
+      tagline: canonicalInst?.tagline || "Higher Education Institution",
+      logo_url: canonicalInst?.logoUrl,
     });
 
     // 2. Upsert Organization
