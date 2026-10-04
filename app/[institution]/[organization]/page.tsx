@@ -14,6 +14,7 @@ import {
   verifyOrgExistsAction,
 } from "@/app/actions/student-register";
 import { getElectionPostsAndCandidatesAction } from "@/app/actions/candidates";
+import { getOrgLogoAction } from "@/app/actions/elections";
 import { validateAndNormalizeNigerianPhone } from "@/lib/phone-normalizer";
 import { StudentPerkCard } from "@/app/_components/StudentPerkCard";
 import { useLiveElection } from "@/lib/hooks/use-live-election";
@@ -315,18 +316,26 @@ export default function OrganizationPortalPage({
       setInstitution(inst);
       setRegDept(currentOrg.dept);
       try {
-        const savedLogo =
-          localStorage.getItem(`studelect_org_logo_${instSlug}_${orgSlug}`) ||
-          localStorage.getItem(`studelect_org_logo_${instSlug}`);
+        const savedLogo = localStorage.getItem(`studelect_org_logo_${instSlug}_${orgSlug}`);
         if (savedLogo) setOrgLogoUrl(savedLogo);
         const savedStatus = localStorage.getItem(`studelect_election_status_${instSlug}_${orgSlug}`);
         if (savedStatus) setElectionStatus(savedStatus);
         const savedVisibility = localStorage.getItem(`studelect_results_visibility_${instSlug}_${orgSlug}`);
         if (savedVisibility) setResultsVisibility(savedVisibility);
         else setResultsVisibility("SEALED_UNTIL_CLOSE");
-        const savedReg = localStorage.getItem(`studelect_registration_open_${instSlug}_${orgSlug}`)
-          ?? localStorage.getItem(`studelect_registration_open_${instSlug}`);
+        const savedReg = localStorage.getItem(`studelect_registration_open_${instSlug}_${orgSlug}`);
         if (savedReg !== null) setRegistrationOpen(savedReg === "true");
+      } catch (_) {}
+
+      // Fetch organization DP / logo from server
+      try {
+        const logoRes = await getOrgLogoAction(instSlug, orgSlug);
+        if (logoRes?.success && logoRes.logoUrl) {
+          setOrgLogoUrl(logoRes.logoUrl);
+          try {
+            localStorage.setItem(`studelect_org_logo_${instSlug}_${orgSlug}`, logoRes.logoUrl);
+          } catch (_) {}
+        }
       } catch (_) {}
     }
     loadInst();
@@ -398,32 +407,16 @@ export default function OrganizationPortalPage({
 
     // Instant local sync if admin is testing in another tab of same browser
     const onStorage = (e: StorageEvent) => {
-      if (
-        (e.key === `studelect_election_status_${instSlug}_${orgSlug}` ||
-          e.key === `studelect_election_status_${instSlug}`) &&
-        e.newValue
-      ) {
+      if (e.key === `studelect_election_status_${instSlug}_${orgSlug}` && e.newValue) {
         setElectionStatus(e.newValue);
       }
-      if (
-        (e.key === `studelect_results_visibility_${instSlug}_${orgSlug}` ||
-          e.key === `studelect_results_visibility_${instSlug}`) &&
-        e.newValue
-      ) {
+      if (e.key === `studelect_results_visibility_${instSlug}_${orgSlug}` && e.newValue) {
         setResultsVisibility(e.newValue);
       }
-      if (
-        (e.key === `studelect_registration_open_${instSlug}_${orgSlug}` ||
-          e.key === `studelect_registration_open_${instSlug}`) &&
-        e.newValue !== null
-      ) {
+      if (e.key === `studelect_registration_open_${instSlug}_${orgSlug}` && e.newValue !== null) {
         setRegistrationOpen(e.newValue === "true");
       }
-      if (
-        (e.key === `studelect_contact_${instSlug}_${orgSlug}` ||
-          e.key === `studelect_contact_${instSlug}`) &&
-        e.newValue
-      ) {
+      if (e.key === `studelect_contact_${instSlug}_${orgSlug}` && e.newValue) {
         try {
           const parsed = JSON.parse(e.newValue);
           if (parsed && parsed.name) {
@@ -431,11 +424,7 @@ export default function OrganizationPortalPage({
           }
         } catch (_) {}
       }
-      if (
-        (e.key === `studelect_org_logo_${instSlug}_${orgSlug}` ||
-          e.key === `studelect_org_logo_${instSlug}`) &&
-        e.newValue
-      ) {
+      if (e.key === `studelect_org_logo_${instSlug}_${orgSlug}` && e.newValue) {
         setOrgLogoUrl(e.newValue);
       }
     };
@@ -453,9 +442,7 @@ export default function OrganizationPortalPage({
   useEffect(() => {
     let isMounted = true;
     try {
-      const cached =
-        localStorage.getItem(`studelect_contact_${instSlug}_${orgSlug}`) ||
-        localStorage.getItem(`studelect_contact_${instSlug}`);
+      const cached = localStorage.getItem(`studelect_contact_${instSlug}_${orgSlug}`);
       if (cached) {
         const parsed = JSON.parse(cached);
         if (parsed && parsed.name) {
@@ -830,7 +817,7 @@ export default function OrganizationPortalPage({
       <div className="p-6 rounded-2xl bg-white border border-zinc-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center gap-4">
           <img
-            src={orgLogoUrl || `/logos/${instSlug}.svg`}
+            src={orgLogoUrl || (instSlug === "ui" ? "/logos/ui.jpg" : `/logos/${instSlug}.svg`)}
             alt={currentOrg.name || "Campus Logo"}
             className="w-14 h-14 object-contain flex-shrink-0 rounded-xl bg-zinc-50 border border-zinc-100 p-1"
           />

@@ -43,7 +43,7 @@ import {
 } from "@/lib/whatsapp";
 import { getCurrentUserSession } from "@/app/actions/auth";
 import { getInstitutionBySlug } from "@/lib/db/institutions";
-import { updateOrgLogoAction } from "@/app/actions/elections";
+import { updateOrgLogoAction, getOrgLogoAction } from "@/app/actions/elections";
 import {
   parseExcelOrCsvFile,
   exportVoterRegisterToExcel,
@@ -237,6 +237,7 @@ export default function InstitutionAdminPage({
 
   // Official University Crest State (managed strictly by Platform SuperAdmin)
   const [orgLogoUrl, setOrgLogoUrl] = useState<string | null>(null);
+  const [isResolvingOrg, setIsResolvingOrg] = useState<boolean>(true);
 
   const [activeOrgSlug, setActiveOrgSlug] = useState<string>(() => {
     if (typeof window !== "undefined") {
@@ -355,7 +356,8 @@ export default function InstitutionAdminPage({
   const [whitelistMessage, setWhitelistMessage] = useState<string | null>(null);
 
   const loadWhitelistData = async (orgToUse?: string) => {
-    const org = orgToUse || activeOrgSlug || "nesa";
+    const org = orgToUse || activeOrgSlug;
+    if (!org) return;
     const res = await getElectorateWhitelistAction(instSlug, org);
     if (res?.success) {
       setWhitelistCount(res.count);
@@ -363,11 +365,10 @@ export default function InstitutionAdminPage({
   };
 
   const loadPublicContact = async (orgToUse?: string) => {
-    const org = orgToUse || activeOrgSlug || "nesa";
+    const org = orgToUse || activeOrgSlug;
+    if (!org) return;
     try {
-      const cached =
-        localStorage.getItem(`studelect_contact_${instSlug}_${org}`) ||
-        localStorage.getItem(`studelect_contact_${instSlug}`);
+      const cached = localStorage.getItem(`studelect_contact_${instSlug}_${org}`);
       if (cached) {
         const parsed = JSON.parse(cached);
         if (parsed) {
@@ -389,21 +390,19 @@ export default function InstitutionAdminPage({
   };
 
   useEffect(() => {
+    if (isResolvingOrg) return;
     async function loadRules() {
       try {
-        const org = activeOrgSlug || "nesa";
-        const savedRules =
-          localStorage.getItem(`studelect_rules_${instSlug}_${org}`) ||
-          localStorage.getItem(`studelect_rules_${instSlug}`);
+        const org = activeOrgSlug;
+        if (!org) return;
+        const savedRules = localStorage.getItem(`studelect_rules_${instSlug}_${org}`);
         if (savedRules) {
           const parsed = JSON.parse(savedRules);
           if (parsed && typeof parsed === "object") {
             setElectionRules((prev) => ({ ...prev, ...parsed }));
           }
         }
-        const saved = activeOrgSlug
-          ? localStorage.getItem(`studelect_registration_open_${instSlug}_${activeOrgSlug}`)
-          : localStorage.getItem(`studelect_registration_open_${instSlug}`);
+        const saved = localStorage.getItem(`studelect_registration_open_${instSlug}_${org}`);
         if (saved !== null) {
           setElectionRules((prev) => ({ ...prev, registrationOpen: saved === "true" }));
         }
@@ -413,9 +412,7 @@ export default function InstitutionAdminPage({
       if (res) {
         let effectiveReg = res.registrationOpen !== false;
         try {
-          const saved = activeOrgSlug
-            ? localStorage.getItem(`studelect_registration_open_${instSlug}_${activeOrgSlug}`)
-            : localStorage.getItem(`studelect_registration_open_${instSlug}`);
+          const saved = localStorage.getItem(`studelect_registration_open_${instSlug}_${activeOrgSlug}`);
           if (saved !== null) {
             effectiveReg = saved === "true";
           }
@@ -424,13 +421,17 @@ export default function InstitutionAdminPage({
       }
     }
     loadRules();
-    loadWhitelistData();
-    loadPublicContact();
-  }, [electionId, activeOrgSlug, instSlug]);
+    loadWhitelistData(activeOrgSlug);
+    loadPublicContact(activeOrgSlug);
+  }, [electionId, activeOrgSlug, instSlug, isResolvingOrg]);
 
   const handleSaveContactDetails = async () => {
     setIsSavingContact(true);
-    const org = activeOrgSlug || "nesa";
+    const org = activeOrgSlug;
+    if (!org) {
+      setIsSavingContact(false);
+      return;
+    }
     const payload = {
       name: contactName.trim(),
       email: contactEmail.trim(),
@@ -440,7 +441,6 @@ export default function InstitutionAdminPage({
     };
     try {
       localStorage.setItem(`studelect_contact_${instSlug}_${org}`, JSON.stringify(payload));
-      localStorage.setItem(`studelect_contact_${instSlug}`, JSON.stringify(payload));
     } catch (_) {}
 
     const res = await updateOrgPublicContactAction({
@@ -584,6 +584,7 @@ export default function InstitutionAdminPage({
           }
         }
       } catch (_) {}
+      setIsResolvingOrg(false);
     }
     resolveActiveOrg();
   }, [instSlug]);
@@ -603,6 +604,19 @@ export default function InstitutionAdminPage({
       return;
     }
     if (!newOrgSlug || newOrgSlug === activeOrgSlug) return;
+    // Clear out current org data so switching orgs does not display stale data
+    setVoterRoll([]);
+    setPosts([]);
+    setTelemetryData({
+      totalRegistered: 0,
+      totalBallotsCast: 0,
+      turnoutPercentage: 0,
+      posts: [],
+      levelBreakdown: [],
+      recentAuditLedger: [],
+      lastUpdated: Date.now(),
+    });
+    setOrgLogoUrl(null);
     setActiveOrgSlug(newOrgSlug);
     // Update URL so refreshing preserves the org context
     if (typeof window !== "undefined") {
@@ -614,7 +628,8 @@ export default function InstitutionAdminPage({
 
   // Load organization license metadata
   const loadLicense = async (targetOrg?: string) => {
-    const orgToLoad = targetOrg || activeOrgSlug || (instSlug === "unilag" ? "nacos" : "nesa");
+    const orgToLoad = targetOrg || activeOrgSlug;
+    if (!orgToLoad) return;
     const res = await getOrgLicenseInfoAction(orgToLoad, instSlug);
     if (res && res.license) {
       setOrgLicenseInfo(res.license);
@@ -622,8 +637,9 @@ export default function InstitutionAdminPage({
   };
 
   useEffect(() => {
+    if (isResolvingOrg) return;
     loadLicense();
-  }, [activeOrgSlug, instSlug]);
+  }, [activeOrgSlug, instSlug, isResolvingOrg]);
 
   // Load audit logs when switching to LOGS tab or on interval
   const loadAuditLogs = async () => {
@@ -640,10 +656,11 @@ export default function InstitutionAdminPage({
   };
 
   useEffect(() => {
+    if (isResolvingOrg) return;
     if (activeTab === "LOGS") {
       loadAuditLogs();
     }
-  }, [activeTab, electionId, instSlug]);
+  }, [activeTab, electionId, instSlug, isResolvingOrg]);
 
   const safeCopyToClipboard = async (text: string) => {
     try {
@@ -687,6 +704,7 @@ export default function InstitutionAdminPage({
   };
 
   useEffect(() => {
+    if (isResolvingOrg) return;
     loadTelemetry();
     // Eco-friendly polling: 6s when active, paused when admin tab is backgrounded
     const interval = setInterval(() => {
@@ -705,15 +723,15 @@ export default function InstitutionAdminPage({
       clearInterval(interval);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [electionId, instSlug]);
+  }, [electionId, instSlug, isResolvingOrg]);
 
   useEffect(() => {
-    if (posts && posts.length > 0) {
+    if (posts && posts.length > 0 && activeOrgSlug) {
       try {
-        localStorage.setItem(`studelect_posts_${instSlug}`, JSON.stringify(posts));
+        localStorage.setItem(`studelect_posts_${instSlug}_${activeOrgSlug}`, JSON.stringify(posts));
       } catch (_) {}
     }
-  }, [posts, instSlug]);
+  }, [posts, instSlug, activeOrgSlug]);
 
   // ── Voter Roll Loader ───────────────────────────────────────────────────────
   const loadVoterRoll = async (targetOrg?: any) => {
@@ -725,25 +743,37 @@ export default function InstitutionAdminPage({
   };
 
   useEffect(() => {
+    if (isResolvingOrg) return;
     if (activeOrgSlug) {
       loadVoterRoll(activeOrgSlug);
     } else {
       loadVoterRoll();
     }
-    try {
-      const org = activeOrgSlug || "nesa";
-      const cached =
-        localStorage.getItem(`studelect_org_logo_${instSlug}_${org}`) ||
-        localStorage.getItem(`studelect_org_logo_${instSlug}`);
-      if (cached) setOrgLogoUrl(cached);
-    } catch (_) {}
-    getInstitutionBySlug(instSlug).then((inst) => {
-      if (inst?.logoUrl) {
-        setOrgLogoUrl((prev) => prev || inst.logoUrl || null);
-      }
-    });
+    const org = activeOrgSlug;
+    if (org) {
+      try {
+        const cached = localStorage.getItem(`studelect_org_logo_${instSlug}_${org}`);
+        if (cached) setOrgLogoUrl(cached);
+        else setOrgLogoUrl(null);
+      } catch (_) {}
+
+      getOrgLogoAction(instSlug, org).then((res) => {
+        if (res?.success && res.logoUrl) {
+          setOrgLogoUrl(res.logoUrl);
+          try {
+            localStorage.setItem(`studelect_org_logo_${instSlug}_${org}`, res.logoUrl);
+          } catch (_) {}
+        } else {
+          getInstitutionBySlug(instSlug).then((inst) => {
+            if (inst?.logoUrl) {
+              setOrgLogoUrl((prev) => prev || inst.logoUrl || null);
+            }
+          });
+        }
+      });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeOrgSlug, instSlug]);
+  }, [activeOrgSlug, instSlug, isResolvingOrg]);
 
   // ── Organization DP / Logo Upload Handler ──────────────────────────────────
   const handleOrgLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -761,14 +791,15 @@ export default function InstitutionAdminPage({
       if (typeof reader.result === "string") {
         const dataUrl = reader.result as string;
         setOrgLogoUrl(dataUrl);
-        const org = activeOrgSlug || "nesa";
+        const org = activeOrgSlug;
         try {
-          localStorage.setItem(`studelect_org_logo_${instSlug}_${org}`, dataUrl);
-          localStorage.setItem(`studelect_org_logo_${instSlug}`, dataUrl);
+          if (org) {
+            localStorage.setItem(`studelect_org_logo_${instSlug}_${org}`, dataUrl);
+          }
         } catch (_) {}
 
         setAdminActionMessage("Updating organization DP / display picture...");
-        const res = await updateOrgLogoAction(instSlug, dataUrl);
+        const res = await updateOrgLogoAction(instSlug, dataUrl, org);
         if (res && res.success) {
           setAdminActionMessage("Organization DP updated successfully!");
         } else {
@@ -870,9 +901,10 @@ export default function InstitutionAdminPage({
     e.preventDefault();
     setIsSavingRules(true);
     try {
-      const org = activeOrgSlug || "nesa";
-      localStorage.setItem(`studelect_rules_${instSlug}_${org}`, JSON.stringify(electionRules));
-      localStorage.setItem(`studelect_rules_${instSlug}`, JSON.stringify(electionRules));
+      const org = activeOrgSlug;
+      if (org) {
+        localStorage.setItem(`studelect_rules_${instSlug}_${org}`, JSON.stringify(electionRules));
+      }
     } catch (_) {}
     const res = await updateElectionRulesAction(electionRules);
     setIsSavingRules(false);
@@ -883,6 +915,12 @@ export default function InstitutionAdminPage({
   const handleWhitelistUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    const org = activeOrgSlug;
+    if (!org) {
+      alert("No active organization selected.");
+      return;
+    }
 
     setIsUploadingWhitelist(true);
     setWhitelistMessage("Reading student spreadsheet roster...");
@@ -896,7 +934,6 @@ export default function InstitutionAdminPage({
       }
 
       setWhitelistMessage(`Whitelisting ${parseResult.rows.length} student matric numbers...`);
-      const org = activeOrgSlug || "nesa";
       const res = await saveElectorateWhitelistAction(
         instSlug,
         org,
@@ -932,7 +969,8 @@ export default function InstitutionAdminPage({
       )
     )
       return;
-    const org = activeOrgSlug || "nesa";
+    const org = activeOrgSlug;
+    if (!org) return;
     const res = await clearElectorateWhitelistAction(instSlug, org);
     if (res.success) {
       setWhitelistCount(0);
@@ -978,7 +1016,6 @@ export default function InstitutionAdminPage({
 
     setElectionRules((prev) => ({ ...prev, status: newStatus }));
     try {
-      localStorage.setItem(`studelect_election_status_${instSlug}`, newStatus);
       if (activeOrgSlug) {
         localStorage.setItem(`studelect_election_status_${instSlug}_${activeOrgSlug}`, newStatus);
       }
@@ -1000,7 +1037,6 @@ export default function InstitutionAdminPage({
 
     setElectionRules((prev) => ({ ...prev, resultsVisibility: newVisibility }));
     try {
-      localStorage.setItem(`studelect_results_visibility_${instSlug}`, newVisibility);
       if (activeOrgSlug) {
         localStorage.setItem(`studelect_results_visibility_${instSlug}_${activeOrgSlug}`, newVisibility);
       }
@@ -1024,7 +1060,6 @@ export default function InstitutionAdminPage({
 
     // 2. Persist in localStorage immediately so it never reverts on render/re-mount
     try {
-      localStorage.setItem(`studelect_registration_open_${instSlug}`, String(willOpen));
       if (activeOrgSlug) {
         localStorage.setItem(`studelect_registration_open_${instSlug}_${activeOrgSlug}`, String(willOpen));
       }
@@ -1379,6 +1414,27 @@ export default function InstitutionAdminPage({
     }
   };
 
+  if (isResolvingOrg) {
+    return (
+      <div className="min-h-[70vh] flex flex-col items-center justify-center p-8 text-center space-y-4">
+        <div className="w-14 h-14 rounded-2xl bg-zinc-900 text-white flex items-center justify-center shadow-lg animate-pulse">
+          <ShieldCheck className="w-7 h-7 text-emerald-400" />
+        </div>
+        <div>
+          <h2 className="text-sm font-bold text-zinc-900 uppercase tracking-wider">
+            Verifying ELCOM Administrator Credentials
+          </h2>
+          <p className="text-xs text-zinc-500 mt-1 max-w-sm">
+            Authenticating organization access permissions and loading isolated workspace for {instSlug.toUpperCase()}...
+          </p>
+        </div>
+        <div className="w-48 h-1 bg-zinc-100 rounded-full overflow-hidden mt-2">
+          <div className="w-1/2 h-full bg-zinc-900 rounded-full animate-pulse"></div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-8 print:hidden">
@@ -1387,7 +1443,7 @@ export default function InstitutionAdminPage({
         <div className="flex items-center gap-3">
           <div className="relative group flex-shrink-0 cursor-pointer">
             <img
-              src={orgLogoUrl || `/logos/${instSlug}.svg`}
+              src={orgLogoUrl || (instSlug === "ui" ? "/logos/ui.jpg" : `/logos/${instSlug}.svg`)}
               alt="Org DP"
               className="w-14 h-14 object-contain rounded-xl bg-white border border-zinc-200 p-1 shadow-xs transition group-hover:border-zinc-400"
             />

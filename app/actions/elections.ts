@@ -112,6 +112,7 @@ export async function createElectionAction(input: CreateElectionInput) {
 
 /**
  * Update the organization display picture (DP) / logo
+ * Strictly scopes to the specified organization. Never overwrites the institution crest.
  */
 export async function updateOrgLogoAction(
   institutionSlug: string,
@@ -122,13 +123,6 @@ export async function updateOrgLogoAction(
     const cleanInst = (institutionSlug || "ui").toLowerCase().trim();
     const instId = `inst-${cleanInst}`;
 
-    // Update institution logo
-    await supabase
-      .from("institutions")
-      .update({ logo_url: logoUrl })
-      .eq("slug", cleanInst);
-
-    // If orgSlug provided, also update organizations table
     if (orgSlug) {
       const cleanOrg = orgSlug.toLowerCase().trim();
       await supabase
@@ -136,10 +130,19 @@ export async function updateOrgLogoAction(
         .update({ logo_url: logoUrl })
         .eq("institution_id", instId)
         .eq("slug", cleanOrg);
-    }
 
-    revalidatePath(`/${cleanInst}/admin`);
-    revalidatePath(`/${cleanInst}`);
+      revalidatePath(`/${cleanInst}/admin`);
+      revalidatePath(`/${cleanInst}/${cleanOrg}`);
+    } else {
+      // Only update institution logo if explicitly no orgSlug is specified (e.g. campus crest by super admin)
+      await supabase
+        .from("institutions")
+        .update({ logo_url: logoUrl })
+        .eq("slug", cleanInst);
+
+      revalidatePath(`/${cleanInst}/admin`);
+      revalidatePath(`/${cleanInst}`);
+    }
 
     return {
       success: true,
@@ -149,6 +152,36 @@ export async function updateOrgLogoAction(
   } catch (err: any) {
     console.error("updateOrgLogoAction error:", err);
     return { success: false, message: err.message };
+  }
+}
+
+/**
+ * Fetch the organization display picture (DP) / logo
+ * Returns null if not found or no custom logo set for this specific org.
+ */
+export async function getOrgLogoAction(institutionSlug: string, orgSlug: string) {
+  try {
+    const cleanInst = (institutionSlug || "ui").toLowerCase().trim();
+    const cleanOrg = (orgSlug || "").toLowerCase().trim();
+    if (!cleanOrg) return { success: true, logoUrl: null };
+
+    const instId = `inst-${cleanInst}`;
+    const { data, error } = await supabase
+      .from("organizations")
+      .select("logo_url")
+      .eq("institution_id", instId)
+      .eq("slug", cleanOrg)
+      .maybeSingle();
+
+    if (error) {
+      console.warn("getOrgLogoAction error:", error.message);
+      return { success: false, logoUrl: null };
+    }
+
+    return { success: true, logoUrl: data?.logo_url || null };
+  } catch (err: any) {
+    console.error("getOrgLogoAction error:", err);
+    return { success: false, logoUrl: null };
   }
 }
 
