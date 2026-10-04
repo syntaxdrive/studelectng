@@ -70,6 +70,45 @@ export async function accreditVoterAction(input: AccreditVoterInput) {
       };
     }
 
+    // 2b. Organization-Isolation Guard: Ensure PIN belongs to the target organization
+    const cleanElecId = (input.electionId || "").toLowerCase();
+    const instSlug = (student.institution_id || "inst-ui").replace(/^inst-/, "").toLowerCase();
+    let targetOrgSlug = cleanElecId
+      .replace(/^elec-/, "")
+      .replace(new RegExp(`^${instSlug}-`, "i"), "")
+      .replace(/-2026$/, "")
+      .replace(/-[0-9]+$/, "");
+
+    if (targetOrgSlug && targetOrgSlug !== "sug") {
+      const pinPrefix = cleanStudentPin.split("-")[0].toUpperCase();
+      const targetOrgTri = targetOrgSlug.slice(0, 3).toUpperCase();
+      const targetOrgQuad = targetOrgSlug.slice(0, 4).toUpperCase();
+      const isOrgPrefixMatch =
+        pinPrefix === targetOrgTri ||
+        pinPrefix === targetOrgQuad ||
+        targetOrgSlug.toUpperCase().startsWith(pinPrefix);
+
+      if (!isOrgPrefixMatch) {
+        let hasElectionAccreditation = false;
+        try {
+          const { data: accRec } = await supabase
+            .from("voter_accreditations")
+            .select("id")
+            .eq("election_id", input.electionId)
+            .eq("student_id", student.id)
+            .maybeSingle();
+          if (accRec) hasElectionAccreditation = true;
+        } catch (_) {}
+
+        if (!hasElectionAccreditation) {
+          return {
+            success: false,
+            message: `This Voter Access PIN (${pinPrefix}) was issued for another association. It cannot be used in the ${targetOrgSlug.toUpperCase()} election. Please use your official ${targetOrgSlug.toUpperCase()} voter credentials.`,
+          };
+        }
+      }
+    }
+
     // Check if this student has been promoted to an administrator / polling agent
     const { getPromotedAdminDetails } = await import("./promote-student");
     const adminDetails = await getPromotedAdminDetails(

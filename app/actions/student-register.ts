@@ -11,6 +11,7 @@ import { revalidatePath } from "next/cache";
 export interface StudentLookupInput {
   institutionSlug: string;
   matricNo: string;
+  orgSlug?: string;
 }
 
 export interface StudentRegisterInput {
@@ -54,6 +55,24 @@ export async function lookupStudentStatusAction(input: StudentLookupInput) {
     }
 
     if (student) {
+      const cleanOrgSlug = (input.orgSlug || "").toLowerCase().trim();
+      const studentPin = (student.portal_pin || "").toUpperCase();
+
+      if (cleanOrgSlug && cleanOrgSlug !== "sug") {
+        const thisOrgTri = cleanOrgSlug.slice(0, 3).toUpperCase();
+        const thisOrgQuad = cleanOrgSlug.slice(0, 4).toUpperCase();
+        const matchesThisOrg =
+          studentPin.startsWith(thisOrgTri + "-") ||
+          studentPin.startsWith(thisOrgQuad + "-");
+
+        if (studentPin && !matchesThisOrg) {
+          return {
+            success: false,
+            message: `Matriculation number "${input.matricNo}" has an account issued under another association (${studentPin.split("-")[0]}). Click "New Voter? Get PIN" to activate your profile for ${cleanOrgSlug.toUpperCase()}.`,
+          };
+        }
+      }
+
       const pinPrefix = student.portal_pin ? student.portal_pin.substring(0, 3) : "PIN";
       return {
         success: true,
@@ -193,10 +212,19 @@ export async function registerStudentAccountAction(input: StudentRegisterInput) 
     }
 
     if (existing && existing.portal_pin) {
-      return {
-        success: false,
-        message: `Matriculation number "${input.matricNo}" is already registered with an active profile. For ballot security, duplicate registrations are blocked. If you lost your PIN, please contact your ELCOM commissioner.`,
-      };
+      const existingPin = (existing.portal_pin || "").toUpperCase();
+      const thisOrgTri = cleanOrgSlug.slice(0, 3).toUpperCase();
+      const thisOrgQuad = cleanOrgSlug.slice(0, 4).toUpperCase();
+      const matchesThisOrg =
+        existingPin.startsWith(thisOrgTri + "-") ||
+        existingPin.startsWith(thisOrgQuad + "-");
+
+      if (matchesThisOrg) {
+        return {
+          success: false,
+          message: `Matriculation number "${input.matricNo}" is already registered for ${cleanOrgSlug.toUpperCase()} with an active profile. For ballot security, duplicate registrations are blocked. If you lost your PIN, please contact your ELCOM commissioner.`,
+        };
+      }
     }
 
     const finalFullName = ((input.fullName || matchedWhitelist?.fullName || "").trim()) || "Student Voter";
@@ -204,7 +232,7 @@ export async function registerStudentAccountAction(input: StudentRegisterInput) 
     const finalLevel = Number(input.level) || matchedWhitelist?.level || 100;
 
     if (existing) {
-      // If student was pre-seeded without a PIN, generate and attach their PIN
+      // If student was pre-seeded without a PIN or is registering for this new org
       try {
         await supabase
           .from("students")
@@ -217,6 +245,13 @@ export async function registerStudentAccountAction(input: StudentRegisterInput) 
             portal_pin: generatedPin,
           })
           .eq("id", existing.id);
+
+        await supabase.from("voter_accreditations").upsert({
+          id: `acc-${electionId}-${existing.id}`,
+          election_id: electionId,
+          student_id: existing.id,
+          status: "ELIGIBLE",
+        });
       } catch (_) {
         // Non-fatal
       }
@@ -250,6 +285,16 @@ export async function registerStudentAccountAction(input: StudentRegisterInput) 
       email: input.email?.trim() || null,
       phone_number: cleanPhone || null,
     });
+
+    // 4. Enroll in voter_accreditations for this specific election
+    try {
+      await supabase.from("voter_accreditations").upsert({
+        id: `acc-${electionId}-${newStudentId}`,
+        election_id: electionId,
+        student_id: newStudentId,
+        status: "ELIGIBLE",
+      });
+    } catch (_) {}
 
     if (insertError) {
       console.error("Supabase student insert error:", insertError);
@@ -400,6 +445,7 @@ export async function getOrgVoterRollAction(institutionSlug: string, orgSlug?: s
               orgSlugUpper,
               orgCode,
               orgSlugUpper.slice(0, 4),
+              orgSlugUpper.slice(0, 3),
               orgCode.slice(0, 3),
             ].filter((p: string) => p.length >= 2)
           )
@@ -419,6 +465,8 @@ export async function getOrgVoterRollAction(institutionSlug: string, orgSlug?: s
                   if (s.length >= 2) otherOrgPrefixes.push(s);
                   const c = (l.orgSlug || "").slice(0, 4).toUpperCase();
                   if (c.length >= 2) otherOrgPrefixes.push(c);
+                  const tri = (l.orgSlug || "").slice(0, 3).toUpperCase();
+                  if (tri.length >= 2) otherOrgPrefixes.push(tri);
                 }
               });
             }
