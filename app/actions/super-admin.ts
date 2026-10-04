@@ -1758,14 +1758,16 @@ export async function deletePartnerPerkAction(
 ): Promise<{ success: boolean; message: string }> {
   try {
     const list = readPartnerPerksStore();
-    const target = list.find((p) => p.id === perkId);
-    const nextList = list.filter((p) => p.id !== perkId);
+    const cleanId = (perkId || "").trim();
+    const target = list.find((p) => p.id === cleanId || p.id.toLowerCase() === cleanId.toLowerCase());
+    const nextList = list.filter((p) => p.id !== cleanId && p.id.toLowerCase() !== cleanId.toLowerCase());
     writePartnerPerksStore(nextList);
     revalidatePath("/super-admin");
+    revalidatePath("/", "layout");
 
     return {
       success: true,
-      message: `Deleted perk campaign "${target?.title || perkId}".`,
+      message: `Deleted perk campaign "${target?.title || cleanId}".`,
     };
   } catch (err: any) {
     console.error("deletePartnerPerkAction error:", err);

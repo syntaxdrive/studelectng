@@ -13,6 +13,7 @@ export interface AuthSession {
   institutionId?: string;
   institutionSlug?: string;
   orgId?: string;
+  orgSlug?: string;
   electionId?: string;
   expiresAt: number;
 }

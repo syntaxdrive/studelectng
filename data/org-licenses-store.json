@@ -15,5 +15,22 @@
     "registeredVotersCount": 7,
     "ballotsCastCount": 0,
     "lastActivatedAt": "2026-09-07T21:26:15.615Z"
+  },
+  {
+    "id": "org-ui-renarsa",
+    "institutionSlug": "ui",
+    "institutionName": "University of Ibadan",
+    "orgSlug": "renarsa",
+    "orgName": "Renewable Natural Resources Students Association (RENARSA)",
+    "orgType": "FACULTY",
+    "voterQuota": 500,
+    "licenseStatus": "ACTIVE",
+    "paymentPlan": "FACULTY_3000",
+    "agreedAmountNgn": 12000,
+    "contactAdminName": "Comrade Sulaimon Ayomide",
+    "contactAdminEmail": "sulaimonayomide38@gmail.com",
+    "registeredVotersCount": 0,
+    "ballotsCastCount": 0,
+    "lastActivatedAt": "2026-09-20T20:13:40.549Z"
   }
 ]

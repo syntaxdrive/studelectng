@@ -61,8 +61,9 @@ import {
   Eye,
   EyeOff,
   Mail,
+  Tag,
+  Check,
   Copy,
-  Sparkles,
   Gift,
   Video,
   Image as ImageIcon,
@@ -278,18 +279,26 @@ export default function SuperAdminDashboard() {
 
   const handleDeletePerk = async () => {
     if (!perkToDelete) return;
+    const targetId = perkToDelete.id;
     setIsPerkSaving(true);
+    // Instant Optimistic UI removal
+    setPerks((prev) => prev.filter((p) => p.id !== targetId));
+    setIsDeletePerkModalOpen(false);
+    setPerkToDelete(null);
+
     try {
-      const res = await deletePartnerPerkAction(perkToDelete.id);
+      const res = await deletePartnerPerkAction(targetId);
       if (res.success) {
         setStatusMessage(res.message);
         setTimeout(() => setStatusMessage(null), 4000);
-        setIsDeletePerkModalOpen(false);
-        setPerkToDelete(null);
         await loadData();
       } else {
-        alert(res.message);
+        alert(res.message || "Failed to delete perk campaign.");
+        await loadData();
       }
+    } catch (err: any) {
+      alert("Error deleting perk: " + (err.message || String(err)));
+      await loadData();
     } finally {
       setIsPerkSaving(false);
     }
@@ -785,7 +794,7 @@ export default function SuperAdminDashboard() {
               : "text-zinc-600 hover:bg-zinc-100"
           }`}
         >
-          <Sparkles className="w-4 h-4 text-amber-500 fill-amber-400" />
+          <Tag className="w-4 h-4" />
           <span>Student Perks & Sponsors ({perks.length})</span>
         </button>
       </div>
@@ -2209,8 +2218,8 @@ export default function SuperAdminDashboard() {
           <div className="bg-white rounded-2xl border border-zinc-200 shadow-2xl max-w-4xl w-full p-6 space-y-5 text-xs max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
               <div>
-                <span className="text-[10px] font-mono font-bold uppercase text-amber-600 flex items-center gap-1">
-                  <Sparkles className="w-3 h-3" /> Campus Partner Campaign
+                <span className="text-[10px] font-mono font-bold uppercase text-zinc-600 flex items-center gap-1">
+                  <Tag className="w-3 h-3" /> Campus Partner Campaign
                 </span>
                 <h3 className="text-base font-bold text-zinc-900 mt-0.5">
                   {editingPerk ? "Edit Student Perk / Sponsor Offer" : "Create New Student Perk / Sponsor Offer"}
@@ -2472,22 +2481,39 @@ export default function SuperAdminDashboard() {
                   </div>
                 </div>
 
-                <div className="flex justify-end gap-2 pt-4 border-t border-zinc-100">
-                  <button
-                    type="button"
-                    onClick={() => setIsPerkModalOpen(false)}
-                    className="px-4 py-2 border rounded-lg text-zinc-700 hover:bg-zinc-50 font-medium"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={isPerkSaving}
-                    className="px-5 py-2 bg-zinc-900 text-white font-bold rounded-lg hover:bg-zinc-800 transition flex items-center gap-1.5 shadow-xs"
-                  >
-                    <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                    <span>{isPerkSaving ? "Saving Campaign..." : "Save Partner Perk"}</span>
-                  </button>
+                <div className="flex items-center justify-between pt-4 border-t border-zinc-100">
+                  {editingPerk ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsPerkModalOpen(false);
+                        setPerkToDelete(editingPerk);
+                        setIsDeletePerkModalOpen(true);
+                      }}
+                      className="px-3 py-2 text-rose-600 hover:bg-rose-50 rounded-lg text-xs font-semibold transition flex items-center gap-1.5"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Delete Campaign</span>
+                    </button>
+                  ) : <div />}
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsPerkModalOpen(false)}
+                      className="px-4 py-2 border rounded-lg text-zinc-700 hover:bg-zinc-50 font-medium"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isPerkSaving}
+                      className="px-5 py-2 bg-zinc-900 text-white font-bold rounded-lg hover:bg-zinc-800 transition flex items-center gap-1.5 shadow-xs"
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                      <span>{isPerkSaving ? "Saving Campaign..." : "Save Partner Perk"}</span>
+                    </button>
+                  </div>
                 </div>
               </form>
 
@@ -2501,19 +2527,19 @@ export default function SuperAdminDashboard() {
                 </p>
 
                 {/* Exact Simulated Card */}
-                <div className="rounded-2xl border border-zinc-200 bg-gradient-to-b from-white via-zinc-50/50 to-zinc-50 p-4 shadow-xs space-y-3">
+                <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-xs space-y-3">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider bg-amber-50 text-amber-800 border border-amber-200/60 shadow-2xs">
-                      <Sparkles className="w-2.5 h-2.5 text-amber-600 fill-amber-500" />
-                      <span>{perkFormData.badge || "Exclusive Student Perk"}</span>
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider bg-zinc-100 text-zinc-700 border border-zinc-200">
+                      <Tag className="w-2.5 h-2.5 text-zinc-500" />
+                      <span>{perkFormData.badge || "Student Perk"}</span>
                     </span>
                     <span className="text-[10px] text-zinc-500">
-                      By <strong className="text-zinc-800">{perkFormData.sponsorName || "Sponsor"}</strong>
+                      Sponsored by <strong className="text-zinc-800">{perkFormData.sponsorName || "Sponsor"}</strong>
                     </span>
                   </div>
 
                   {perkFormData.mediaType === "IMAGE" && perkFormData.mediaUrl && (
-                    <div className="overflow-hidden rounded-lg border border-zinc-200 bg-zinc-100 max-h-36">
+                    <div className="overflow-hidden rounded-lg border border-zinc-200 bg-zinc-50 max-h-36">
                       <img
                         src={perkFormData.mediaUrl}
                         alt="Preview"
@@ -2531,10 +2557,13 @@ export default function SuperAdminDashboard() {
                     </p>
                   </div>
 
-                  <div className="pt-2 border-t border-zinc-200/70 flex items-center justify-between gap-2">
-                    <span className="text-[9px] text-zinc-400 font-mono">Zero Spam Guarantee</span>
+                  <div className="pt-2 border-t border-zinc-100 flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1 text-[9px] text-zinc-400">
+                      <ShieldCheck className="w-3 h-3 text-zinc-500" />
+                      <span>Verified Student Partner Offer</span>
+                    </div>
                     <div className="px-3 py-1.5 rounded-lg bg-zinc-900 text-white text-[11px] font-bold shadow-xs">
-                      {perkFormData.ctaText || "Claim Student Perk →"}
+                      {perkFormData.ctaText || "Claim Perk →"}
                     </div>
                   </div>
                 </div>

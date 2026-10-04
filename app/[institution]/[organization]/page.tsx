@@ -31,7 +31,6 @@ import {
   Lock,
   Check,
   Search,
-  Sparkles,
   Building2,
   Copy,
   AlertCircle,
@@ -1119,13 +1118,13 @@ export default function OrganizationPortalPage({
 
                 {/* High-Visibility "Don't have a PIN?" Action Banner */}
                 {registrationOpen ? (
-                  <div className="p-4 rounded-xl bg-gradient-to-r from-amber-50 via-orange-50/40 to-amber-50 border border-amber-200 text-left flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+                  <div className="p-4 rounded-xl bg-zinc-50 border border-zinc-200 text-left flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
                     <div className="space-y-0.5">
-                      <div className="flex items-center gap-1.5 font-bold text-xs text-amber-950">
-                        <Sparkles className="w-3.5 h-3.5 text-amber-600 fill-amber-400" />
+                      <div className="flex items-center gap-1.5 font-bold text-xs text-zinc-900">
+                        <Key className="w-3.5 h-3.5 text-zinc-700" />
                         <span>First time voter or don't have a PIN?</span>
                       </div>
-                      <p className="text-[11px] text-amber-800 leading-snug">
+                      <p className="text-[11px] text-zinc-500 leading-snug">
                         Activate your student profile in 30 seconds to generate your official voting PIN.
                       </p>
                     </div>
@@ -1134,7 +1133,7 @@ export default function OrganizationPortalPage({
                       onClick={() => setActiveTab("REGISTER")}
                       className="px-4 py-2.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white font-bold text-xs transition flex items-center justify-center gap-1.5 shrink-0 shadow-xs"
                     >
-                      <UserPlus className="w-3.5 h-3.5 text-amber-300" />
+                      <UserPlus className="w-3.5 h-3.5 text-zinc-300" />
                       <span>Create Account / Get PIN →</span>
                     </button>
                   </div>
@@ -1645,6 +1644,13 @@ export default function OrganizationPortalPage({
                   </button>
                 </div>
               </div>
+
+              {/* Verified Campus Partner Offer (Neat & Clean) */}
+              <StudentPerkCard
+                placement="POST_VOTE_RECEIPT"
+                institutionSlug={instSlug}
+                className="my-3 text-left"
+              />
 
               <div className="flex items-center justify-center gap-3 pt-2 text-xs">
                 <button

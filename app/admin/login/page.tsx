@@ -38,7 +38,9 @@ export default function AdminLoginPage() {
     if (res.role === "SUPER_ADMIN") {
       router.push("/super-admin");
     } else {
-      router.push(`/${res.institutionSlug || selectedCampus}/admin`);
+      const targetInst = res.institutionSlug || selectedCampus;
+      const targetOrgQuery = res.orgSlug ? `?org=${encodeURIComponent(res.orgSlug)}` : "";
+      router.push(`/${targetInst}/admin${targetOrgQuery}`);
     }
   };
 

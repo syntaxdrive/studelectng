@@ -38,6 +38,7 @@ export async function loginAction(input: LoginInput) {
       institutionId: user.institutionId,
       institutionSlug: user.institutionSlug || "unilag",
       orgId: user.orgId,
+      orgSlug: user.orgSlug,
       expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000, // 7 days
     };
 
@@ -48,6 +49,7 @@ export async function loginAction(input: LoginInput) {
       success: true,
       role: user.role,
       institutionSlug: user.institutionSlug || "unilag",
+      orgSlug: user.orgSlug,
       message: "Authenticated successfully.",
     };
   } catch (error: any) {

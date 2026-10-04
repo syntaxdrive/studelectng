@@ -12,6 +12,7 @@ export interface AdminSessionUser {
   institutionId?: string;
   institutionSlug?: string;
   orgId?: string;
+  orgSlug?: string;
 }
 
 export const AUTHORIZED_SYSTEM_ADMINS: Array<{
@@ -180,21 +181,72 @@ export async function authenticateAdmin(
 
       // Resolve commissioner organization assignment
       let orgId: string | undefined = undefined;
+      let orgSlug: string | undefined = undefined;
+
+      // 1. Check commissioner assignments in local store
       try {
         const assignmentsPath = path.join(process.cwd(), "data", "commissioner-assignments.json");
         if (fs.existsSync(assignmentsPath)) {
           const assignments = JSON.parse(fs.readFileSync(assignmentsPath, "utf8"));
           const assignment = assignments[cleanEmail];
-          if (assignment?.orgId) {
+          if (assignment) {
             orgId = assignment.orgId;
+            orgSlug = assignment.orgSlug;
           }
         }
       } catch (e) {
         // ignore
       }
 
+      // 2. Check org licenses store (by contactAdminEmail)
+      if (!orgId) {
+        try {
+          const licensesPath = path.join(process.cwd(), "data", "org-licenses-store.json");
+          if (fs.existsSync(licensesPath)) {
+            const licenses = JSON.parse(fs.readFileSync(licensesPath, "utf8"));
+            const lic = (licenses || []).find(
+              (l: any) =>
+                (l.contactAdminEmail && l.contactAdminEmail.toLowerCase().trim() === cleanEmail) ||
+                (l.email && l.email.toLowerCase().trim() === cleanEmail)
+            );
+            if (lic) {
+              orgId = lic.id;
+              orgSlug = lic.orgSlug;
+            }
+          }
+        } catch (_) {}
+      }
+
+      // 3. CLOUD AUTHORITY: Check Supabase elections table multi_sig_approvals
+      if (!orgId) {
+        try {
+          const { data: elecs } = await supabase
+            .from("elections")
+            .select("id, organization_id, multi_sig_approvals");
+
+          if (elecs && elecs.length > 0) {
+            for (const el of elecs) {
+              const approvals = (el.multi_sig_approvals as any) || {};
+              const commEmail = (approvals.commissionerEmail || "").toLowerCase().trim();
+              const licEmail = (approvals.license?.contactAdminEmail || "").toLowerCase().trim();
+              const contactEmail = (approvals.contact?.email || "").toLowerCase().trim();
+
+              if (commEmail === cleanEmail || licEmail === cleanEmail || contactEmail === cleanEmail) {
+                orgId = el.organization_id || approvals.orgId || approvals.license?.id;
+                orgSlug = approvals.orgSlug || approvals.license?.orgSlug;
+                break;
+              }
+            }
+          }
+        } catch (_) {}
+      }
+
       if (!orgId && dbUser.role && dbUser.role.includes(":")) {
         orgId = dbUser.role.split(":")[1];
+      }
+
+      if (orgId && !orgSlug) {
+        orgSlug = orgId.replace(/^org-[^-]+-/, "").replace(/^org-/, "").toLowerCase().trim();
       }
 
       return {
@@ -207,6 +259,7 @@ export async function authenticateAdmin(
           institutionId: dbUser.institution_id,
           institutionSlug: instSlug,
           orgId,
+          orgSlug,
         },
         message: "Administrator authenticated successfully.",
       };

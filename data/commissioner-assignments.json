@@ -18,5 +18,16 @@
     "orgSlug": "nesa",
     "orgName": "Nigerian Economics Students' Association (NESA)",
     "role": "ELCOM_CHAIRMAN"
+  },
+  "sulaimonayomide38@gmail.com": {
+    "email": "sulaimonayomide38@gmail.com",
+    "fullName": "Comrade Sulaimon Ayomide",
+    "institutionId": "inst-ui",
+    "institutionSlug": "ui",
+    "orgId": "org-ui-renarsa",
+    "orgSlug": "renarsa",
+    "orgName": "Renewable Natural Resources Students Association (RENARSA)",
+    "electionId": "elec-ui-renarsa-2026",
+    "role": "ELCOM_CHAIRMAN"
   }
 }

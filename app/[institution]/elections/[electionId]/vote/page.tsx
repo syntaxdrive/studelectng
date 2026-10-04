@@ -24,7 +24,6 @@ import {
   Copy,
   BarChart3,
   Search,
-  Sparkles,
 } from "lucide-react";
 import { accreditVoterAction } from "@/app/actions/accredit";
 import { castBallotAction } from "@/app/actions/vote";

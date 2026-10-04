@@ -20,7 +20,7 @@
     "registrationOpen": false
   },
   "elec-ui-renarsa-2026": {
-    "electionId": "elec-ui-nesa-2026",
+    "electionId": "elec-ui-renarsa-2026",
     "status": "LIVE",
     "requireDuesPayment": true,
     "requireGoodDisciplinaryStanding": true,

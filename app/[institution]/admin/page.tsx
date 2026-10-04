@@ -238,9 +238,13 @@ export default function InstitutionAdminPage({
   // Official University Crest State (managed strictly by Platform SuperAdmin)
   const [orgLogoUrl, setOrgLogoUrl] = useState<string | null>(null);
 
-  const [activeOrgSlug, setActiveOrgSlug] = useState<string>(
-    instSlug === "unilag" ? "nacos" : "nesa"
-  );
+  const [activeOrgSlug, setActiveOrgSlug] = useState<string>(() => {
+    if (typeof window !== "undefined") {
+      const queryOrg = new URLSearchParams(window.location.search).get("org");
+      if (queryOrg) return queryOrg.toLowerCase().trim();
+    }
+    return instSlug === "unilag" ? "nacos" : "nesa";
+  });
   const [availableOrgs, setAvailableOrgs] = useState<{ orgSlug: string; orgName: string; id: string }[]>([]);
   const electionId = activeOrgSlug
     ? `elec-${instSlug}-${activeOrgSlug}-2026`
@@ -537,15 +541,15 @@ export default function InstitutionAdminPage({
       } catch (_) {}
 
       // 1. If user is an ELCOM Commissioner (not SUPER_ADMIN), they are strictly locked to their assigned organization
-      if (userSession && userSession.role !== "SUPER_ADMIN" && userSession.orgId) {
-        detectedOrg = userSession.orgId
+      if (userSession && userSession.role !== "SUPER_ADMIN" && (userSession.orgSlug || userSession.orgId)) {
+        detectedOrg = (userSession.orgSlug || userSession.orgId)
           .replace(/^org-[^-]+-/, "")
           .replace(/^org-/, "")
           .toLowerCase()
           .trim();
       }
 
-      // 2. Only allow URL query parameter if the user is a SUPER_ADMIN or no session org is specified
+      // 2. Allow URL query parameter if the user is a SUPER_ADMIN or no session org is specified
       if (!detectedOrg) {
         if (typeof window !== "undefined") {
           const queryOrg = new URLSearchParams(window.location.search).get("org");
@@ -557,6 +561,15 @@ export default function InstitutionAdminPage({
         detectedOrg = instSlug === "unilag" ? "nacos" : "nesa";
       }
       setActiveOrgSlug(detectedOrg);
+
+      // Ensure URL query param reflects active org
+      if (typeof window !== "undefined") {
+        const url = new URL(window.location.href);
+        if (url.searchParams.get("org") !== detectedOrg) {
+          url.searchParams.set("org", detectedOrg);
+          window.history.replaceState({}, "", url.toString());
+        }
+      }
 
       // Load all orgs for this institution (only selectable by SuperAdmin)
       try {
