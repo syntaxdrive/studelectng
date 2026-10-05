@@ -99,27 +99,63 @@ function writeServerStore(store: { posts: PostWithCandidatesDto[] }) {
 export async function getElectionPostsAndCandidatesAction(
   electionId: string
 ): Promise<PostWithCandidatesDto[]> {
-  return fetchWithCache(`posts:${electionId}`, 15, async () => {
+  const targetElectionId = electionId || "elec-ui-nesa-2026";
+
+  return fetchWithCache(`posts:${targetElectionId}`, 15, async () => {
     try {
       const store = readServerStore();
-      const targetElectionId = electionId || "elec-ui-nesa-2026";
 
       // 1. Attempt querying Supabase posts & candidates
       try {
-        const { data: cloudPosts } = await supabase
+        let { data: cloudPosts } = await supabase
           .from("posts")
           .select("*")
           .eq("election_id", targetElectionId)
           .order("display_order", { ascending: true });
 
-        // STRICT ISOLATION: if no posts exist for this exact electionId, return empty.
-        // Do NOT fall back to searching all posts by institution prefix — that causes
-        // cross-org bleed (NESA's posts appearing for RENARSA).
+        // If no posts found under exact electionId, check if this election belongs to an org
+        // that has posts under an alias/legacy election ID (e.g. elec-renarsa-1789935219921 vs elec-ui-renarsa-2026)
         if (!cloudPosts || cloudPosts.length === 0) {
-          // Check local store for this specific election
+          const { data: elecData } = await supabase
+            .from("elections")
+            .select("organization_id")
+            .eq("id", targetElectionId)
+            .maybeSingle();
+
+          if (elecData?.organization_id) {
+            const { data: relatedElecs } = await supabase
+              .from("elections")
+              .select("id")
+              .eq("organization_id", elecData.organization_id);
+
+            const aliasIds = (relatedElecs || [])
+              .map((e: any) => e.id)
+              .filter((id: string) => id && id !== targetElectionId);
+
+            if (aliasIds.length > 0) {
+              const { data: aliasPosts } = await supabase
+                .from("posts")
+                .select("*")
+                .in("election_id", aliasIds)
+                .order("display_order", { ascending: true });
+
+              if (aliasPosts && aliasPosts.length > 0) {
+                cloudPosts = aliasPosts;
+              }
+            }
+          }
+        }
+
+        // STRICT ISOLATION: if no posts exist for this exact electionId or its org aliases,
+        // fall back to local store posts
+        if (!cloudPosts || cloudPosts.length === 0) {
           const matchingStorePosts = store.posts.filter(
             (p) => p.electionId === targetElectionId
           );
+          if (matchingStorePosts.length === 0) {
+            // Do not hold empty result in cache
+            invalidateCache(`posts:${targetElectionId}`);
+          }
           return matchingStorePosts;
         }
 
@@ -148,7 +184,7 @@ export async function getElectionPostsAndCandidatesAction(
               }));
 
             // Also include any candidate from local store if not yet in Supabase
-            const storePost = store.posts.find((sp) => sp.id === p.id && sp.electionId === targetElectionId);
+            const storePost = store.posts.find((sp) => sp.id === p.id && (sp.electionId === targetElectionId || sp.electionId === p.election_id));
             if (storePost?.candidates) {
               const existingIds = new Set(postCloudCands.map((c) => c.id));
               for (const sc of storePost.candidates) {
@@ -177,8 +213,11 @@ export async function getElectionPostsAndCandidatesAction(
 
       // Strict local store fallback: only return posts matching this specific electionId
       const matchingStorePosts = store.posts.filter(
-        (p) => p.electionId === electionId
+        (p) => p.electionId === targetElectionId
       );
+      if (matchingStorePosts.length === 0) {
+        invalidateCache(`posts:${targetElectionId}`);
+      }
       return matchingStorePosts;
     } catch (err) {
       console.warn("Error in getElectionPostsAndCandidatesAction:", err);
@@ -204,16 +243,31 @@ export async function createPostAction(input: {
   try {
     const { data: elec } = await supabase
       .from("elections")
-      .select("id")
+      .select("id, organization_id")
       .eq("id", targetElectionId)
       .maybeSingle();
 
-    // Do NOT fall back to .limit(1) — that would assign the post to the wrong org's election.
-    // If the exact electionId doesn't exist in Supabase yet, keep using the provided ID.
     if (!elec) {
-      console.warn(`createPostAction: election "${targetElectionId}" not found in Supabase; using provided ID as-is.`);
+      // Ensure the election record exists so foreign key constraints on `posts.election_id` succeed
+      const match = targetElectionId.match(/^elec-([^-]+)-([^-]+)-2026$/);
+      const instSlug = match ? match[1] : "ui";
+      const orgSlug = match ? match[2] : "nesa";
+      const orgId = `org-${instSlug}-${orgSlug}`;
+
+      await supabase.from("elections").upsert({
+        id: targetElectionId,
+        organization_id: orgId,
+        title: `${orgSlug.toUpperCase()} Elections 2026`,
+        academic_session: "2025/2026",
+        description: "",
+        status: "LIVE",
+        results_visibility: "LIVE",
+        auth_mode: "PIN_SLIP",
+      });
     }
-  } catch (_) {}
+  } catch (err) {
+    console.warn("createPostAction: election ensure warning:", err);
+  }
 
   const newPost: PostWithCandidatesDto = {
     id: newPostId,
@@ -248,6 +302,11 @@ export async function createPostAction(input: {
 
   invalidateCache("posts:");
   invalidateCache("telemetry:");
+  try {
+    const { invalidateTelemetryCacheAction } = await import("./vote");
+    await invalidateTelemetryCacheAction(targetElectionId);
+  } catch (_) {}
+
   revalidatePath("/[institution]/admin");
   revalidatePath("/[institution]/[organization]");
   return {
@@ -373,6 +432,10 @@ export async function createCandidateAction(input: {
 
   invalidateCache("posts:");
   invalidateCache("telemetry:");
+  try {
+    const { invalidateTelemetryCacheAction } = await import("./vote");
+    await invalidateTelemetryCacheAction(targetElectionId);
+  } catch (_) {}
   revalidatePath("/[institution]/admin");
   revalidatePath("/[institution]/[organization]");
   return {
@@ -469,6 +532,10 @@ export async function deleteCandidateAction(candidateId: string) {
 
   invalidateCache("posts:");
   invalidateCache("telemetry:");
+  try {
+    const { invalidateTelemetryCacheAction } = await import("./vote");
+    await invalidateTelemetryCacheAction();
+  } catch (_) {}
   revalidatePath("/[institution]/admin");
   revalidatePath("/[institution]/[organization]");
   return { success: true, message: "Candidate removed." };
@@ -492,6 +559,10 @@ export async function deletePostAction(postId: string) {
 
   invalidateCache("posts:");
   invalidateCache("telemetry:");
+  try {
+    const { invalidateTelemetryCacheAction } = await import("./vote");
+    await invalidateTelemetryCacheAction();
+  } catch (_) {}
   revalidatePath("/[institution]/admin");
   revalidatePath("/[institution]/[organization]");
   return { success: true, message: "Elective post removed." };

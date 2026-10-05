@@ -117,6 +117,7 @@ import {
   LifeBuoy,
   AlertTriangle,
   Lock,
+  Loader2,
 } from "lucide-react";
 
 export default function InstitutionAdminPage({
@@ -156,7 +157,21 @@ export default function InstitutionAdminPage({
   });
   const [isTelemetryLoading, setIsTelemetryLoading] = useState(false);
 
-  const [posts, setPosts] = useState<PostWithCandidatesDto[]>([]);
+  const [posts, setPosts] = useState<PostWithCandidatesDto[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const queryOrg =
+          new URLSearchParams(window.location.search).get("org") ||
+          (instSlug === "unilag" ? "nacos" : "nesa");
+        const cached = localStorage.getItem(`studelect_posts_${instSlug}_${queryOrg}`);
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        }
+      } catch (_) {}
+    }
+    return [];
+  });
 
   const [isUploading, setIsUploading] = useState(false);
   const [uploadMessage, setUploadMessage] = useState<string | null>(null);
@@ -164,6 +179,13 @@ export default function InstitutionAdminPage({
   const [adminActionMessage, setAdminActionMessage] = useState<string | null>(null);
   const [histogramMode, setHistogramMode] = useState<"LEVEL" | "HOURLY">("LEVEL");
   const [isPreviewPrintOpen, setIsPreviewPrintOpen] = useState(false);
+
+  // ── Anti-Spam & Submission Loaders State ─────────────────────────────────────
+  const [isCreatingPost, setIsCreatingPost] = useState(false);
+  const [isSubmittingCandidate, setIsSubmittingCandidate] = useState(false);
+  const [isUpdatingCandidate, setIsUpdatingCandidate] = useState(false);
+  const [deletingPostId, setDeletingPostId] = useState<string | null>(null);
+  const [deletingCandidateId, setDeletingCandidateId] = useState<string | null>(null);
 
   // ── Voter Management State ──────────────────────────────────────────────────
   const [voterRoll, setVoterRoll] = useState<any[]>([]);
@@ -676,15 +698,24 @@ export default function InstitutionAdminPage({
   // ── Load Real-Time Election Telemetry & Candidates ─────────────────────────
   const loadTelemetry = async () => {
     try {
-      const [data] = await Promise.all([
+      const [data, freshPosts] = await Promise.all([
         getRealtimeElectionTelemetryAction(electionId, instSlug),
+        getElectionPostsAndCandidatesAction(electionId),
         loadLicense(),
       ]);
       if (data && data.success) {
         setTelemetryData(data);
-        if (data.posts && data.posts.length > 0) {
-          setPosts(data.posts);
-        }
+      }
+      if (freshPosts && freshPosts.length > 0) {
+        setPosts(freshPosts);
+        try {
+          localStorage.setItem(`studelect_posts_${instSlug}_${activeOrgSlug}`, JSON.stringify(freshPosts));
+        } catch (_) {}
+      } else if (data && data.posts && data.posts.length > 0) {
+        setPosts(data.posts);
+        try {
+          localStorage.setItem(`studelect_posts_${instSlug}_${activeOrgSlug}`, JSON.stringify(data.posts));
+        } catch (_) {}
       }
     } catch (_) {}
   };
@@ -709,6 +740,21 @@ export default function InstitutionAdminPage({
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [electionId, instSlug]);
+
+  // Immediately load cached posts for this org upon mount or org switch
+  useEffect(() => {
+    if (typeof window !== "undefined" && activeOrgSlug) {
+      try {
+        const cached = localStorage.getItem(`studelect_posts_${instSlug}_${activeOrgSlug}`);
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setPosts((prev) => (prev.length === 0 ? parsed : prev));
+          }
+        }
+      } catch (_) {}
+    }
+  }, [activeOrgSlug, instSlug]);
 
   useEffect(() => {
     if (posts && posts.length > 0 && activeOrgSlug) {
@@ -1188,85 +1234,126 @@ export default function InstitutionAdminPage({
 
   const handleCreatePost = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newPostTitle.trim()) return;
+    if (!newPostTitle.trim() || isCreatingPost) return;
 
-    const res = await createPostAction({
-      electionId,
-      title: newPostTitle.trim(),
-      description: newPostDesc.trim(),
-    });
+    setIsCreatingPost(true);
+    try {
+      const res = await createPostAction({
+        electionId,
+        title: newPostTitle.trim(),
+        description: newPostDesc.trim(),
+      });
 
-    const newPost: PostWithCandidatesDto = {
-      id: res.postId || `post-${Date.now()}`,
-      electionId,
-      title: newPostTitle.trim(),
-      description: newPostDesc.trim(),
-      maxSelections: 1,
-      allowedLevels: [],
-      candidates: [],
-    };
+      const newPost: PostWithCandidatesDto = {
+        id: res.postId || `post-${Date.now()}`,
+        electionId,
+        title: newPostTitle.trim(),
+        description: newPostDesc.trim(),
+        maxSelections: 1,
+        allowedLevels: [],
+        candidates: [],
+      };
 
-    setPosts((prev) => [...prev, newPost]);
-    setNewPostTitle("");
-    setNewPostDesc("");
-    setIsAddPostModalOpen(false);
-    setAdminActionMessage(res.message || "Office created successfully.");
-    setTimeout(() => setAdminActionMessage(null), 4000);
+      setPosts((prev) => {
+        const next = [...prev.filter((p) => p.id !== newPost.id), newPost];
+        try {
+          localStorage.setItem(`studelect_posts_${instSlug}_${activeOrgSlug}`, JSON.stringify(next));
+        } catch (_) {}
+        return next;
+      });
+
+      setNewPostTitle("");
+      setNewPostDesc("");
+      setIsAddPostModalOpen(false);
+      setAdminActionMessage(res.message || "Office created successfully.");
+      setTimeout(() => setAdminActionMessage(null), 4000);
+
+      // Re-fetch to sync fresh data from server
+      const fresh = await getElectionPostsAndCandidatesAction(electionId);
+      if (fresh && fresh.length > 0) {
+        setPosts(fresh);
+        try {
+          localStorage.setItem(`studelect_posts_${instSlug}_${activeOrgSlug}`, JSON.stringify(fresh));
+        } catch (_) {}
+      }
+    } catch (err: any) {
+      alert(err?.message || "Failed to create elective office.");
+    } finally {
+      setIsCreatingPost(false);
+    }
   };
 
   const handleNominateCandidate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!activePostForNomination || !candForm.fullName.trim()) return;
+    if (!activePostForNomination || !candForm.fullName.trim() || isSubmittingCandidate) return;
 
-    const res = await createCandidateAction({
-      postId: activePostForNomination,
-      electionId,
-      fullName: candForm.fullName.trim(),
-      nickname: candForm.nickname.trim(),
-      matricNo: candForm.matricNo.trim(),
-      photoUrl: candForm.photoUrl.trim(),
-      manifesto: candForm.manifesto.trim(),
-    });
+    setIsSubmittingCandidate(true);
+    try {
+      const res = await createCandidateAction({
+        postId: activePostForNomination,
+        electionId,
+        fullName: candForm.fullName.trim(),
+        nickname: candForm.nickname.trim(),
+        matricNo: candForm.matricNo.trim(),
+        photoUrl: candForm.photoUrl.trim(),
+        manifesto: candForm.manifesto.trim(),
+      });
 
-    if (!res.success) {
-      setAdminActionMessage(res.message || "Failed to nominate candidate.");
-      setTimeout(() => setAdminActionMessage(null), 5000);
-      return;
+      if (!res.success) {
+        setAdminActionMessage(res.message || "Failed to nominate candidate.");
+        setTimeout(() => setAdminActionMessage(null), 5000);
+        return;
+      }
+
+      const newCand = {
+        id: res.candidateId || `cand-${Date.now()}`,
+        postId: activePostForNomination,
+        fullName: candForm.fullName.trim(),
+        nickname: candForm.nickname.trim(),
+        matricNo: candForm.matricNo.trim(),
+        photoUrl: candForm.photoUrl.trim(),
+        manifesto: candForm.manifesto.trim(),
+        status: "CLEARED" as const,
+        voteCount: 0,
+      };
+
+      setPosts((prev) => {
+        const next = prev.map((post) =>
+          post.id === activePostForNomination
+            ? {
+                ...post,
+                candidates: [
+                  ...post.candidates.filter((c) => c.id !== newCand.id),
+                  newCand,
+                ],
+              }
+            : post
+        );
+        try {
+          localStorage.setItem(`studelect_posts_${instSlug}_${activeOrgSlug}`, JSON.stringify(next));
+        } catch (_) {}
+        return next;
+      });
+
+      setCandForm({ fullName: "", nickname: "", matricNo: "", photoUrl: "", manifesto: "" });
+      setActivePostForNomination(null);
+      setAdminActionMessage(res.message || "Candidate nominated successfully.");
+      setTimeout(() => setAdminActionMessage(null), 4000);
+
+      // Re-fetch to sync fresh state
+      const fresh = await getElectionPostsAndCandidatesAction(electionId);
+      if (fresh && fresh.length > 0) {
+        setPosts(fresh);
+        try {
+          localStorage.setItem(`studelect_posts_${instSlug}_${activeOrgSlug}`, JSON.stringify(fresh));
+        } catch (_) {}
+      }
+      loadTelemetry();
+    } catch (err: any) {
+      alert(err?.message || "Failed to nominate candidate.");
+    } finally {
+      setIsSubmittingCandidate(false);
     }
-
-    const newCand = {
-      id: res.candidateId || `cand-${Date.now()}`,
-      postId: activePostForNomination,
-      fullName: candForm.fullName.trim(),
-      nickname: candForm.nickname.trim(),
-      matricNo: candForm.matricNo.trim(),
-      photoUrl: candForm.photoUrl.trim(),
-      manifesto: candForm.manifesto.trim(),
-      status: "CLEARED" as const,
-      voteCount: 0,
-    };
-
-    setPosts((prev) =>
-      prev.map((post) =>
-        post.id === activePostForNomination
-          ? {
-              ...post,
-              candidates: [
-                ...post.candidates.filter((c) => c.id !== newCand.id),
-                newCand,
-              ],
-            }
-          : post
-      )
-    );
-
-    setCandForm({ fullName: "", nickname: "", matricNo: "", photoUrl: "", manifesto: "" });
-    setActivePostForNomination(null);
-    setAdminActionMessage(res.message || "Candidate nominated successfully.");
-    setTimeout(() => setAdminActionMessage(null), 4000);
-
-    // Refresh telemetry to sync cloud state immediately
-    loadTelemetry();
   };
 
   const handleOpenEditCandidate = (cand: any, postId: string) => {
@@ -1299,70 +1386,114 @@ export default function InstitutionAdminPage({
 
   const handleUpdateCandidateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingCandidate || !editingCandidate.fullName.trim()) return;
+    if (!editingCandidate || !editingCandidate.fullName.trim() || isUpdatingCandidate) return;
 
-    const res = await updateCandidateAction({
-      candidateId: editingCandidate.id,
-      fullName: editingCandidate.fullName.trim(),
-      nickname: editingCandidate.nickname.trim(),
-      matricNo: editingCandidate.matricNo.trim(),
-      photoUrl: editingCandidate.photoUrl.trim(),
-      manifesto: editingCandidate.manifesto.trim(),
-      status: editingCandidate.status,
-    });
+    setIsUpdatingCandidate(true);
+    try {
+      const res = await updateCandidateAction({
+        candidateId: editingCandidate.id,
+        fullName: editingCandidate.fullName.trim(),
+        nickname: editingCandidate.nickname.trim(),
+        matricNo: editingCandidate.matricNo.trim(),
+        photoUrl: editingCandidate.photoUrl.trim(),
+        manifesto: editingCandidate.manifesto.trim(),
+        status: editingCandidate.status,
+      });
 
-    if (res.success) {
-      setPosts((prev) =>
-        prev.map((post) =>
-          post.id === editingCandidate.postId
-            ? {
-                ...post,
-                candidates: post.candidates.map((c) =>
-                  c.id === editingCandidate.id
-                    ? {
-                        ...c,
-                        fullName: editingCandidate.fullName.trim(),
-                        nickname: editingCandidate.nickname.trim(),
-                        matricNo: editingCandidate.matricNo.trim(),
-                        photoUrl: editingCandidate.photoUrl.trim(),
-                        manifesto: editingCandidate.manifesto.trim(),
-                        status: editingCandidate.status,
-                      }
-                    : c
-                ),
-              }
-            : post
-        )
-      );
-      setEditingCandidate(null);
-      setAdminActionMessage("Candidate profile updated successfully.");
-      setTimeout(() => setAdminActionMessage(null), 4000);
-    } else {
-      setAdminActionMessage(res.message || "Failed to update candidate.");
-      setTimeout(() => setAdminActionMessage(null), 4000);
+      if (res.success) {
+        setPosts((prev) => {
+          const next = prev.map((post) =>
+            post.id === editingCandidate.postId
+              ? {
+                  ...post,
+                  candidates: post.candidates.map((c) =>
+                    c.id === editingCandidate.id
+                      ? {
+                          ...c,
+                          fullName: editingCandidate.fullName.trim(),
+                          nickname: editingCandidate.nickname.trim(),
+                          matricNo: editingCandidate.matricNo.trim(),
+                          photoUrl: editingCandidate.photoUrl.trim(),
+                          manifesto: editingCandidate.manifesto.trim(),
+                          status: editingCandidate.status,
+                        }
+                      : c
+                  ),
+                }
+              : post
+          );
+          try {
+            localStorage.setItem(`studelect_posts_${instSlug}_${activeOrgSlug}`, JSON.stringify(next));
+          } catch (_) {}
+          return next;
+        });
+        setEditingCandidate(null);
+        setAdminActionMessage("Candidate profile updated successfully.");
+        setTimeout(() => setAdminActionMessage(null), 4000);
+
+        const fresh = await getElectionPostsAndCandidatesAction(electionId);
+        if (fresh && fresh.length > 0) {
+          setPosts(fresh);
+        }
+      } else {
+        setAdminActionMessage(res.message || "Failed to update candidate.");
+        setTimeout(() => setAdminActionMessage(null), 4000);
+      }
+    } catch (err: any) {
+      alert(err?.message || "Failed to update candidate.");
+    } finally {
+      setIsUpdatingCandidate(false);
     }
   };
 
   const handleDeleteCandidate = async (candidateId: string, postId: string) => {
     if (!confirm("Are you sure you want to remove this candidate?")) return;
-    await deleteCandidateAction(candidateId);
-    setPosts((prev) =>
-      prev.map((post) =>
-        post.id === postId
-          ? { ...post, candidates: post.candidates.filter((c) => c.id !== candidateId) }
-          : post
-      )
-    );
-    setAdminActionMessage("Candidate removed from office.");
-    setTimeout(() => setAdminActionMessage(null), 4000);
+    if (deletingCandidateId) return;
+
+    setDeletingCandidateId(candidateId);
+    try {
+      await deleteCandidateAction(candidateId);
+      setPosts((prev) => {
+        const next = prev.map((post) =>
+          post.id === postId
+            ? { ...post, candidates: post.candidates.filter((c) => c.id !== candidateId) }
+            : post
+        );
+        try {
+          localStorage.setItem(`studelect_posts_${instSlug}_${activeOrgSlug}`, JSON.stringify(next));
+        } catch (_) {}
+        return next;
+      });
+      setAdminActionMessage("Candidate removed from office.");
+      setTimeout(() => setAdminActionMessage(null), 4000);
+    } catch (err: any) {
+      alert(err?.message || "Failed to remove candidate.");
+    } finally {
+      setDeletingCandidateId(null);
+    }
   };
 
   const handleDeletePost = async (postId: string) => {
     if (!confirm("Are you sure you want to delete this office and all its candidates?")) return;
-    await deletePostAction(postId);
-    setPosts((prev) => prev.filter((p) => p.id !== postId));
-    setAdminActionMessage("Office removed.");
-    setTimeout(() => setAdminActionMessage(null), 4000);
+    if (deletingPostId) return;
+
+    setDeletingPostId(postId);
+    try {
+      await deletePostAction(postId);
+      setPosts((prev) => {
+        const next = prev.filter((p) => p.id !== postId);
+        try {
+          localStorage.setItem(`studelect_posts_${instSlug}_${activeOrgSlug}`, JSON.stringify(next));
+        } catch (_) {}
+        return next;
+      });
+      setAdminActionMessage("Office removed.");
+      setTimeout(() => setAdminActionMessage(null), 4000);
+    } catch (err: any) {
+      alert(err?.message || "Failed to delete office.");
+    } finally {
+      setDeletingPostId(null);
+    }
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -2895,11 +3026,16 @@ export default function InstitutionAdminPage({
 
                     <button
                       type="button"
+                      disabled={deletingPostId === post.id}
                       onClick={() => handleDeletePost(post.id)}
-                      className="p-1.5 rounded-lg text-zinc-400 hover:text-red-600 hover:bg-red-50 transition"
+                      className="p-1.5 rounded-lg text-zinc-400 hover:text-red-600 hover:bg-red-50 disabled:opacity-50 transition"
                       title="Delete Office"
                     >
-                      <Trash2 className="w-4 h-4" />
+                      {deletingPostId === post.id ? (
+                        <Loader2 className="w-4 h-4 animate-spin text-red-500" />
+                      ) : (
+                        <Trash2 className="w-4 h-4" />
+                      )}
                     </button>
                   </div>
                 </div>
@@ -2976,11 +3112,16 @@ export default function InstitutionAdminPage({
 
                             <button
                               type="button"
+                              disabled={deletingCandidateId === cand.id}
                               onClick={() => handleDeleteCandidate(cand.id, post.id)}
-                              className="p-1 rounded text-zinc-400 hover:text-red-600 transition"
+                              className="p-1 rounded text-zinc-400 hover:text-red-600 disabled:opacity-50 transition"
                               title="Remove Candidate"
                             >
-                              <Trash2 className="w-3.5 h-3.5" />
+                              {deletingCandidateId === cand.id ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin text-red-500" />
+                              ) : (
+                                <Trash2 className="w-3.5 h-3.5" />
+                              )}
                             </button>
                           </div>
                         </div>
@@ -4634,17 +4775,28 @@ export default function InstitutionAdminPage({
               <div className="pt-3 border-t border-zinc-100 flex items-center justify-end gap-2">
                 <button
                   type="button"
+                  disabled={isCreatingPost}
                   onClick={() => setIsAddPostModalOpen(false)}
-                  className="px-4 py-2 rounded-lg border border-zinc-300 hover:bg-zinc-50 text-zinc-700 font-semibold"
+                  className="px-4 py-2 rounded-lg border border-zinc-300 hover:bg-zinc-50 text-zinc-700 font-semibold disabled:opacity-50"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white font-bold transition flex items-center gap-1.5 shadow-xs"
+                  disabled={isCreatingPost || !newPostTitle.trim()}
+                  className="px-5 py-2 rounded-lg bg-zinc-900 hover:bg-zinc-800 disabled:bg-zinc-400 text-white font-bold transition flex items-center gap-1.5 shadow-xs"
                 >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Create Office</span>
+                  {isCreatingPost ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Creating Office...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Create Office</span>
+                    </>
+                  )}
                 </button>
               </div>
             </form>
@@ -4784,18 +4936,29 @@ export default function InstitutionAdminPage({
               <div className="pt-4 border-t border-zinc-100 flex items-center justify-end gap-2">
                 <button
                   type="button"
+                  disabled={isSubmittingCandidate}
                   onClick={() => setActivePostForNomination(null)}
-                  className="px-4 py-2 rounded-lg border border-zinc-300 hover:bg-zinc-50 text-zinc-700 font-semibold"
+                  className="px-4 py-2 rounded-lg border border-zinc-300 hover:bg-zinc-50 text-zinc-700 font-semibold disabled:opacity-50"
                 >
                   Cancel
                 </button>
 
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white font-bold transition flex items-center gap-1.5 shadow-xs"
+                  disabled={isSubmittingCandidate || !candForm.fullName.trim()}
+                  className="px-5 py-2 rounded-lg bg-zinc-900 hover:bg-zinc-800 disabled:bg-zinc-400 text-white font-bold transition flex items-center gap-1.5 shadow-xs"
                 >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Assign Candidate</span>
+                  {isSubmittingCandidate ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Assigning Candidate...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Assign Candidate</span>
+                    </>
+                  )}
                 </button>
               </div>
             </form>
@@ -4966,18 +5129,29 @@ export default function InstitutionAdminPage({
               <div className="pt-4 border-t border-zinc-100 flex items-center justify-end gap-2">
                 <button
                   type="button"
+                  disabled={isUpdatingCandidate}
                   onClick={() => setEditingCandidate(null)}
-                  className="px-4 py-2 rounded-lg border border-zinc-300 hover:bg-zinc-50 text-zinc-700 font-semibold"
+                  className="px-4 py-2 rounded-lg border border-zinc-300 hover:bg-zinc-50 text-zinc-700 font-semibold disabled:opacity-50"
                 >
                   Cancel
                 </button>
 
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white font-bold transition flex items-center gap-1.5 shadow-xs"
+                  disabled={isUpdatingCandidate || !editingCandidate.fullName.trim()}
+                  className="px-5 py-2 rounded-lg bg-zinc-900 hover:bg-zinc-800 disabled:bg-zinc-400 text-white font-bold transition flex items-center gap-1.5 shadow-xs"
                 >
-                  <Check className="w-3.5 h-3.5" />
-                  <span>Save Changes</span>
+                  {isUpdatingCandidate ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Saving Changes...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-3.5 h-3.5" />
+                      <span>Save Changes</span>
+                    </>
+                  )}
                 </button>
               </div>
             </form>
