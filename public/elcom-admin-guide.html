@@ -554,7 +554,7 @@
     <div class="cover-meta">
       <span class="cover-tag blue">ELCOM Administrators</span>
       <span class="cover-tag green">All Election Types</span>
-      <span class="cover-tag">Version 1.0 · September 2026</span>
+      <span class="cover-tag">Version 1.2 · October 2026</span>
       <span class="cover-tag">studelect.ng</span>
     </div>
 
@@ -575,13 +575,13 @@
       <li><span class="toc-title">Overview — What is StudElect?</span></li>
       <li><span class="toc-title">Before You Begin — What You Need</span></li>
       <li><span class="toc-title">Logging In for the First Time</span></li>
-      <li><span class="toc-title">Navigating the ELCOM Dashboard</span></li>
-      <li><span class="toc-title">Setting Up Election Rules</span></li>
-      <li><span class="toc-title">Building Your Voter Roll (Uploading Students)</span></li>
-      <li><span class="toc-title">Managing Student Eligibility</span></li>
-      <li><span class="toc-title">Adding Positions and Candidates</span></li>
+      <li><span class="toc-title">Navigating the ELCOM Dashboard & Organization Branding</span></li>
+      <li><span class="toc-title">Setting Up Election Rules & Registration Locks</span></li>
+      <li><span class="toc-title">Building Your Voter Roll & Online Student Self-Registration</span></li>
+      <li><span class="toc-title">Managing Student Eligibility & PIN Recovery</span></li>
+      <li><span class="toc-title">Adding Positions & Nominating Candidates (Photos & Manifestos)</span></li>
       <li><span class="toc-title">Going LIVE — Launching the Election</span></li>
-      <li><span class="toc-title">During the Election — Real-Time Monitoring</span></li>
+      <li><span class="toc-title">During the Election — Real-Time Monitoring & Free-Tier Eco-Protection</span></li>
       <li><span class="toc-title">Closing the Election</span></li>
       <li><span class="toc-title">Publishing Results</span></li>
       <li><span class="toc-title">Post-Election — Audit & Record Keeping</span></li>
@@ -763,11 +763,12 @@
   <div class="section">
     <div class="section-header">
       <span class="section-num">04</span>
-      <h2>Navigating the ELCOM Dashboard</h2>
+      <h2>Navigating the ELCOM Dashboard & Organization Branding</h2>
     </div>
 
     <p>
-      The ELCOM dashboard is divided into clear sections. Here is what each area does:
+      The ELCOM dashboard is your mission control room. It provides real-time telemetry, candidate curation,
+      voter roll verification, and emergency safeguards in one unified interface:
     </p>
 
     <table>
@@ -780,34 +781,67 @@
       <tbody>
         <tr>
           <td><strong>Overview / Telemetry</strong></td>
-          <td>See real-time stats — total registered voters, accredited count, ballots cast, turnout percentage</td>
+          <td>Real-time live telemetry — registered voter counts, accreditation rates, ballots submitted, and percentage turnout.</td>
         </tr>
         <tr>
           <td><strong>Election Settings</strong></td>
-          <td>Configure your election rules: voting hours, eligibility criteria, results visibility</td>
+          <td>Configure election rules: voting hours, auto-pause closing timers, dues gating, registration lock, and support contact details.</td>
         </tr>
         <tr>
           <td><strong>Voter Roll</strong></td>
-          <td>View all registered students, their eligibility status, dues payment, and PIN management</td>
+          <td>Manage registered students, filter by department/level, toggle dues clearance, reset voter PINs, or promote administrators.</td>
         </tr>
         <tr>
-          <td><strong>Candidates</strong></td>
-          <td>Add positions (offices), upload or manually enter candidate details, set screening status</td>
+          <td><strong>Candidates & Offices</strong></td>
+          <td>Add elective offices, nominate candidates, upload high-resolution profile photos, enter campaign manifestos, and screen clearance.</td>
         </tr>
         <tr>
           <td><strong>Election Control</strong></td>
-          <td>Change election status: PENDING → LIVE → PAUSED → ENDED</td>
+          <td>Lifecycle management: transition seamlessly between PENDING → LIVE → PAUSED → ENDED.</td>
         </tr>
         <tr>
-          <td><strong>Results</strong></td>
-          <td>View live or final vote tallies per candidate, toggle public visibility of results</td>
+          <td><strong>Results & Tally</strong></td>
+          <td>Monitor certified vote totals per post with bar charts, and control public visibility (Sealed vs. Live).</td>
         </tr>
         <tr>
           <td><strong>Audit Log</strong></td>
-          <td>Cryptographic receipt chain — every ballot's hash, timestamp, and anonymised voter token</td>
+          <td>Cryptographic Merkle receipt ledger — immutable ballot hash records, anonymised voter tokens, and verification timestamps.</td>
+        </tr>
+        <tr>
+          <td><strong>Disaster Recovery</strong></td>
+          <td>1-Click export and restore tools for complete election data safety.</td>
         </tr>
       </tbody>
     </table>
+
+    <h3>Organization Branding & Logo Upload (DP)</h3>
+    <p>
+      In the top navigation header of your ELCOM dashboard, locate the camera icon beside your organisation badge.
+      Clicking this allows you to upload your official departmental, faculty, or union logo (PNG or JPEG, up to 2.5MB).
+    </p>
+    <ul>
+      <li><strong>Strict Isolation:</strong> Your logo is strictly scoped to your organisation and stored securely. It will never overwrite or leak into other campus organizations.</li>
+      <li><strong>Automatic Booth Branding:</strong> Once uploaded, your logo automatically brands both your administrator control room and the student-facing voting booth at <code>studelect.ng/{institution}/{org}</code>.</li>
+    </ul>
+
+    <h3>ELCOM Public Support Desk</h3>
+    <p>
+      Under the <strong>Election Settings</strong> tab, you can configure your committee's official support channels:
+      ELCOM Chairman's Name, Official WhatsApp Help Desk number, and Support Email.
+    </p>
+    <p>
+      These details are rendered live at the base of the student voting portal so that accredited students who have questions,
+      need clarification on their departmental dues, or require accreditation assistance can contact your committee directly in real time.
+    </p>
+
+    <h3>1-Click Disaster Recovery (Backup & Restore)</h3>
+    <p>
+      Under the Settings tab, StudElect provides a built-in <strong>Disaster Recovery Suite</strong>:
+    </p>
+    <ul>
+      <li><strong>Export Election Backup (JSON):</strong> Downloads a comprehensive, timestamped snapshot of your entire election state — including your rules, elective offices, nominated candidates with profile photos, cast encrypted ballots, voter deduplication ledger, and commissioner credentials. Keep this file downloaded to an external drive or secure cloud storage.</li>
+      <li><strong>Restore Election Backup:</strong> In the unlikely event of an accidental modification or device emergency, you can restore your election snapshot with a single click. The restore process strictly merges and replaces data for your organisation only, preserving other campus elections untouched.</li>
+    </ul>
   </div>
 
 
@@ -815,64 +849,80 @@
   <div class="section page-break">
     <div class="section-header">
       <span class="section-num">05</span>
-      <h2>Setting Up Election Rules</h2>
+      <h2>Setting Up Election Rules & Registration Locks</h2>
     </div>
 
     <p>
-      Before adding candidates or uploading voters, configure your election rules.
-      These settings govern how the election will operate.
+      Before accrediting voters or launching polls, configure your operational parameters in the
+      <strong>Election Settings</strong> tab. These rules govern access security, timeline enforcement,
+      and transparency.
     </p>
 
     <div class="steps">
       <div class="step page-break-avoid">
         <div class="step-num">1</div>
         <div class="step-body">
-          <p class="step-title">Go to "Election Settings" on your dashboard</p>
-          <p class="step-desc">Locate the Election Settings or Election Rules panel on your dashboard.</p>
+          <p class="step-title">Set Official Election Title & Description</p>
+          <p class="step-desc">Provide your constitutional election title (e.g., <em>"NESA General Elections 2025/2026 Academic Session"</em>) and any preamble instructions for voters.</p>
         </div>
       </div>
       <div class="step">
         <div class="step-num">2</div>
         <div class="step-body">
-          <p class="step-title">Set the Election Title</p>
-          <p class="step-desc">Give your election a formal name, e.g. "NESA General Elections 2025/2026 Session"</p>
+          <p class="step-title">Configure Voting Hours & Auto-Pause Closing Timer</p>
+          <p class="step-desc">Specify official poll opening and closing timestamps. Outside these hours, the voter booth automatically displays a polite countdown or "Voting Closed" screen even if the admin state is LIVE.</p>
         </div>
       </div>
       <div class="step">
         <div class="step-num">3</div>
         <div class="step-body">
-          <p class="step-title">Set Voting Hours</p>
-          <p class="step-desc">Define the opening and closing time for the voter booth. Outside these hours, the booth will show a "Voting Closed" message even if the election status is LIVE.</p>
+          <p class="step-title">Enforce Constitutional Eligibility Criteria</p>
+          <p class="step-desc">Configure accreditation prerequisites: <strong>Departmental Dues Payment</strong> (blocks students with unpaid dues) and <strong>Disciplinary Standing</strong> (Good Standing vs. Suspended).</p>
         </div>
       </div>
       <div class="step">
         <div class="step-num">4</div>
         <div class="step-body">
-          <p class="step-title">Configure Eligibility Rules</p>
-          <p class="step-desc">Choose which criteria students must meet to vote. Options typically include: dues payment, active disciplinary standing, and verified registration.</p>
+          <p class="step-title">Manage Student Registration Lock ("Open" vs "Closed")</p>
+          <p class="step-desc">Control whether new students can self-register on the voter booth. When set to <strong>Open</strong>, students can register and obtain PINs. When set to <strong>Closed</strong>, new sign-ups are barred.</p>
         </div>
       </div>
       <div class="step">
         <div class="step-num">5</div>
         <div class="step-body">
-          <p class="step-title">Set Results Visibility</p>
-          <p class="step-desc">Choose when results become public. Options: Hidden (manual release), Live (visible during voting), or Post-Election (visible only after you close the election).</p>
+          <p class="step-title">Configure Results Visibility (Sealed vs. Live)</p>
+          <p class="step-desc">Choose when candidate tallies become public: <strong>Hidden / Sealed</strong> (recommended during voting to prevent bandwagon effects), <strong>Live Stream</strong> (tallies visible in real time), or <strong>Post-Election</strong> (automatically unsealed upon reaching ENDED status).</p>
         </div>
       </div>
       <div class="step">
         <div class="step-num">6</div>
         <div class="step-body">
-          <p class="step-title">Save Settings</p>
-          <p class="step-desc">Click "Save Election Rules". These can be updated at any time while the election is PENDING. Once LIVE, some settings are locked for integrity.</p>
+          <p class="step-title">Save Election Rules</p>
+          <p class="step-desc">Click "Save Election Rules". All changes take effect immediately across all active voter sessions.</p>
         </div>
+      </div>
+    </div>
+
+    <div class="callout warning">
+      <span class="callout-icon">&#128274;</span>
+      <div class="callout-body">
+        <div class="callout-label">Crucial Rule: Closing Registration Never Blocks Existing Voters</div>
+        <p>
+          When you toggle <strong>Student Registration to Closed</strong>, you are strictly preventing
+          <em>new unverified accounts</em> from signing up.
+          <br/><br/>
+          <strong>Existing registered students are NOT locked out!</strong> Any student who has already registered
+          or was imported on the voter roll can log in with their Matriculation Number and PIN and cast their ballot without any interruption.
+          Closing registration is standard best practice right before opening the polls.
+        </p>
       </div>
     </div>
 
     <div class="callout info">
       <span class="callout-icon">&#128205;</span>
       <div class="callout-body">
-        <div class="callout-label">Pro Tip</div>
-        <p>Keep results <strong>hidden</strong> until voting closes. If results are visible while voting is open, it can influence remaining voters and compromise the integrity of the election.</p>
+        <div class="callout-label">Best Practice: Seal Results During Voting</div>
+        <p>Keep results <strong>Hidden / Sealed</strong> until the official close of voting. Broadcasting candidate margins while voting is open can trigger bandwagon voting, candidate voter suppression, or public anxiety. Unseal results only after voting is formally declared ENDED.</p>
       </div>
     </div>
   </div>
@@ -882,17 +932,20 @@
   <div class="section">
     <div class="section-header">
       <span class="section-num">06</span>
-      <h2>Building Your Voter Roll (Uploading Students)</h2>
+      <h2>Building Your Voter Roll & Online Student Self-Registration</h2>
     </div>
 
     <p>
-      The voter roll is the authoritative list of students who may vote in your election.
-      StudElect accepts voter roll uploads in Excel (.xlsx) format.
+      The voter roll is the authoritative register of students eligible to participate in your election.
+      StudElect provides two flexible methods to assemble your voter roll: bulk Excel roster upload and
+      direct student online self-registration.
     </p>
 
-    <h3>Preparing Your Excel File</h3>
-
-    <p>Your Excel file must have the following columns in this exact order:</p>
+    <h3>Method A — Bulk Excel Roster Upload (.xlsx)</h3>
+    <p>
+      If your department or faculty executive already possesses an official roster of registered students,
+      you can import all eligible voters in seconds using an Excel spreadsheet.
+    </p>
 
     <table>
       <thead>
@@ -908,7 +961,7 @@
           <td>A</td>
           <td>Matriculation Number</td>
           <td>Yes</td>
-          <td>200404/BE/EEE/001</td>
+          <td>200404/BE/EEE/001 or 214950</td>
         </tr>
         <tr>
           <td>B</td>
@@ -930,8 +983,8 @@
         </tr>
         <tr>
           <td>E</td>
-          <td>Email</td>
-          <td>Optional</td>
+          <td>Email Address (NDPR)</td>
+          <td>Yes</td>
           <td>adebayo@student.ui.edu.ng</td>
         </tr>
         <tr>
@@ -953,46 +1006,98 @@
       <div class="step">
         <div class="step-num">1</div>
         <div class="step-body">
-          <p class="step-title">Prepare your Excel file</p>
-          <p class="step-desc">Ensure row 1 contains column headers. Data starts from row 2. Remove any merged cells, formulas, or special characters in matric numbers.</p>
+          <p class="step-title">Prepare your Excel spreadsheet</p>
+          <p class="step-desc">Row 1 must contain headers. Student records begin on row 2. Remove any merged cells or formatting formulas.</p>
         </div>
       </div>
       <div class="step">
         <div class="step-num">2</div>
         <div class="step-body">
-          <p class="step-title">Navigate to "Voter Roll" → "Upload Roster"</p>
-          <p class="step-desc">Click the upload button and select your Excel file. The system will preview the first few rows for you to confirm.</p>
+          <p class="step-title">Click "Voter Roll" → "Upload Roster"</p>
+          <p class="step-desc">Select your <code>.xlsx</code> file. StudElect previews the first rows and validates matric number uniqueness.</p>
         </div>
       </div>
       <div class="step">
         <div class="step-num">3</div>
         <div class="step-body">
-          <p class="step-title">Confirm the upload</p>
-          <p class="step-desc">Review the preview. If the columns align correctly, click "Import". The system will add all students to your voter roll and generate a unique PIN for each one.</p>
+          <p class="step-title">Confirm Import & Auto-Generate PINs</p>
+          <p class="step-desc">Click "Import". The platform creates each student account and automatically generates a unique organization-prefixed PIN (e.g. <code>NES-4892</code>) for every voter.</p>
+        </div>
+      </div>
+    </div>
+
+    <h3>Method B — Online Student Self-Registration ("New Voter? Get PIN")</h3>
+    <p>
+      In many university elections, an up-to-date departmental Excel sheet is unavailable.
+      StudElect provides an automated, zero-stress self-registration portal built directly into your voter booth.
+    </p>
+
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <p class="step-title">Direct Students to Your Voter Booth URL</p>
+          <p class="step-desc">Share your organization's booth link: <code>https://studelect.ng/{institution}/{organization}</code> (e.g. <code>https://studelect.ng/ui/nesa</code> or <code>https://studelect.ng/ui/renarsa</code>).</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <p class="step-title">Student Clicks "New Voter? Get PIN"</p>
+          <p class="step-desc">On the voter booth home page, students who do not yet have credentials click the <strong>"New Voter? Get PIN"</strong> tab to launch the registration modal.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <p class="step-title">Student Completes Registration Details</p>
+          <p class="step-desc">The student inputs their <strong>Matriculation Number</strong>, <strong>Full Legal Name</strong>, <strong>Academic Level</strong> (100–500), <strong>Department</strong>, compulsory <strong>Email Address</strong>, and optional <strong>Phone/WhatsApp Number</strong>.</p>
         </div>
       </div>
       <div class="step">
         <div class="step-num">4</div>
         <div class="step-body">
-          <p class="step-title">Verify the import</p>
-          <p class="step-desc">After import, the Voter Roll table will show all students. Check the total count matches your expected number. You can add or remove students manually after import.</p>
+          <p class="step-title">Instant Organization-Prefixed PIN Issuance</p>
+          <p class="step-desc">Upon submission, StudElect instantly generates an 8-character PIN prefixed by the organization abbreviation (e.g. <code>NES-4892</code> for NESA or <code>REN-7104</code> for RENARSA). The modal provides a 1-click <strong>"Copy PIN"</strong> button with a confirmation notice.</p>
         </div>
       </div>
     </div>
 
-    <div class="callout warning">
-      <span class="callout-icon">&#9888;</span>
+    <div class="callout info">
+      <span class="callout-icon">&#128227;</span>
       <div class="callout-body">
-        <div class="callout-label">Matric Number Formatting</div>
-        <p>Matric numbers are normalised automatically (punctuation, spacing, and case differences are handled). However, ensure there are no completely wrong matric numbers — students will not be able to find themselves in the system if their matric number is wrong.</p>
+        <div class="callout-label">Why Email is Compulsory (NDPR Compliance)</div>
+        <p>
+          Under the Nigeria Data Protection Regulation (NDPR) and electoral integrity standards, every self-registered voter must provide a valid email address.
+          This email address serves as the verified audit destination for cryptographic ballot receipts, dispute audits, and election announcements.
+        </p>
       </div>
     </div>
 
-    <h3>Adding Students Manually</h3>
+    <h3>Self-Service PIN Recovery ("Lookup My PIN")</h3>
     <p>
-      If you need to add individual students after the bulk upload, go to
-      <strong>Voter Roll → Add Student</strong> and fill in the required fields.
-      Each manually added student also receives a generated PIN.
+      During elections, students frequently forget or misplace their PINs. StudElect eliminates admin bottlenecks with the
+      <strong>"Lookup My PIN"</strong> self-service tool:
+    </p>
+    <ul>
+      <li>On the voter booth accreditation screen, any registered student can click <strong>"Lookup My PIN"</strong>.</li>
+      <li>They enter their registered Matriculation Number.</li>
+      <li>The system verifies their enrollment and instantly displays their existing PIN on screen with a "Copy PIN" shortcut.</li>
+      <li>ELCOM administrators do not need to manually field hundreds of "I lost my PIN" WhatsApp messages on election day!</li>
+    </ul>
+
+    <h3>Locking Student Self-Registration Before Polls Open</h3>
+    <p>
+      Once your registration window has elapsed (e.g., midnight before election day):
+    </p>
+    <ul>
+      <li>Navigate to <strong>Election Settings</strong> on your ELCOM dashboard.</li>
+      <li>Toggle <strong>"Student Registration"</strong> from <strong>Open</strong> to <strong>Closed</strong>.</li>
+      <li>Click <strong>"Save Election Rules"</strong>.</li>
+    </ul>
+    <p>
+      Once closed, new visitors to the voting booth will see a clear notice that registration has ended.
+      <strong>Crucially: All existing registered voters can continue to log in and vote uninterrupted throughout the voting window!</strong>
     </p>
   </div>
 
@@ -1001,83 +1106,69 @@
   <div class="section page-break">
     <div class="section-header">
       <span class="section-num">07</span>
-      <h2>Managing Student Eligibility</h2>
+      <h2>Managing Student Eligibility & PIN Recovery</h2>
     </div>
 
     <p>
-      Not every student on the voter roll may be automatically eligible to vote.
-      StudElect lets you enforce eligibility rules and manage individual student status.
+      The <strong>Voter Roll</strong> tab provides complete oversight over every registered student,
+      enabling ELCOM to enforce dues requirements, manage disciplinary standing, and handle individual student support.
     </p>
 
-    <h3>Dues Payment Status</h3>
+    <h3>Departmental Dues Payment Clearance</h3>
     <p>
-      If your election requires dues payment as a condition for voting, you can mark
-      students as dues-paid individually or via bulk update. Students who are not marked
-      as dues-paid will be blocked from accreditation at the voter booth.
+      If your association constitution requires departmental dues payment as a voting prerequisite:
     </p>
 
     <div class="steps">
       <div class="step">
         <div class="step-num">1</div>
         <div class="step-body">
-          <p class="step-title">Go to Voter Roll</p>
-          <p class="step-desc">You will see each student's current dues status. A red "Unpaid" badge indicates they cannot vote yet.</p>
+          <p class="step-title">Search for the Student</p>
+          <p class="step-desc">Use the real-time search bar in the Voter Roll tab to find the student by Matriculation Number or Name.</p>
         </div>
       </div>
       <div class="step">
         <div class="step-num">2</div>
         <div class="step-body">
-          <p class="step-title">Find the student</p>
-          <p class="step-desc">Use the search box to find a student by name or matric number.</p>
+          <p class="step-title">Toggle Dues Status</p>
+          <p class="step-desc">Click the dues badge (Paid / Unpaid). The status updates immediately in the database.</p>
         </div>
       </div>
       <div class="step">
         <div class="step-num">3</div>
         <div class="step-body">
-          <p class="step-title">Toggle their dues status</p>
-          <p class="step-desc">Click "Mark as Paid" (or the dues toggle) next to the student. The change takes effect immediately — they will be able to accredit on their next attempt at the voter booth.</p>
+          <p class="step-title">Student Accredits Instantly</p>
+          <p class="step-desc">The student can immediately refresh their voter booth browser and proceed past the accreditation gate.</p>
         </div>
       </div>
     </div>
 
-    <h3>Deactivating a Student</h3>
+    <h3>Disciplinary Standing (Active vs. Suspended)</h3>
     <p>
-      If a student should be excluded from voting entirely (e.g. disciplinary action, withdrawal),
-      you can <strong>deactivate</strong> their account from the Voter Roll. A deactivated student
-      cannot accredit or vote, even if their matric number is in the system.
+      If a student is on academic suspension, disciplinary probation, or otherwise disqualified from voting,
+      click <strong>"Deactivate"</strong> next to their name. A deactivated student is barred from accreditation even with a valid PIN.
     </p>
 
-    <h3>Resetting a PIN</h3>
+    <h3>Manual PIN Reset (Admin Override)</h3>
     <p>
-      If a student lost their PIN or it was issued incorrectly, you can reset it from the
-      Voter Roll by clicking the <strong>Reset PIN</strong> action next to their record.
-      A new 6-digit PIN is generated instantly. Share it with the student securely — verbally or
-      via direct WhatsApp message. Never post PINs publicly.
+      While students should first be directed to the <strong>"Lookup My PIN"</strong> button on the voter booth,
+      ELCOM administrators can also generate a brand-new PIN at any time by clicking <strong>"Reset PIN"</strong>
+      in the Voter Roll row. A fresh org-prefixed PIN is generated and displayed for you to share directly with the student.
     </p>
 
     <div class="callout danger">
       <span class="callout-icon">&#128680;</span>
       <div class="callout-body">
-        <div class="callout-label">PIN Confidentiality</div>
-        <p>PINs are personal and single-use. Once a student uses their PIN to accredit, it cannot be used again. Never paste PINs in group chats or broadcast messages — only send each PIN to the individual student it belongs to.</p>
+        <div class="callout-label">PIN Confidentiality Rule</div>
+        <p>Voter PINs are single-use cryptographic credentials. Never paste a list of PINs into public WhatsApp groups or faculty bulletin boards. Only share PINs directly with the verified owner via private communication.</p>
       </div>
     </div>
 
-    <h3>How Students Register Themselves</h3>
+    <h3>Promoting a Student to ELCOM Commissioner</h3>
     <p>
-      Students can also self-register at the voter booth by visiting
-      <code>studelect.ng/{institution}/{org}</code>.
-      They enter their matric number and other details. The system checks whether they exist in
-      your voter roll. If they do, they are confirmed. If they do not, registration is rejected —
-      which is why your voter roll must be complete before the election goes LIVE.
-    </p>
-
-    <h3>Promoting a Student to Admin</h3>
-    <p>
-      If you need a student to have ELCOM admin access (e.g. a returning officer who needs
-      to monitor the dashboard), you can promote them from the Voter Roll. Find the student
-      and click <strong>"Promote to Admin"</strong>. The next time they log into the admin
-      panel with their student account, they will have admin-level access.
+      If you need to assign assistant returning officers, polling agents, or fellow committee members to the admin dashboard,
+      find their record on the voter roll and click <strong>"Promote to Admin"</strong>. Their account will immediately gain administrative access
+      to your organisation's control panel.
     </p>
   </div>
 
@@ -1086,85 +1177,130 @@
   <div class="section">
     <div class="section-header">
       <span class="section-num">08</span>
-      <h2>Adding Positions and Candidates</h2>
+      <h2>Adding Positions & Nominating Candidates (Photos & Manifestos)</h2>
     </div>
 
     <p>
-      Before the election goes LIVE, you must configure the positions being contested
-      and the candidates running for each position.
+      StudElect structures your ballot into a clean, two-tier hierarchy: <strong>Elective Offices (Positions)</strong>
+      and <strong>Nominated Candidates</strong>.
+      Before launching your election, set up your constitutional offices and nominate screened contestants.
     </p>
 
-    <h3>Step 1 — Create Positions (Offices)</h3>
+    <h3>Tier 1 — Create Elective Offices</h3>
 
     <div class="steps">
       <div class="step">
         <div class="step-num">1</div>
         <div class="step-body">
-          <p class="step-title">Go to "Candidates" → "Manage Positions"</p>
-          <p class="step-desc">You will see an empty list initially. Click "Add Position".</p>
+          <p class="step-title">Navigate to the "Candidates" Tab</p>
+          <p class="step-desc">Open the <strong>Candidates</strong> tab on your ELCOM dashboard. Click the blue <strong>"Add New Elective Office"</strong> button.</p>
         </div>
       </div>
       <div class="step">
         <div class="step-num">2</div>
         <div class="step-body">
-          <p class="step-title">Enter the position title</p>
-          <p class="step-desc">E.g. "President", "Vice President", "Secretary General", "Financial Secretary", "PRO", "Senate Representative", etc.</p>
+          <p class="step-title">Enter Office Title</p>
+          <p class="step-desc">Provide the constitutional title, e.g. <em>"Executive President"</em>, <em>"Vice President"</em>, <em>"General Secretary"</em>, <em>"Financial Secretary"</em>, <em>"Public Relations Officer (PRO)"</em>.</p>
         </div>
       </div>
       <div class="step">
         <div class="step-num">3</div>
         <div class="step-body">
-          <p class="step-title">Set the number of winners</p>
-          <p class="step-desc">For most positions this is 1. For positions like "Senators" where multiple candidates win, set the appropriate number.</p>
+          <p class="step-title">Enter Office Description & Responsibilities</p>
+          <p class="step-desc">Briefly describe the responsibilities of the post. This helps educate voters on the duties of each executive office.</p>
         </div>
       </div>
       <div class="step">
         <div class="step-num">4</div>
         <div class="step-body">
-          <p class="step-title">Save and repeat for each position</p>
-          <p class="step-desc">Add all your positions before moving on to candidates.</p>
+          <p class="step-title">Save Elective Office</p>
+          <p class="step-desc">Click "Save Office". The post is created as a dedicated office card ready for candidate nominations.</p>
         </div>
       </div>
     </div>
 
-    <h3>Step 2 — Add Candidates</h3>
+    <h3>Tier 2 — Nominate Candidates (Photos, Monikers & Manifestos)</h3>
+    <p>
+      Once an office card exists, nominate one or more screened candidates for that post:
+    </p>
 
     <div class="steps">
       <div class="step">
         <div class="step-num">1</div>
         <div class="step-body">
-          <p class="step-title">Select a position from the list</p>
-          <p class="step-desc">Click "Add Candidate" under the relevant position.</p>
+          <p class="step-title">Click "Nominate Candidate" on the Office Card</p>
+          <p class="step-desc">Locate the target office card and click the <strong>"Nominate Candidate"</strong> button to open the nomination modal.</p>
         </div>
       </div>
       <div class="step">
         <div class="step-num">2</div>
         <div class="step-body">
-          <p class="step-title">Enter candidate details</p>
-          <p class="step-desc">Full name, matric number, department, level. Optionally upload a passport photo.</p>
+          <p class="step-title">Enter Candidate Identity Details</p>
+          <p class="step-desc">
+            Fill in the candidate's <strong>Full Legal Name</strong> (e.g. <em>Olawale Adebayo Sunday</em>) and their student <strong>Matriculation Number</strong>.
+          </p>
         </div>
       </div>
       <div class="step">
         <div class="step-num">3</div>
         <div class="step-body">
-          <p class="step-title">Set screening status to "Cleared"</p>
-          <p class="step-desc">Only candidates marked as <strong>Cleared</strong> will appear on the ballot. Candidates marked as "Disqualified" or "Pending" will not be shown to voters.</p>
+          <p class="step-title">Add Campaign Moniker / Nickname</p>
+          <p class="step-desc">
+            Enter the candidate's popular campaign moniker (e.g. <em>"Hon. Catalyst"</em>, <em>"The Econometrician"</em>).
+            This appears prominently on the digital ballot card alongside their official name so voters immediately recognise their candidate.
+          </p>
         </div>
       </div>
       <div class="step">
         <div class="step-num">4</div>
         <div class="step-body">
-          <p class="step-title">Repeat for all candidates across all positions</p>
-          <p class="step-desc">Double-check spellings and matric numbers. These appear exactly as entered on the voter's ballot.</p>
+          <p class="step-title">Upload Candidate Passport / Profile Photo</p>
+          <p class="step-desc">
+            Use the file selector to upload a clear passport or campaign photograph (JPEG, PNG, or WebP up to 2.5MB).
+            An instant thumbnail preview confirms that the candidate's face is centered and sharp.
+          </p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">5</div>
+        <div class="step-body">
+          <p class="step-title">Enter Campaign Manifesto / Bio Statement</p>
+          <p class="step-desc">
+            Paste the candidate's summary manifesto or core policy pillars. Voters in the booth can expand and read this statement before casting their vote.
+          </p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">6</div>
+        <div class="step-body">
+          <p class="step-title">Set Screening Status to "Cleared"</p>
+          <p class="step-desc">
+            Select the ELCOM screening outcome:
+            <br/>
+            &bull; <strong>Cleared</strong> (green badge): Candidate has passed all constitutional checks and will appear on the student ballot.
+            <br/>
+            &bull; <strong>Nominated / Pending</strong> (yellow badge): Candidate is awaiting screening; hidden from the student ballot.
+            <br/>
+            &bull; <strong>Disqualified</strong> (red badge): Candidate failed screening; permanently hidden from the student ballot.
+          </p>
         </div>
       </div>
     </div>
+
+    <h3>Editing or Removing Candidates</h3>
+    <p>
+      On any candidate card:
+    </p>
+    <ul>
+      <li>Click the <strong>Pencil (Edit) icon</strong> to revise spelling, update the campaign manifesto, or upload a new profile picture.</li>
+      <li>Click the <strong>Trash (Delete) icon</strong> to remove a withdrawn nominee.</li>
+    </ul>
 
     <div class="callout success">
       <span class="callout-icon">&#10003;</span>
       <div class="callout-body">
-        <div class="callout-label">Final Check</div>
-        <p>Before going LIVE, click through each position and confirm every cleared candidate appears correctly. Candidates cannot be edited once the first ballot has been cast.</p>
+        <div class="callout-label">Pre-Flight Audit</div>
+        <p>Before launching your election LIVE, review each office card. Verify that every cleared candidate displays their high-resolution photo, correct moniker, and full name. Once votes start coming in, candidate lists cannot be modified to ensure cryptographic audit integrity.</p>
       </div>
     </div>
   </div>
@@ -1242,12 +1378,12 @@
   <div class="section">
     <div class="section-header">
       <span class="section-num">10</span>
-      <h2>During the Election — Real-Time Monitoring</h2>
+      <h2>During the Election — Real-Time Monitoring & Free-Tier Eco-Protection</h2>
     </div>
 
     <p>
-      While the election is LIVE, your dashboard shows real-time statistics updated
-      every few seconds. Here is what to watch:
+      While the election is LIVE, your dashboard provides real-time telemetry updated
+      smoothly without reloading the page.
     </p>
 
     <table>
@@ -1261,43 +1397,69 @@
       <tbody>
         <tr>
           <td><strong>Total Registered</strong></td>
-          <td>Number of students on the voter roll</td>
-          <td>Should match your expected eligible count</td>
+          <td>Number of students currently on your voter roll</td>
+          <td>Should match your department or faculty enrollment expectation</td>
         </tr>
         <tr>
           <td><strong>Accredited</strong></td>
-          <td>Students who have verified their identity and received a ballot token</td>
-          <td>If very low, remind students to accredit before voting closes</td>
+          <td>Students who have passed credential checks and entered the ballot booth</td>
+          <td>If low relative to total, broadcast reminders on official group chats</td>
         </tr>
         <tr>
           <td><strong>Ballots Cast</strong></td>
-          <td>Number of completed votes submitted</td>
-          <td>Monitor for unusual spikes or drops</td>
+          <td>Number of successfully encrypted and verified ballots submitted</td>
+          <td>Tracks voter participation velocity in real time</td>
         </tr>
         <tr>
           <td><strong>Voter Turnout %</strong></td>
-          <td>Ballots cast as a percentage of registered voters</td>
-          <td>Low turnout — send reminders via your group channel</td>
+          <td>Ballots cast as an exact percentage of registered voters</td>
+          <td>Helps ELCOM monitor whether constitutional quorum has been achieved</td>
         </tr>
         <tr>
           <td><strong>Live Leaderboard</strong></td>
-          <td>Current vote counts per candidate (if results visibility is set to Live)</td>
-          <td>Consider setting to Hidden if this may discourage voters</td>
+          <td>Real-time candidate vote tallies (if results visibility is set to Live)</td>
+          <td>We recommend keeping results Sealed until voting formally ends</td>
         </tr>
       </tbody>
     </table>
 
+    <h3>Zero-Hiccup Free-Tier Eco-Protection Architecture</h3>
+    <p>
+      During peak election hours, hundreds of students may be concurrently registering, reading manifestos,
+      and casting ballots. StudElect incorporates high-efficiency architectural safeguards specifically engineered
+      to guarantee uninterrupted, hiccup-free voting on database free-tiers (such as Supabase):
+    </p>
+
+    <ul>
+      <li>
+        <strong>Zero-DB File Store for Ballot Counts:</strong>
+        Live ballot counts are decoupled from high-frequency SQL queries. When ballots are cast, counts are written to an atomic, append-only cryptographic ledger. The real-time telemetry polling reads this ledger without burdening the PostgreSQL database connection pool.
+      </li>
+      <li>
+        <strong>2.5-Second Telemetry Throttle:</strong>
+        Admin telemetry endpoints implement an in-memory caching layer with a 2.5-second TTL. Even if multiple ELCOM commissioners keep their dashboards open simultaneously, the server executes at most one refresh cycle per interval.
+      </li>
+      <li>
+        <strong>Smart Background Tab Hibernation:</strong>
+        If an administrator minimizes their browser window or switches to another tab, polling intervals are automatically halted to conserve bandwidth and execution units. Telemetry catches up instantly the moment the tab is brought back into active view.
+      </li>
+      <li>
+        <strong>Ballot Sealing (Bandwagon Mitigation):</strong>
+        When results are marked as Sealed in settings, candidate totals are completely withheld from public network payloads, preserving electoral secrecy and reducing bandwidth overhead.
+      </li>
+    </ul>
+
     <h3>Pausing the Election</h3>
     <p>
-      If a technical issue arises or there is a formal ELCOM resolution to pause voting
-      (e.g. a candidate dispute), you can pause the election from the Election Control panel.
+      If an urgent dispute arises or there is a formal ELCOM resolution to pause voting
+      (e.g., verifying a candidate credential), click <strong>"Pause Election"</strong> in the Election Control panel.
     </p>
 
     <div class="callout warning">
       <span class="callout-icon">&#9616;&#9616;</span>
       <div class="callout-body">
         <div class="callout-label">When the Election is PAUSED</div>
-        <p>The voter booth shows a "Voting Temporarily Suspended" banner. Students cannot accredit or submit new ballots. All data is preserved. You can resume (set back to LIVE) at any time.</p>
+        <p>The voter booth immediately displays a "Voting Temporarily Suspended" banner. Students cannot accredit or submit new ballots. All existing cast ballots remain intact. You can resume (set back to LIVE) at any moment with a single click.</p>
       </div>
     </div>
 
@@ -1312,24 +1474,28 @@
       </thead>
       <tbody>
         <tr>
-          <td>Cannot find their matric number</td>
-          <td>Check the voter roll — they may not be registered. If they should be eligible, add them manually and share their generated PIN.</td>
+          <td>Cannot find matriculation number</td>
+          <td>Check the Voter Roll — they may not have completed self-registration. If registration is still open, send them to the booth to click "New Voter? Get PIN". If closed, you can add them manually.</td>
         </tr>
         <tr>
-          <td>PIN not working</td>
-          <td>Go to Voter Roll, find the student, click Reset PIN. Share the new PIN with them directly.</td>
+          <td>Lost or forgot their voter PIN</td>
+          <td>Instruct the student to click <strong>"Lookup My PIN"</strong> on the booth accreditation screen and enter their matric number. Alternatively, click "Reset PIN" on their row in your Voter Roll tab.</td>
+        </tr>
+        <tr>
+          <td>Sees "Registration Closed" notice</td>
+          <td>Clarify that new registrations are closed. If they already registered previously, they only need to enter their Matriculation Number and PIN to accredit and vote — existing voters are never blocked!</td>
         </tr>
         <tr>
           <td>"Dues not paid" error at accreditation</td>
-          <td>If they have paid, go to Voter Roll and toggle their dues status to Paid.</td>
+          <td>Verify their departmental receipt. If paid, find their record in Voter Roll and toggle dues to Paid. The student can immediately proceed.</td>
         </tr>
         <tr>
-          <td>"Already voted" but student says they did not</td>
-          <td>The system has a strict one-vote-per-matric rule. Check the audit log. If there is evidence of accidental double-submission, escalate to the platform administrator.</td>
+          <td>"Already voted" error</td>
+          <td>StudElect strictly enforces one-vote-per-matric. Check the audit log to verify the timestamp of their cast ballot receipt. Ballots cannot be duplicated or cast twice.</td>
         </tr>
         <tr>
-          <td>Student voted for wrong candidate</td>
-          <td>Ballots are final and cannot be reversed. This is standard electoral procedure. The student should have reviewed their choices before submitting.</td>
+          <td>Student selected wrong candidate accidentally</td>
+          <td>Once a cryptographic ballot is committed to the blockchain-style ledger, it is permanent and irreversible. Advise students to review their selections on the confirmation screen before final submission.</td>
         </tr>
       </tbody>
     </table>
@@ -1550,9 +1716,24 @@
           <td>Go to Candidates, find the candidate, change status to Cleared.</td>
         </tr>
         <tr>
+          <td>Student lost or forgot their PIN</td>
+          <td>PIN lost or misplaced</td>
+          <td>Instruct student to click "Lookup My PIN" on the booth accreditation screen. Alternatively, find them in Voter Roll and click "Reset PIN".</td>
+        </tr>
+        <tr>
+          <td>Student sees "Registration Closed"</td>
+          <td>ELCOM closed the self-registration window</td>
+          <td>If the student is already registered, have them log in using their Matric Number and PIN (existing voters are never locked out). If omitted in error, ELCOM can manually add them.</td>
+        </tr>
+        <tr>
+          <td>Candidate photo fails to upload</td>
+          <td>File format or size exceeds limit</td>
+          <td>Ensure image is in JPEG, PNG, or WebP format and under 2.5MB. Crop or compress image before uploading.</td>
+        </tr>
+        <tr>
           <td>Results page shows 0 votes</td>
-          <td>Results are hidden</td>
-          <td>Go to Election Settings and toggle Results Visibility to Public.</td>
+          <td>Results are hidden / sealed</td>
+          <td>Go to Election Settings and toggle Results Visibility to Public or wait until election reaches ENDED.</td>
         </tr>
         <tr>
           <td>Student voted twice error</td>
@@ -1567,7 +1748,7 @@
         <tr>
           <td>Voter booth is very slow</td>
           <td>High simultaneous traffic</td>
-          <td>The platform auto-scales. Advise students to try again in a moment. Stagger announcements so not all students rush to vote at once.</td>
+          <td>The platform auto-scales and caches telemetry. Advise students to refresh or try again in a moment. Stagger announcements so not all students rush to vote at the exact same minute.</td>
         </tr>
       </tbody>
     </table>
@@ -1623,14 +1804,14 @@
         <tr><th>Time</th><th>Action</th></tr>
       </thead>
       <tbody>
-        <tr><td><strong>Day Before</strong></td><td>Complete voter roll upload, candidate setup, and election rules. Do a test run.</td></tr>
-        <tr><td><strong>30 min before open</strong></td><td>Log in, confirm all settings, share voter booth URL in student channels.</td></tr>
-        <tr><td><strong>Election Opens</strong></td><td>Set election to LIVE. Announce officially in all channels.</td></tr>
+        <tr><td><strong>Day Before</strong></td><td>Complete voter roll upload / close registration, verify candidates with photos, test rules.</td></tr>
+        <tr><td><strong>30 min before open</strong></td><td>Log in, confirm all settings, check ELCOM help desk contacts, share booth link.</td></tr>
+        <tr><td><strong>Election Opens</strong></td><td>Set election to LIVE. Announce officially in all student channels.</td></tr>
         <tr><td><strong>Every 30 min</strong></td><td>Check telemetry dashboard. Send reminder messages if turnout is low.</td></tr>
-        <tr><td><strong>15 min before close</strong></td><td>Send final reminder to all students who have not yet voted.</td></tr>
-        <tr><td><strong>Election Closes</strong></td><td>Set election to ENDED. Screenshot results page.</td></tr>
-        <tr><td><strong>After closing</strong></td><td>Export results CSV. Review audit log. Publish results.</td></tr>
-        <tr><td><strong>Within 1 hour</strong></td><td>Make formal announcement of results in student channels with the results page link.</td></tr>
+        <tr><td><strong>15 min before close</strong></td><td>Send final countdown reminder to all students who have not yet voted.</td></tr>
+        <tr><td><strong>Election Closes</strong></td><td>Set election to ENDED. Export 1-Click JSON backup.</td></tr>
+        <tr><td><strong>After closing</strong></td><td>Export results CSV. Review audit log. Unseal results to Public.</td></tr>
+        <tr><td><strong>Within 1 hour</strong></td><td>Make formal announcement of certified results with the public results link.</td></tr>
       </tbody>
     </table>
 
@@ -1675,7 +1856,7 @@
   <div class="doc-footer">
     <div class="doc-footer-brand">Stud<span>Elect</span> Nigeria</div>
     <div>
-      <p>ELCOM Administrator Guide · Version 1.0 · September 2026</p>
+      <p>ELCOM Administrator Guide · Version 1.2 · October 2026</p>
       <p>studelect.ng &nbsp;·&nbsp; support@studelect.ng &nbsp;·&nbsp; Confidential</p>
     </div>
   </div>
