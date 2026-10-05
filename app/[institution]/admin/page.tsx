@@ -154,32 +154,7 @@ export default function InstitutionAdminPage({
   });
   const [isTelemetryLoading, setIsTelemetryLoading] = useState(false);
 
-  const [posts, setPosts] = useState<PostWithCandidatesDto[]>([
-    {
-      id: "post-1",
-      electionId: "elec-default",
-      title: "President",
-      maxSelections: 1,
-      allowedLevels: [],
-      candidates: [],
-    },
-    {
-      id: "post-2",
-      electionId: "elec-default",
-      title: "Vice President",
-      maxSelections: 1,
-      allowedLevels: [],
-      candidates: [],
-    },
-    {
-      id: "post-3",
-      electionId: "elec-default",
-      title: "General Secretary",
-      maxSelections: 1,
-      allowedLevels: [],
-      candidates: [],
-    },
-  ]);
+  const [posts, setPosts] = useState<PostWithCandidatesDto[]>([]);
 
   const [isUploading, setIsUploading] = useState(false);
   const [uploadMessage, setUploadMessage] = useState<string | null>(null);
@@ -237,7 +212,6 @@ export default function InstitutionAdminPage({
 
   // Official University Crest State (managed strictly by Platform SuperAdmin)
   const [orgLogoUrl, setOrgLogoUrl] = useState<string | null>(null);
-  const [isResolvingOrg, setIsResolvingOrg] = useState<boolean>(true);
 
   const [activeOrgSlug, setActiveOrgSlug] = useState<string>(() => {
     if (typeof window !== "undefined") {
@@ -390,7 +364,6 @@ export default function InstitutionAdminPage({
   };
 
   useEffect(() => {
-    if (isResolvingOrg) return;
     async function loadRules() {
       try {
         const org = activeOrgSlug;
@@ -423,7 +396,7 @@ export default function InstitutionAdminPage({
     loadRules();
     loadWhitelistData(activeOrgSlug);
     loadPublicContact(activeOrgSlug);
-  }, [electionId, activeOrgSlug, instSlug, isResolvingOrg]);
+  }, [electionId, activeOrgSlug, instSlug]);
 
   const handleSaveContactDetails = async () => {
     setIsSavingContact(true);
@@ -528,65 +501,78 @@ export default function InstitutionAdminPage({
   };
 
   useEffect(() => {
+    let isCancelled = false;
+
     async function resolveActiveOrg() {
-      let detectedOrg = "";
-      let userSession: any = null;
-
       try {
-        const session = await getCurrentUserSession();
-        if (session) {
-          userSession = session;
-          setCurrentAdminUser(session);
+        let detectedOrg = "";
+        let userSession: any = null;
+
+        try {
+          const session = await Promise.race([
+            getCurrentUserSession(),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), 1000)),
+          ]);
+          if (session && !isCancelled) {
+            userSession = session;
+            setCurrentAdminUser(session);
+          }
+        } catch (_) {}
+
+        // 1. If user is an ELCOM Commissioner (not SUPER_ADMIN), they are strictly locked to their assigned organization
+        if (userSession && userSession.role !== "SUPER_ADMIN" && (userSession.orgSlug || userSession.orgId)) {
+          detectedOrg = (userSession.orgSlug || userSession.orgId)
+            .replace(/^org-[^-]+-/, "")
+            .replace(/^org-/, "")
+            .toLowerCase()
+            .trim();
         }
-      } catch (_) {}
 
-      // 1. If user is an ELCOM Commissioner (not SUPER_ADMIN), they are strictly locked to their assigned organization
-      if (userSession && userSession.role !== "SUPER_ADMIN" && (userSession.orgSlug || userSession.orgId)) {
-        detectedOrg = (userSession.orgSlug || userSession.orgId)
-          .replace(/^org-[^-]+-/, "")
-          .replace(/^org-/, "")
-          .toLowerCase()
-          .trim();
-      }
-
-      // 2. Allow URL query parameter if the user is a SUPER_ADMIN or no session org is specified
-      if (!detectedOrg) {
-        if (typeof window !== "undefined") {
-          const queryOrg = new URLSearchParams(window.location.search).get("org");
-          if (queryOrg) detectedOrg = queryOrg.toLowerCase().trim();
-        }
-      }
-
-      if (!detectedOrg) {
-        detectedOrg = instSlug === "unilag" ? "nacos" : "nesa";
-      }
-      setActiveOrgSlug(detectedOrg);
-
-      // Ensure URL query param reflects active org
-      if (typeof window !== "undefined") {
-        const url = new URL(window.location.href);
-        if (url.searchParams.get("org") !== detectedOrg) {
-          url.searchParams.set("org", detectedOrg);
-          window.history.replaceState({}, "", url.toString());
-        }
-      }
-
-      // Load all orgs for this institution (only selectable by SuperAdmin)
-      try {
-        const orgs = await getInstitutionOrgsAction(instSlug);
-        if (orgs && orgs.length > 0) {
-          setAvailableOrgs(orgs);
-          if (detectedOrg && !orgs.find((o) => o.orgSlug === detectedOrg)) {
-            setAvailableOrgs([
-              ...orgs,
-              { orgSlug: detectedOrg, orgName: detectedOrg.toUpperCase(), id: `org-${instSlug}-${detectedOrg}` },
-            ]);
+        // 2. Allow URL query parameter if the user is a SUPER_ADMIN or no session org is specified
+        if (!detectedOrg) {
+          if (typeof window !== "undefined") {
+            const queryOrg = new URLSearchParams(window.location.search).get("org");
+            if (queryOrg) detectedOrg = queryOrg.toLowerCase().trim();
           }
         }
-      } catch (_) {}
-      setIsResolvingOrg(false);
+
+        if (!detectedOrg) {
+          detectedOrg = instSlug === "unilag" ? "nacos" : "nesa";
+        }
+
+        if (!isCancelled) {
+          setActiveOrgSlug((prev) => (prev !== detectedOrg ? detectedOrg : prev));
+        }
+
+        // Ensure URL query param reflects active org
+        if (typeof window !== "undefined") {
+          try {
+            const url = new URL(window.location.href);
+            if (url.searchParams.get("org") !== detectedOrg) {
+              url.searchParams.set("org", detectedOrg);
+              window.history.replaceState({}, "", url.toString());
+            }
+          } catch (_) {}
+        }
+      } catch (err) {
+        console.warn("resolveActiveOrg error:", err);
+      }
+
+      // Load all orgs for this institution non-blockingly in the background
+      getInstitutionOrgsAction(instSlug)
+        .then((orgs) => {
+          if (!isCancelled && orgs && orgs.length > 0) {
+            setAvailableOrgs(orgs);
+          }
+        })
+        .catch(() => {});
     }
+
     resolveActiveOrg();
+
+    return () => {
+      isCancelled = true;
+    };
   }, [instSlug]);
 
   const handleAdminSignOut = async () => {
@@ -637,9 +623,8 @@ export default function InstitutionAdminPage({
   };
 
   useEffect(() => {
-    if (isResolvingOrg) return;
     loadLicense();
-  }, [activeOrgSlug, instSlug, isResolvingOrg]);
+  }, [activeOrgSlug, instSlug]);
 
   // Load audit logs when switching to LOGS tab or on interval
   const loadAuditLogs = async () => {
@@ -656,11 +641,10 @@ export default function InstitutionAdminPage({
   };
 
   useEffect(() => {
-    if (isResolvingOrg) return;
     if (activeTab === "LOGS") {
       loadAuditLogs();
     }
-  }, [activeTab, electionId, instSlug, isResolvingOrg]);
+  }, [activeTab, electionId, instSlug]);
 
   const safeCopyToClipboard = async (text: string) => {
     try {
@@ -704,7 +688,6 @@ export default function InstitutionAdminPage({
   };
 
   useEffect(() => {
-    if (isResolvingOrg) return;
     loadTelemetry();
     // Eco-friendly polling: 6s when active, paused when admin tab is backgrounded
     const interval = setInterval(() => {
@@ -723,7 +706,7 @@ export default function InstitutionAdminPage({
       clearInterval(interval);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [electionId, instSlug, isResolvingOrg]);
+  }, [electionId, instSlug]);
 
   useEffect(() => {
     if (posts && posts.length > 0 && activeOrgSlug) {
@@ -743,7 +726,6 @@ export default function InstitutionAdminPage({
   };
 
   useEffect(() => {
-    if (isResolvingOrg) return;
     if (activeOrgSlug) {
       loadVoterRoll(activeOrgSlug);
     } else {
@@ -773,7 +755,7 @@ export default function InstitutionAdminPage({
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeOrgSlug, instSlug, isResolvingOrg]);
+  }, [activeOrgSlug, instSlug]);
 
   // ── Organization DP / Logo Upload Handler ──────────────────────────────────
   const handleOrgLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1413,27 +1395,6 @@ export default function InstitutionAdminPage({
       e.target.value = "";
     }
   };
-
-  if (isResolvingOrg) {
-    return (
-      <div className="min-h-[70vh] flex flex-col items-center justify-center p-8 text-center space-y-4">
-        <div className="w-14 h-14 rounded-2xl bg-zinc-900 text-white flex items-center justify-center shadow-lg animate-pulse">
-          <ShieldCheck className="w-7 h-7 text-emerald-400" />
-        </div>
-        <div>
-          <h2 className="text-sm font-bold text-zinc-900 uppercase tracking-wider">
-            Verifying ELCOM Administrator Credentials
-          </h2>
-          <p className="text-xs text-zinc-500 mt-1 max-w-sm">
-            Authenticating organization access permissions and loading isolated workspace for {instSlug.toUpperCase()}...
-          </p>
-        </div>
-        <div className="w-48 h-1 bg-zinc-100 rounded-full overflow-hidden mt-2">
-          <div className="w-1/2 h-full bg-zinc-900 rounded-full animate-pulse"></div>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <>
