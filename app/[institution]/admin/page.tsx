@@ -46,10 +46,12 @@ import { getInstitutionBySlug } from "@/lib/db/institutions";
 import { updateOrgLogoAction, getOrgLogoAction } from "@/app/actions/elections";
 import {
   parseExcelOrCsvFile,
+  parseWhitelistFile,
   exportVoterRegisterToExcel,
   exportVoterPinsToExcel,
   downloadSampleExcelTemplate,
 } from "@/lib/excel/excel-engine";
+
 import { getRealtimeElectionTelemetryAction } from "@/app/actions/vote";
 import {
   exportElectionBackupAction,
@@ -908,14 +910,17 @@ export default function InstitutionAdminPage({
     setWhitelistMessage("Reading student spreadsheet roster...");
 
     try {
-      const parseResult = await parseExcelOrCsvFile(file);
+      // Use the dedicated whitelist parser — it detects matric columns regardless of
+      // header name ("Matric No", "Matriculation Number", "Reg No", "Student ID", etc.)
+      // and falls back to scanning every cell if no header is recognised.
+      const parseResult = await parseWhitelistFile(file);
       if (!parseResult.success || !parseResult.rows || parseResult.rows.length === 0) {
         setWhitelistMessage(parseResult.message || "Failed to parse spreadsheet file.");
         setIsUploadingWhitelist(false);
         return;
       }
 
-      setWhitelistMessage(`Whitelisting ${parseResult.rows.length} student matric numbers...`);
+      setWhitelistMessage(`Whitelisting ${parseResult.rows.length} matric number(s)...`);
       const res = await saveElectorateWhitelistAction(
         instSlug,
         org,
@@ -930,7 +935,15 @@ export default function InstitutionAdminPage({
 
       if (res.success) {
         setWhitelistCount(res.count);
-        setWhitelistMessage(res.message);
+        // Show how the file was parsed so the admin knows it worked correctly
+        const methodNote =
+          parseResult.detectionMethod === "header"
+            ? ""
+            : parseResult.detectionMethod === "pattern"
+            ? " (matric column auto-detected by value pattern)"
+            : " (matric numbers found by full-file scan)";
+        const msg = `${res.message}${methodNote}`;
+        setWhitelistMessage(msg);
         setAdminActionMessage(`Electorate Whitelist updated: ${res.count} students pre-authorized.`);
         setTimeout(() => setAdminActionMessage(null), 5000);
       } else {
@@ -942,6 +955,7 @@ export default function InstitutionAdminPage({
       setIsUploadingWhitelist(false);
       e.target.value = "";
     }
+
   };
 
   const handleClearWhitelist = async () => {
