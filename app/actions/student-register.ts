@@ -683,9 +683,20 @@ export interface ElectionRulesState {
   registrationOpen?: boolean;
 }
 
-const DATA_DIR = path.join(process.cwd(), "data");
+import { getDataDir, safeReadDataJson, safeWriteDataJson } from "@/lib/data-dir";
+
+const DATA_DIR = getDataDir();
 const ELECTION_RULES_FILE = path.join(DATA_DIR, "election-rules-store.json");
-const WHITELISTS_DIR = path.join(DATA_DIR, "electorate-whitelists");
+
+function getWhitelistsDir(): string {
+  const dir = path.join(getDataDir(), "electorate-whitelists");
+  try {
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+  } catch (_) {}
+  return dir;
+}
 
 export interface WhitelistEntry {
   matricNo: string;
@@ -704,14 +715,11 @@ function getWhitelistFilePath(instSlug: string, orgSlug: string): string {
     .replace(/^org-/, "")
     .replace(new RegExp(`^${cleanInst}-`), "")
     .replace(/-2026$/, "");
-  return path.join(WHITELISTS_DIR, `${cleanInst}-${cleanOrg}.json`);
+  return path.join(getWhitelistsDir(), `${cleanInst}-${cleanOrg}.json`);
 }
 
 function readWhitelistStore(instSlug: string, orgSlug: string): WhitelistEntry[] {
   try {
-    if (!fs.existsSync(WHITELISTS_DIR)) {
-      fs.mkdirSync(WHITELISTS_DIR, { recursive: true });
-    }
     const file = getWhitelistFilePath(instSlug, orgSlug);
     if (!fs.existsSync(file)) return [];
     const raw = fs.readFileSync(file, "utf8");
@@ -723,9 +731,6 @@ function readWhitelistStore(instSlug: string, orgSlug: string): WhitelistEntry[]
 
 function writeWhitelistStore(instSlug: string, orgSlug: string, list: WhitelistEntry[]) {
   try {
-    if (!fs.existsSync(WHITELISTS_DIR)) {
-      fs.mkdirSync(WHITELISTS_DIR, { recursive: true });
-    }
     const file = getWhitelistFilePath(instSlug, orgSlug);
     fs.writeFileSync(file, JSON.stringify(list, null, 2), "utf8");
   } catch (err) {
@@ -975,9 +980,11 @@ export async function updateOrgPublicContactAction(input: {
   };
 
   try {
-    if (!fs.existsSync(DATA_DIR)) {
-      fs.mkdirSync(DATA_DIR, { recursive: true });
-    }
+    try {
+      if (!fs.existsSync(DATA_DIR)) {
+        fs.mkdirSync(DATA_DIR, { recursive: true });
+      }
+    } catch (_) {}
 
     // 1. Update commissioner assignments in local store
     const assignmentsFile = path.join(DATA_DIR, "commissioner-assignments.json");
@@ -1108,29 +1115,11 @@ export async function updateOrgPublicContactAction(input: {
 }
 
 function readElectionRulesStore(): Record<string, ElectionRulesState> {
-  try {
-    if (!fs.existsSync(DATA_DIR)) {
-      fs.mkdirSync(DATA_DIR, { recursive: true });
-    }
-    if (!fs.existsSync(ELECTION_RULES_FILE)) {
-      return {};
-    }
-    const raw = fs.readFileSync(ELECTION_RULES_FILE, "utf8");
-    return JSON.parse(raw) || {};
-  } catch (_) {
-    return {};
-  }
+  return safeReadDataJson<Record<string, ElectionRulesState>>("election-rules-store.json", {});
 }
 
 function writeElectionRulesStore(store: Record<string, ElectionRulesState>) {
-  try {
-    if (!fs.existsSync(DATA_DIR)) {
-      fs.mkdirSync(DATA_DIR, { recursive: true });
-    }
-    fs.writeFileSync(ELECTION_RULES_FILE, JSON.stringify(store, null, 2), "utf8");
-  } catch (err) {
-    console.warn("writeElectionRulesStore error:", err);
-  }
+  safeWriteDataJson("election-rules-store.json", store);
 }
 
 /**

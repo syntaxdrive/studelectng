@@ -10,7 +10,9 @@ import crypto from "crypto";
 
 import { PartnerPerk, DEFAULT_PARTNER_PERKS, PerkPlacement } from "@/lib/perks";
 
-const DATA_DIR = path.join(process.cwd(), "data");
+import { getDataDir } from "@/lib/data-dir";
+
+const DATA_DIR = getDataDir();
 const ORG_LICENSES_FILE = path.join(DATA_DIR, "org-licenses-store.json");
 const COMMISSIONER_ASSIGNMENTS_FILE = path.join(DATA_DIR, "commissioner-assignments.json");
 const DELETED_ORGS_FILE = path.join(DATA_DIR, "deleted-orgs-store.json");

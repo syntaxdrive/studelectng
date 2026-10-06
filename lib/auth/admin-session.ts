@@ -3,6 +3,7 @@ import fs from "fs";
 import path from "path";
 import { supabase } from "@/lib/supabase";
 import { UserRole } from "./session";
+import { safeReadDataJson } from "@/lib/data-dir";
 
 export interface AdminSessionUser {
   id: string;
@@ -183,16 +184,13 @@ export async function authenticateAdmin(
       let orgId: string | undefined = undefined;
       let orgSlug: string | undefined = undefined;
 
-      // 1. Check commissioner assignments in local store
+      // 1. Check commissioner assignments in store
       try {
-        const assignmentsPath = path.join(process.cwd(), "data", "commissioner-assignments.json");
-        if (fs.existsSync(assignmentsPath)) {
-          const assignments = JSON.parse(fs.readFileSync(assignmentsPath, "utf8"));
-          const assignment = assignments[cleanEmail];
-          if (assignment) {
-            orgId = assignment.orgId;
-            orgSlug = assignment.orgSlug;
-          }
+        const assignments = safeReadDataJson<Record<string, any>>("commissioner-assignments.json", {});
+        const assignment = assignments[cleanEmail];
+        if (assignment) {
+          orgId = assignment.orgId;
+          orgSlug = assignment.orgSlug;
         }
       } catch (e) {
         // ignore
@@ -201,18 +199,15 @@ export async function authenticateAdmin(
       // 2. Check org licenses store (by contactAdminEmail)
       if (!orgId) {
         try {
-          const licensesPath = path.join(process.cwd(), "data", "org-licenses-store.json");
-          if (fs.existsSync(licensesPath)) {
-            const licenses = JSON.parse(fs.readFileSync(licensesPath, "utf8"));
-            const lic = (licenses || []).find(
-              (l: any) =>
-                (l.contactAdminEmail && l.contactAdminEmail.toLowerCase().trim() === cleanEmail) ||
-                (l.email && l.email.toLowerCase().trim() === cleanEmail)
-            );
-            if (lic) {
-              orgId = lic.id;
-              orgSlug = lic.orgSlug;
-            }
+          const licenses = safeReadDataJson<any[]>("org-licenses-store.json", []);
+          const lic = (licenses || []).find(
+            (l: any) =>
+              (l.contactAdminEmail && l.contactAdminEmail.toLowerCase().trim() === cleanEmail) ||
+              (l.email && l.email.toLowerCase().trim() === cleanEmail)
+          );
+          if (lic) {
+            orgId = lic.id;
+            orgSlug = lic.orgSlug;
           }
         } catch (_) {}
       }
@@ -303,12 +298,7 @@ export async function authenticateAdmin(
 
   // 3. Check in Promoted Admins Store & Student Matric PIN credentials
   try {
-    const dataDir = path.join(process.cwd(), "data");
-    const promotedPath = path.join(dataDir, "promoted-admins-store.json");
-    let promotedList: any[] = [];
-    if (fs.existsSync(promotedPath)) {
-      promotedList = JSON.parse(fs.readFileSync(promotedPath, "utf8"));
-    }
+    const promotedList: any[] = safeReadDataJson<any[]>("promoted-admins-store.json", []);
 
     const normInput = cleanEmail.replace(/[^a-z0-9]/gi, "").toUpperCase();
     const promotedMatch = promotedList.find((p: any) =>

@@ -37,7 +37,9 @@ export interface InitializeElectionInput {
   }>;
 }
 
-const DATA_DIR = path.join(process.cwd(), "data");
+import { getDataDir } from "@/lib/data-dir";
+
+const DATA_DIR = getDataDir();
 
 export async function initializeElectionAndAccountAction(input: InitializeElectionInput) {
   try {

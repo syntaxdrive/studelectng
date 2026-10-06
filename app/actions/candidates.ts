@@ -27,8 +27,7 @@ export interface PostWithCandidatesDto {
   candidates: CandidateDto[];
 }
 
-const DATA_DIR = path.join(process.cwd(), "data");
-const CANDIDATES_FILE = path.join(DATA_DIR, "candidates-store.json");
+import { getDataDir, safeReadDataJson, safeWriteDataJson } from "@/lib/data-dir";
 
 function getInitialStore() {
   return {
@@ -66,16 +65,10 @@ function getInitialStore() {
 
 function readServerStore(): { posts: PostWithCandidatesDto[] } {
   try {
-    if (!fs.existsSync(DATA_DIR)) {
-      fs.mkdirSync(DATA_DIR, { recursive: true });
-    }
-    if (!fs.existsSync(CANDIDATES_FILE)) {
-      const initial = getInitialStore();
-      fs.writeFileSync(CANDIDATES_FILE, JSON.stringify(initial, null, 2), "utf8");
-      return initial;
-    }
-    const raw = fs.readFileSync(CANDIDATES_FILE, "utf8");
-    return JSON.parse(raw);
+    return safeReadDataJson<{ posts: PostWithCandidatesDto[] }>(
+      "candidates-store.json",
+      getInitialStore()
+    );
   } catch (err) {
     console.warn("readServerStore error, returning initial:", err);
     return getInitialStore();
@@ -84,10 +77,7 @@ function readServerStore(): { posts: PostWithCandidatesDto[] } {
 
 function writeServerStore(store: { posts: PostWithCandidatesDto[] }) {
   try {
-    if (!fs.existsSync(DATA_DIR)) {
-      fs.mkdirSync(DATA_DIR, { recursive: true });
-    }
-    fs.writeFileSync(CANDIDATES_FILE, JSON.stringify(store, null, 2), "utf8");
+    safeWriteDataJson("candidates-store.json", store);
   } catch (err) {
     console.warn("writeServerStore error:", err);
   }

@@ -5,7 +5,9 @@ import path from "path";
 import { revalidatePath } from "next/cache";
 import { supabase, invalidateCache } from "@/lib/supabase";
 
-const DATA_DIR = path.join(process.cwd(), "data");
+import { getDataDir } from "@/lib/data-dir";
+
+const DATA_DIR = getDataDir();
 
 const STORE_FILES = {
   candidates: path.join(DATA_DIR, "candidates-store.json"),
@@ -169,10 +171,12 @@ export async function importElectionBackupAction(
     const cleanOrg = orgSlug.toLowerCase().trim();
 
     // Ensure data directories exist
-    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-    if (!fs.existsSync(STORE_FILES.whitelistsDir)) {
-      fs.mkdirSync(STORE_FILES.whitelistsDir, { recursive: true });
-    }
+    try {
+      if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+      if (!fs.existsSync(STORE_FILES.whitelistsDir)) {
+        fs.mkdirSync(STORE_FILES.whitelistsDir, { recursive: true });
+      }
+    } catch (_) {}
 
     // 1. Restore registered students / voter accounts
     let studentsRestoredCount = 0;

@@ -15,7 +15,9 @@ export interface ToggleStudentAdminInput {
   orgSlug?: string;
 }
 
-const DATA_DIR = path.join(process.cwd(), "data");
+import { getDataDir } from "@/lib/data-dir";
+
+const DATA_DIR = getDataDir();
 
 function readPromotedAdminsStore(): any[] {
   try {
@@ -29,9 +31,11 @@ function readPromotedAdminsStore(): any[] {
 
 function writePromotedAdminsStore(list: any[]) {
   try {
-    if (!fs.existsSync(DATA_DIR)) {
-      fs.mkdirSync(DATA_DIR, { recursive: true });
-    }
+    try {
+      if (!fs.existsSync(DATA_DIR)) {
+        fs.mkdirSync(DATA_DIR, { recursive: true });
+      }
+    } catch (_) {}
     const filePath = path.join(DATA_DIR, "promoted-admins-store.json");
     fs.writeFileSync(filePath, JSON.stringify(list, null, 2), "utf8");
   } catch (_) {}

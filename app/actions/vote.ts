@@ -20,14 +20,12 @@ export interface CastBallotInput {
   voterLevel?: number;
 }
 
-const DATA_DIR = path.join(process.cwd(), "data");
-const CANDIDATES_FILE = path.join(DATA_DIR, "candidates-store.json");
-const BALLOTS_FILE = path.join(DATA_DIR, "ballots-store.json");
-const VOTED_STUDENTS_FILE = path.join(DATA_DIR, "voted-students-store.json");
+import { getDataDir, safeReadDataJson, safeWriteDataJson } from "@/lib/data-dir";
 
 export interface VotedStudentRecord {
   electionId: string;
   normalizedMatric: string;
+  tokenId?: string;
   studentId?: string;
   receiptHash: string;
   castAt: number;
@@ -41,49 +39,6 @@ interface StoredBallot {
   selections: { [postId: string]: string };
   castAt: number;
   voterLevel?: number;
-}
-
-// ── Industrial-Grade Atomic File Operations ──────────────────────────────────
-// Ensures concurrent writes never corrupt files or produce half-written JSON.
-function atomicWriteJson(filePath: string, data: any) {
-  try {
-    const dir = path.dirname(filePath);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    const tempFile = `${filePath}.tmp.${Date.now()}.${Math.random().toString(36).substring(2, 6)}`;
-    const content = JSON.stringify(data, null, 2);
-    fs.writeFileSync(tempFile, content, "utf8");
-    try {
-      fs.renameSync(tempFile, filePath);
-    } catch {
-      // Windows file lock fallback
-      fs.writeFileSync(filePath, content, "utf8");
-      try {
-        if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
-      } catch (_) {}
-    }
-  } catch (err) {
-    console.warn("atomicWriteJson error for " + filePath + ":", err);
-  }
-}
-
-function safeReadJsonFile<T>(filePath: string, fallback: T): T {
-  try {
-    if (!fs.existsSync(filePath)) return fallback;
-    const raw = fs.readFileSync(filePath, "utf8");
-    if (!raw || raw.trim().length === 0) return fallback;
-    return JSON.parse(raw);
-  } catch (err) {
-    // Retry once in case caught in microsecond between file replace
-    try {
-      if (fs.existsSync(filePath)) {
-        const raw = fs.readFileSync(filePath, "utf8");
-        return JSON.parse(raw);
-      }
-    } catch (_) {}
-    return fallback;
-  }
 }
 
 // ── In-Memory Asynchronous Mutex Queue for Ballot Casting ────────────────────
@@ -102,10 +57,9 @@ function executeWithVoteLock<T>(fn: () => Promise<T>): Promise<T> {
   });
 }
 
-// ── Store Accessors ──────────────────────────────────────────────────────────
+// ── Serverless-Safe Store Accessors ──────────────────────────────────────────
 function readVotedStudentsStore(): VotedStudentRecord[] {
-  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-  return safeReadJsonFile<VotedStudentRecord[]>(VOTED_STUDENTS_FILE, []);
+  return safeReadDataJson<VotedStudentRecord[]>("voted-students-store.json", []);
 }
 
 function recordVotedStudentInStore(record: VotedStudentRecord) {
@@ -116,31 +70,24 @@ function recordVotedStudentInStore(record: VotedStudentRecord) {
     );
     if (!exists) {
       list.push(record);
-      atomicWriteJson(VOTED_STUDENTS_FILE, list);
+      safeWriteDataJson("voted-students-store.json", list);
     }
   } catch (err) {
-    console.warn("recordVotedStudentInStore error:", err);
+    console.warn("recordVotedStudentInStore warning:", err);
   }
 }
 
-export interface VotedStudentRecord {
-  electionId: string;
-  normalizedMatric: string;
-  tokenId?: string;
-  studentId?: string;
-  receiptHash: string;
-  castAt: number;
-}
-
-function internalHasStudentVoted(
+async function internalHasStudentVoted(
   electionId: string,
   normalizedMatric: string,
-  tokenId?: string
-): { voted: boolean; record?: VotedStudentRecord } {
-  const list = readVotedStudentsStore();
+  tokenId?: string,
+  studentId?: string
+): Promise<{ voted: boolean; record?: VotedStudentRecord }> {
   const cleanMatric = (normalizedMatric || "").toLowerCase().replace(/[^a-z0-9]/g, "");
   const cleanToken = (tokenId || "").trim();
 
+  // 1. Check local store
+  const list = readVotedStudentsStore();
   const found = list.find((r) => {
     if (r.electionId !== electionId) return false;
     if (cleanMatric && r.normalizedMatric && r.normalizedMatric.toLowerCase() === cleanMatric) {
@@ -151,36 +98,62 @@ function internalHasStudentVoted(
     }
     return false;
   });
-  return { voted: !!found, record: found };
+  if (found) return { voted: true, record: found };
+
+  // 2. Check Supabase for recorded accreditation status
+  try {
+    if (studentId) {
+      const { data: acc } = await (supabase as any)
+        .from("voter_accreditations")
+        .select("id, status")
+        .eq("election_id", electionId)
+        .eq("student_id", studentId)
+        .maybeSingle();
+
+      if (acc && acc.status === "VOTED") {
+        return {
+          voted: true,
+          record: {
+            electionId,
+            normalizedMatric: cleanMatric,
+            studentId,
+            receiptHash: "VERIFIED_ON_CHAIN",
+            castAt: Date.now(),
+          },
+        };
+      }
+    }
+  } catch (_) {}
+
+  return { voted: false };
 }
 
 export async function hasStudentVotedAction(
   electionId: string,
   normalizedMatric: string,
-  tokenId?: string
+  tokenId?: string,
+  studentId?: string
 ): Promise<{ voted: boolean; record?: VotedStudentRecord }> {
-  return internalHasStudentVoted(electionId, normalizedMatric, tokenId);
+  return internalHasStudentVoted(electionId, normalizedMatric, tokenId, studentId);
 }
 
 function readBallotsStore(): StoredBallot[] {
-  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-  return safeReadJsonFile<StoredBallot[]>(BALLOTS_FILE, []);
+  return safeReadDataJson<StoredBallot[]>("ballots-store.json", []);
 }
 
 function appendBallotStore(ballot: StoredBallot) {
   try {
     const ballots = readBallotsStore();
     ballots.push(ballot);
-    atomicWriteJson(BALLOTS_FILE, ballots);
+    safeWriteDataJson("ballots-store.json", ballots);
   } catch (err) {
-    console.warn("appendBallotStore error:", err);
+    console.warn("appendBallotStore warning:", err);
   }
 }
 
 function incrementCandidateVotesInStore(selections: { [postId: string]: string }) {
   try {
-    if (!fs.existsSync(CANDIDATES_FILE)) return;
-    const store = safeReadJsonFile<{ posts: any[] }>(CANDIDATES_FILE, { posts: [] });
+    const store = safeReadDataJson<{ posts: any[] }>("candidates-store.json", { posts: [] });
     const selectedCandIds = new Set(Object.values(selections));
 
     store.posts = (store.posts || []).map((post: any) => ({
@@ -193,9 +166,9 @@ function incrementCandidateVotesInStore(selections: { [postId: string]: string }
       }),
     }));
 
-    atomicWriteJson(CANDIDATES_FILE, store);
+    safeWriteDataJson("candidates-store.json", store);
   } catch (err) {
-    console.warn("incrementCandidateVotesInStore error:", err);
+    console.warn("incrementCandidateVotesInStore warning:", err);
   }
 }
 
@@ -258,8 +231,8 @@ export async function castBallotAction(input: CastBallotInput) {
         }
       } catch (_) {}
 
-      // 1. Strict One-Vote Enforcement (Guaranteed atomic check against matric AND token)
-      const voteCheck = internalHasStudentVoted(electionId, normMatric, tokenId);
+      // 1. Strict One-Vote Enforcement (Guaranteed atomic check against matric, token, AND studentId)
+      const voteCheck = await internalHasStudentVoted(electionId, normMatric, tokenId, input.studentId);
       if (voteCheck.voted) {
         return {
           success: false,
@@ -285,7 +258,7 @@ export async function castBallotAction(input: CastBallotInput) {
       const blockHash = computeAuditBlockHash("0x000000", selectionsObj, timestamp);
       const ballotId = `ballot-${timestamp}-${Math.random().toString(36).substring(2, 6)}`;
 
-      // 2. Increment in Atomic Server File Stores
+      // 2. Increment in Atomic Server Stores (Serverless safe)
       incrementCandidateVotesInStore(selectionsObj);
       appendBallotStore({
         id: ballotId,
@@ -310,61 +283,38 @@ export async function castBallotAction(input: CastBallotInput) {
       // Invalidate live telemetry cache so the new vote is counted immediately
       telemetryCache.delete(electionId);
 
-      // 4. Non-Blocking Atomic Synchronization to Supabase
-      // Uses the atomic PostgreSQL transaction RPC fn_cast_secure_ballot.
-      // Database latency or connection spikes never delay or fail the voter's ballot.
-      (async () => {
-        try {
-          // Attempt atomic Postgres transaction RPC first
-          const { data: rpcRes, error: rpcErr } = await (supabase as any).rpc(
-            "fn_cast_secure_ballot",
-            {
-              p_election_id: electionId,
-              p_ballot_id: ballotId,
-              p_receipt_hash: receiptHash,
-              p_block_hash: blockHash,
-              p_selections: selectionsObj,
-              p_cast_at: new Date(timestamp).toISOString(),
-              p_student_id: input.studentId || null,
-              p_token_id: tokenId || null,
-            }
-          );
+      // 4. Atomic Synchronization to Supabase Cloud
+      // Await so the serverless Lambda does not terminate before write finishes.
+      try {
+        await supabase.from("ballots").insert({
+          id: ballotId,
+          election_id: electionId,
+          receipt_hash: receiptHash,
+          selections: selectionsObj,
+          cast_at: new Date(timestamp).toISOString(),
+          block_hash: blockHash,
+        });
 
-          if (!rpcErr && rpcRes?.success) {
-            return;
-          }
-
-          // Direct table fallback if RPC is not yet registered in Supabase
-          await supabase.from("ballots").insert({
-            id: ballotId,
-            election_id: electionId,
-            receipt_hash: receiptHash,
-            selections: selectionsObj,
-            cast_at: new Date(timestamp).toISOString(),
-            block_hash: blockHash,
-          });
-
-          if (input.studentId) {
-            await (supabase as any)
-              .from("voter_accreditations")
-              .update({ status: "VOTED" })
-              .eq("election_id", electionId)
-              .eq("student_id", input.studentId);
-          }
-
-          await supabase.from("audit_logs").insert({
-            id: `log-${timestamp}`,
-            election_id: electionId,
-            action_type: "BALLOT_CAST",
-            actor_role: "VOTER",
-            payload: { receipt_hash: receiptHash, block_hash: blockHash },
-            prev_hash: "0x000000",
-            current_hash: blockHash,
-          });
-        } catch (dbErr) {
-          console.warn("Supabase vote sync notice:", dbErr);
+        if (input.studentId) {
+          await (supabase as any)
+            .from("voter_accreditations")
+            .update({ status: "VOTED" })
+            .eq("election_id", electionId)
+            .eq("student_id", input.studentId);
         }
-      })().catch(() => {});
+
+        await supabase.from("audit_logs").insert({
+          id: `log-${timestamp}`,
+          election_id: electionId,
+          action_type: "BALLOT_CAST",
+          actor_role: "VOTER",
+          payload: { receipt_hash: receiptHash, block_hash: blockHash },
+          prev_hash: "0x000000",
+          current_hash: blockHash,
+        });
+      } catch (dbErr) {
+        console.warn("Supabase vote sync notice:", dbErr);
+      }
 
       return {
         success: true,
