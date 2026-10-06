@@ -1,7 +1,7 @@
 "use server";
 
 import { verifyBlindedBallotToken, generateReceiptHash, computeAuditBlockHash } from "@/lib/crypto";
-import { supabase, fetchWithCache } from "@/lib/supabase";
+import { supabase, fetchWithCache, invalidateCache } from "@/lib/supabase";
 import { checkRateLimit } from "@/lib/security/rate-limiter";
 import fs from "fs";
 import path from "path";
@@ -340,18 +340,34 @@ export async function castBallotAction(input: CastBallotInput) {
 
 /**
  * Get Real-Time Live Results, Turnout & Telemetry for ELCOM Admin & Press Room.
- * Uses a 2.5-second in-memory cache to handle high concurrent traffic seamlessly.
+ * Queries Supabase Cloud ballots and merges with local buffer to ensure real-time accuracy across serverless instances.
+ * Uses a 2-second in-memory cache to handle high concurrent traffic seamlessly.
  */
 export async function getRealtimeElectionTelemetryAction(
   electionId: string,
-  instSlug: string = "ui"
+  instSlug: string = "ui",
+  orgSlug?: string
 ) {
   try {
     const cleanInst = (instSlug || "ui").toLowerCase().trim();
+    const cleanOrg = (
+      orgSlug ||
+      electionId.replace(/^elec-[^-]+-/, "").replace(/-2026$/, "")
+    ).toLowerCase().trim();
 
-    // Check in-memory cache first (2.5s TTL)
+    const targetElectionIds = Array.from(
+      new Set(
+        [
+          electionId,
+          cleanOrg ? `elec-${cleanInst}-${cleanOrg}-2026` : null,
+          cleanOrg ? `elec-${cleanOrg}-2026` : null,
+        ].filter(Boolean) as string[]
+      )
+    );
+
+    // Check in-memory cache first (2s TTL)
     const cached = telemetryCache.get(electionId);
-    if (cached && Date.now() - cached.timestamp < 2500) {
+    if (cached && Date.now() - cached.timestamp < 2000) {
       return cached.data;
     }
 
@@ -359,12 +375,58 @@ export async function getRealtimeElectionTelemetryAction(
     const { getOrgVoterRollAction } = await import("./student-register");
 
     const rawPosts = await getElectionPostsAndCandidatesAction(electionId);
-    const allBallots = readBallotsStore();
 
-    // STRICT ISOLATION: only count ballots that belong to THIS election.
-    const ballots = allBallots.filter((b) => b.electionId === electionId);
+    // 1. Fetch cast ballots from Supabase Cloud
+    let dbBallots: any[] = [];
+    try {
+      const { data, error } = await supabase
+        .from("ballots")
+        .select("*")
+        .in("election_id", targetElectionIds);
+      if (!error && Array.isArray(data)) {
+        dbBallots = data;
+      }
+    } catch (e) {
+      console.warn("Supabase ballots fetch notice:", e);
+    }
 
-    // 1. Get exact registered voters count for this election (cached 30s)
+    // 2. Read local serverless/ephemeral buffer
+    const localBallots = readBallotsStore().filter((b) =>
+      targetElectionIds.includes(b.electionId)
+    );
+
+    // 3. Merge and deduplicate by ballot id / receipt hash
+    const ballotMap = new Map<string, any>();
+    for (const b of dbBallots) {
+      const id = b.id || b.receipt_hash;
+      let selections = b.selections;
+      if (typeof selections === "string") {
+        try {
+          selections = JSON.parse(selections);
+        } catch (_) {
+          selections = {};
+        }
+      }
+      ballotMap.set(id, {
+        id: b.id,
+        electionId: b.election_id,
+        receiptHash: b.receipt_hash,
+        blockHash: b.block_hash,
+        selections: selections || {},
+        castAt: b.cast_at ? new Date(b.cast_at).getTime() : Date.now(),
+        voterLevel: b.voter_level || 300,
+      });
+    }
+    for (const b of localBallots) {
+      const id = b.id || b.receiptHash;
+      if (!ballotMap.has(id)) {
+        ballotMap.set(id, b);
+      }
+    }
+
+    const ballots = Array.from(ballotMap.values());
+
+    // 4. Get exact registered voters count for this election (cached 30s)
     const totalRegistered = await fetchWithCache(
       `telemetry:reg_count:${electionId}:${cleanInst}`,
       30,
@@ -373,7 +435,7 @@ export async function getRealtimeElectionTelemetryAction(
           const accCountRes = await supabase
             .from("voter_accreditations")
             .select("id", { count: "exact", head: true })
-            .eq("election_id", electionId);
+            .in("election_id", targetElectionIds);
           if (accCountRes.count && accCountRes.count > 0) {
             return accCountRes.count;
           }
@@ -418,12 +480,15 @@ export async function getRealtimeElectionTelemetryAction(
         ? 100
         : 0;
 
-    // 2. Compute exact live vote count per candidate strictly from cast ballots
+    // 5. Compute exact live vote count per candidate strictly from cast ballots
     const posts = rawPosts.map((post) => {
       const candidatesWithExactVotes = post.candidates.map((cand) => {
-        const exactVotes = ballots.filter(
-          (b) => b.selections && b.selections[post.id] === cand.id
-        ).length;
+        const exactVotes = ballots.filter((b) => {
+          if (!b.selections) return false;
+          if (b.selections[post.id] === cand.id) return true;
+          if (Object.values(b.selections).includes(cand.id)) return true;
+          return false;
+        }).length;
 
         return {
           ...cand,
@@ -437,10 +502,10 @@ export async function getRealtimeElectionTelemetryAction(
       };
     });
 
-    // 3. Demographic Level Breakdown
+    // 6. Demographic Level Breakdown (100L - 500L)
     const levelCounts: Record<number, number> = { 100: 0, 200: 0, 300: 0, 400: 0, 500: 0 };
     for (const b of ballots) {
-      const lvl = b.voterLevel || 300;
+      const lvl = Number(b.voterLevel) || 300;
       if (levelCounts[lvl] !== undefined) {
         levelCounts[lvl]++;
       } else {
@@ -457,7 +522,7 @@ export async function getRealtimeElectionTelemetryAction(
       };
     });
 
-    // 4. Hourly Vote Flow Distribution (for Temporal Histogram)
+    // 7. Hourly Vote Flow Distribution (for Temporal Histogram)
     const hours = [
       "08:00",
       "09:00",
@@ -495,7 +560,7 @@ export async function getRealtimeElectionTelemetryAction(
       percentage: totalBallotsCast > 0 ? Math.round((hourlyCounts[hour] / totalBallotsCast) * 100) : 0,
     }));
 
-    // 5. Recent ballots for live cryptographic audit ledger
+    // 8. Recent ballots for live cryptographic audit ledger
     const recentAuditLedger = [...ballots]
       .reverse()
       .slice(0, 15)
@@ -556,16 +621,173 @@ export async function getElectionBallotCountAction(
     const cleanInst = (instSlug || "ui").toLowerCase().trim();
     const cleanOrg = (orgSlug || "").toLowerCase().trim();
 
-    const targetIds = [
-      electionId,
-      cleanOrg ? `elec-${cleanInst}-${cleanOrg}-2026` : null,
-      cleanOrg ? `elec-${cleanOrg}-2026` : null,
-    ].filter(Boolean) as string[];
+    const targetIds = Array.from(
+      new Set(
+        [
+          electionId,
+          cleanOrg ? `elec-${cleanInst}-${cleanOrg}-2026` : null,
+          cleanOrg ? `elec-${cleanOrg}-2026` : null,
+        ].filter(Boolean) as string[]
+      )
+    );
+
+    let cloudCount = 0;
+    try {
+      const res = await supabase
+        .from("ballots")
+        .select("id", { count: "exact", head: true })
+        .in("election_id", targetIds);
+      if (res && typeof res.count === "number") {
+        cloudCount = res.count;
+      }
+    } catch (_) {}
 
     const localBallots = readBallotsStore();
-    const matched = localBallots.filter((b: any) => targetIds.includes(b.electionId));
-    return { success: true, count: matched.length };
+    const localMatched = localBallots.filter((b: any) => targetIds.includes(b.electionId));
+    const totalCount = Math.max(cloudCount, localMatched.length);
+
+    return { success: true, count: totalCount };
   } catch (_) {
     return { success: true, count: 0 };
+  }
+}
+
+/**
+ * RESET ELECTION VOTES (FOR TEST RUNS / REHEARSALS)
+ * Resets cast ballots to 0, clears student voting locks so registered voters can cast ballots again,
+ * and resets candidate vote tallies back to 0.
+ * Contested offices, nominated candidates, voter rolls, and whitelists remain completely intact.
+ */
+export async function resetElectionVotesAction(
+  electionId: string,
+  orgSlug?: string,
+  instSlug?: string
+): Promise<{ success: boolean; message: string; deletedCount?: number }> {
+  try {
+    const cleanInst = (instSlug || "ui").toLowerCase().trim();
+    const cleanOrg = (
+      orgSlug ||
+      electionId.replace(/^elec-[^-]+-/, "").replace(/-2026$/, "")
+    ).toLowerCase().trim();
+
+    const targetElectionIds = Array.from(
+      new Set(
+        [
+          electionId,
+          cleanOrg ? `elec-${cleanInst}-${cleanOrg}-2026` : null,
+          cleanOrg ? `elec-${cleanOrg}-2026` : null,
+        ].filter(Boolean) as string[]
+      )
+    );
+
+    // 1. Delete cast ballots from Supabase Cloud
+    try {
+      await supabase
+        .from("ballots")
+        .delete()
+        .in("election_id", targetElectionIds);
+    } catch (dbErr) {
+      console.warn("Supabase ballots deletion notice:", dbErr);
+    }
+
+    // 2. Reset voter accreditations back to ACCREDITED in Supabase
+    try {
+      await (supabase as any)
+        .from("voter_accreditations")
+        .update({ status: "ACCREDITED" })
+        .in("election_id", targetElectionIds);
+    } catch (dbErr) {
+      console.warn("Supabase accreditations reset notice:", dbErr);
+    }
+
+    // 3. Reset candidate vote counts in Supabase
+    try {
+      const { data: electionPosts } = await supabase
+        .from("posts")
+        .select("id")
+        .in("election_id", targetElectionIds);
+
+      if (electionPosts && electionPosts.length > 0) {
+        const postIds = electionPosts.map((p: any) => p.id);
+        await supabase
+          .from("candidates")
+          .update({ vote_count: 0 })
+          .in("post_id", postIds);
+      }
+    } catch (dbErr) {
+      console.warn("Supabase candidates vote count reset notice:", dbErr);
+    }
+
+    // 4. Clean local file stores (serverless safe)
+    try {
+      // Clear ballots
+      const currentBallots = readBallotsStore();
+      const remainingBallots = currentBallots.filter(
+        (b) => !targetElectionIds.includes(b.electionId)
+      );
+      safeWriteDataJson("ballots-store.json", remainingBallots);
+
+      // Clear voted students deduplication ledger
+      const currentVoted = readVotedStudentsStore();
+      const remainingVoted = currentVoted.filter(
+        (v) => !targetElectionIds.includes(v.electionId)
+      );
+      safeWriteDataJson("voted-students-store.json", remainingVoted);
+
+      // Reset candidate vote counts in candidates store
+      const candStore = safeReadDataJson<{ posts: any[] }>("candidates-store.json", { posts: [] });
+      if (candStore.posts && Array.isArray(candStore.posts)) {
+        candStore.posts = candStore.posts.map((p) => {
+          if (targetElectionIds.includes(p.electionId)) {
+            return {
+              ...p,
+              candidates: (p.candidates || []).map((c: any) => ({
+                ...c,
+                voteCount: 0,
+              })),
+            };
+          }
+          return p;
+        });
+        safeWriteDataJson("candidates-store.json", candStore);
+      }
+    } catch (fsErr) {
+      console.warn("Local stores reset notice:", fsErr);
+    }
+
+    // 5. Invalidate all in-memory telemetry and posts caches
+    for (const id of targetElectionIds) {
+      telemetryCache.delete(id);
+    }
+    invalidateCache("posts:");
+    invalidateCache("telemetry:");
+
+    // 6. Record Audit Log entry
+    try {
+      await supabase.from("audit_logs").insert({
+        id: `log-${Date.now()}`,
+        election_id: electionId,
+        action_type: "ELECTION_RESET",
+        actor_role: "ADMIN",
+        payload: {
+          reason: "Test Run Rehearsal: Votes, ballots, and accreditations reset by administrator.",
+          targetElectionIds,
+          resetAt: new Date().toISOString(),
+        },
+        prev_hash: "0x000000",
+        current_hash: "0xRESET",
+      });
+    } catch (_) {}
+
+    return {
+      success: true,
+      message: "Election test votes have been successfully reset to 0. All cast ballots cleared and voters re-accredited.",
+    };
+  } catch (err: any) {
+    console.error("resetElectionVotesAction error:", err);
+    return {
+      success: false,
+      message: err.message || "Failed to reset election test votes.",
+    };
   }
 }

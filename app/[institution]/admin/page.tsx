@@ -52,7 +52,10 @@ import {
   downloadSampleExcelTemplate,
 } from "@/lib/excel/excel-engine";
 
-import { getRealtimeElectionTelemetryAction } from "@/app/actions/vote";
+import {
+  getRealtimeElectionTelemetryAction,
+  resetElectionVotesAction,
+} from "@/app/actions/vote";
 import {
   exportElectionBackupAction,
   importElectionBackupAction,
@@ -186,6 +189,9 @@ export default function InstitutionAdminPage({
   const [isUpdatingCandidate, setIsUpdatingCandidate] = useState(false);
   const [deletingPostId, setDeletingPostId] = useState<string | null>(null);
   const [deletingCandidateId, setDeletingCandidateId] = useState<string | null>(null);
+  const [isResettingElection, setIsResettingElection] = useState(false);
+  const [isResetModalOpen, setIsResetModalOpen] = useState(false);
+  const [resetConfirmationInput, setResetConfirmationInput] = useState("");
 
   // ── Voter Management State ──────────────────────────────────────────────────
   const [voterRoll, setVoterRoll] = useState<any[]>([]);
@@ -699,25 +705,55 @@ export default function InstitutionAdminPage({
   const loadTelemetry = async () => {
     try {
       const [data, freshPosts] = await Promise.all([
-        getRealtimeElectionTelemetryAction(electionId, instSlug),
+        getRealtimeElectionTelemetryAction(electionId, instSlug, activeOrgSlug),
         getElectionPostsAndCandidatesAction(electionId),
         loadLicense(),
       ]);
       if (data && data.success) {
         setTelemetryData(data);
       }
-      if (freshPosts && freshPosts.length > 0) {
-        setPosts(freshPosts);
-        try {
-          localStorage.setItem(`studelect_posts_${instSlug}_${activeOrgSlug}`, JSON.stringify(freshPosts));
-        } catch (_) {}
-      } else if (data && data.posts && data.posts.length > 0) {
+      // Prioritize live calculated posts from verified ballots over static posts
+      if (data && data.posts && data.posts.length > 0) {
         setPosts(data.posts);
         try {
           localStorage.setItem(`studelect_posts_${instSlug}_${activeOrgSlug}`, JSON.stringify(data.posts));
         } catch (_) {}
+      } else if (freshPosts && freshPosts.length > 0) {
+        setPosts(freshPosts);
+        try {
+          localStorage.setItem(`studelect_posts_${instSlug}_${activeOrgSlug}`, JSON.stringify(freshPosts));
+        } catch (_) {}
       }
     } catch (_) {}
+  };
+
+  const handleResetElectionVotes = async () => {
+    if (resetConfirmationInput.trim().toUpperCase() !== "RESET") {
+      alert("Please type RESET into the confirmation input to proceed.");
+      return;
+    }
+    setIsResettingElection(true);
+    try {
+      const res = await resetElectionVotesAction(electionId, activeOrgSlug, instSlug);
+      if (res.success) {
+        setAdminActionMessage(res.message);
+        setTimeout(() => setAdminActionMessage(null), 8000);
+        setIsResetModalOpen(false);
+        setResetConfirmationInput("");
+        // Reload all telemetry, audit logs, and voter rolls immediately
+        await Promise.all([
+          loadTelemetry(),
+          loadAuditLogs(),
+          loadVoterRoll(activeOrgSlug),
+        ]);
+      } else {
+        alert("Reset failed: " + res.message);
+      }
+    } catch (err: any) {
+      alert("Error resetting votes: " + (err.message || String(err)));
+    } finally {
+      setIsResettingElection(false);
+    }
   };
 
   useEffect(() => {
@@ -739,7 +775,7 @@ export default function InstitutionAdminPage({
       clearInterval(interval);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [electionId, instSlug]);
+  }, [electionId, instSlug, activeOrgSlug]);
 
   // Immediately load cached posts for this org upon mount or org switch
   useEffect(() => {
@@ -2334,6 +2370,19 @@ export default function InstitutionAdminPage({
               >
                 <RefreshCw className="w-3.5 h-3.5 text-zinc-500" />
                 <span>Refresh</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setResetConfirmationInput("");
+                  setIsResetModalOpen(true);
+                }}
+                className="px-3.5 py-2 rounded-lg border border-rose-300 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold transition flex items-center gap-1.5 shadow-2xs"
+                title="Reset test votes back to 0 for rehearsals"
+              >
+                <RotateCcw className="w-3.5 h-3.5 text-rose-600" />
+                <span>Reset Test Votes</span>
               </button>
 
               <button
@@ -4145,6 +4194,42 @@ export default function InstitutionAdminPage({
                 </label>
               </div>
             </div>
+
+            {/* Danger Zone: Test Run Rehearsal Reset */}
+            <div className="p-5 rounded-2xl bg-rose-50/70 border border-rose-200 shadow-xs space-y-4 md:col-span-2">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="flex items-start gap-3">
+                  <div className="p-2.5 rounded-xl bg-rose-100 text-rose-700 border border-rose-200 flex-shrink-0">
+                    <RotateCcw className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-bold text-rose-950 text-sm">
+                        Election Test Run & Vote Rehearsal Reset
+                      </h3>
+                      <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase bg-rose-200 text-rose-800">
+                        Test Run Mode
+                      </span>
+                    </div>
+                    <p className="text-xs text-rose-800/80 mt-1 max-w-2xl leading-relaxed">
+                      Use this button when performing test runs, system rehearsals, or mock voting before the real polls open. It resets all cast ballots and candidate vote tallies back to 0, and restores student accreditation voting locks so voters can vote again. All contested offices, nominated candidates, voter registrations, and whitelists will remain completely intact.
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setResetConfirmationInput("");
+                    setIsResetModalOpen(true);
+                  }}
+                  className="px-4 py-2.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs transition flex items-center gap-1.5 shadow-xs shrink-0 self-start sm:self-auto cursor-pointer"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Reset Election Votes</span>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -5308,6 +5393,106 @@ export default function InstitutionAdminPage({
                   <span>Open WhatsApp Support →</span>
                 </a>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* RESET ELECTION TEST RUN MODAL                                            */}
+      {/* ========================================================================= */}
+      {isResetModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-zinc-200 space-y-5 animate-in zoom-in-95 duration-150">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="p-3 rounded-xl bg-rose-100 text-rose-600 flex-shrink-0">
+                  <RotateCcw className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-zinc-900">
+                    Reset Election Votes (Rehearsal Mode)
+                  </h3>
+                  <p className="text-xs text-zinc-500 mt-0.5">
+                    Clear test ballots & reset tallies for {activeOrgSlug.toUpperCase()} ({electionId})
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!isResettingElection) {
+                    setIsResetModalOpen(false);
+                    setResetConfirmationInput("");
+                  }
+                }}
+                disabled={isResettingElection}
+                className="text-zinc-400 hover:text-zinc-600 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-800 space-y-2">
+              <div className="flex items-center gap-2 font-bold text-rose-900">
+                <AlertTriangle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+                <span>What this action does:</span>
+              </div>
+              <ul className="list-disc list-inside space-y-1 text-[11px] leading-relaxed text-rose-800">
+                <li>Resets all candidate vote counts back to <strong>0</strong>.</li>
+                <li>Deletes all test ballots from the cloud and local ledgers.</li>
+                <li>Clears student voting locks so registered voters can cast ballots again.</li>
+                <li><strong className="text-emerald-800">SAFE:</strong> Contested offices, candidate nominations, voter registrations, and whitelist documents are <strong>NOT</strong> deleted.</li>
+              </ul>
+            </div>
+
+            <div className="space-y-2">
+              <label className="block text-xs font-bold uppercase tracking-wider text-zinc-700">
+                Type <span className="font-mono text-rose-600 font-extrabold">RESET</span> to confirm:
+              </label>
+              <input
+                type="text"
+                placeholder="Type RESET"
+                value={resetConfirmationInput}
+                onChange={(e) => setResetConfirmationInput(e.target.value)}
+                disabled={isResettingElection}
+                className="w-full px-3.5 py-2.5 rounded-lg border border-zinc-300 font-mono text-sm uppercase focus:ring-2 focus:ring-rose-500 focus:outline-none"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2 border-t border-zinc-100">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsResetModalOpen(false);
+                  setResetConfirmationInput("");
+                }}
+                disabled={isResettingElection}
+                className="px-4 py-2 rounded-lg border border-zinc-300 hover:bg-zinc-100 text-zinc-700 text-xs font-bold transition disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleResetElectionVotes}
+                disabled={
+                  isResettingElection ||
+                  resetConfirmationInput.trim().toUpperCase() !== "RESET"
+                }
+                className="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-xs disabled:opacity-40"
+              >
+                {isResettingElection ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Resetting Votes...</span>
+                  </>
+                ) : (
+                  <>
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Confirm Reset</span>
+                  </>
+                )}
+              </button>
             </div>
           </div>
         </div>
