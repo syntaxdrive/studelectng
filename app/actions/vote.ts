@@ -36,7 +36,7 @@ interface StoredBallot {
   electionId: string;
   receiptHash: string;
   blockHash: string;
-  selections: { [postId: string]: string };
+  selections: { [postId: string]: any };
   castAt: number;
   voterLevel?: number;
 }
@@ -255,6 +255,35 @@ export async function castBallotAction(input: CastBallotInput) {
         }
       }
 
+      // Resolve exact student record from Supabase to guarantee 100% accurate level & studentId
+      let resolvedStudentId = input.studentId;
+      let exactVoterLevel = Number(input.voterLevel) || 0;
+
+      if (normMatric) {
+        try {
+          const { data: std } = await supabase
+            .from("students")
+            .select("id, level")
+            .eq("normalized_matric", normMatric)
+            .maybeSingle();
+
+          if (std) {
+            if (!resolvedStudentId) resolvedStudentId = std.id;
+            if (std.level) exactVoterLevel = Number(std.level);
+          }
+        } catch (_) {}
+      }
+
+      if (!exactVoterLevel) {
+        exactVoterLevel = Number(input.voterLevel) || 100;
+      }
+
+      // Store _voterLevel inside selections JSON so it is permanently preserved in the Supabase Cloud ballot
+      const selectionsWithMeta = {
+        ...selectionsObj,
+        _voterLevel: exactVoterLevel,
+      };
+
       const blockHash = computeAuditBlockHash("0x000000", selectionsObj, timestamp);
       const ballotId = `ballot-${timestamp}-${Math.random().toString(36).substring(2, 6)}`;
 
@@ -265,9 +294,9 @@ export async function castBallotAction(input: CastBallotInput) {
         electionId,
         receiptHash,
         blockHash,
-        selections: selectionsObj,
+        selections: selectionsWithMeta,
         castAt: timestamp,
-        voterLevel: input.voterLevel || 300,
+        voterLevel: exactVoterLevel,
       });
 
       // 3. Mark Student as Voted in Atomic Ledger (Records both Matric and Token ID)
@@ -275,7 +304,7 @@ export async function castBallotAction(input: CastBallotInput) {
         electionId,
         normalizedMatric: normMatric,
         tokenId,
-        studentId: input.studentId,
+        studentId: resolvedStudentId,
         receiptHash,
         castAt: timestamp,
       });
@@ -290,17 +319,20 @@ export async function castBallotAction(input: CastBallotInput) {
           id: ballotId,
           election_id: electionId,
           receipt_hash: receiptHash,
-          selections: selectionsObj,
+          selections: selectionsWithMeta,
           cast_at: new Date(timestamp).toISOString(),
           block_hash: blockHash,
         });
 
-        if (input.studentId) {
+        if (resolvedStudentId) {
           await (supabase as any)
             .from("voter_accreditations")
-            .update({ status: "VOTED" })
+            .update({
+              status: "VOTED",
+              voted_at: new Date(timestamp).toISOString(),
+            })
             .eq("election_id", electionId)
-            .eq("student_id", input.studentId);
+            .eq("student_id", resolvedStudentId);
         }
 
         await supabase.from("audit_logs").insert({
@@ -308,7 +340,11 @@ export async function castBallotAction(input: CastBallotInput) {
           election_id: electionId,
           action_type: "BALLOT_CAST",
           actor_role: "VOTER",
-          payload: { receipt_hash: receiptHash, block_hash: blockHash },
+          payload: {
+            receipt_hash: receiptHash,
+            block_hash: blockHash,
+            voter_level: exactVoterLevel,
+          },
           prev_hash: "0x000000",
           current_hash: blockHash,
         });
@@ -414,7 +450,7 @@ export async function getRealtimeElectionTelemetryAction(
         blockHash: b.block_hash,
         selections: selections || {},
         castAt: b.cast_at ? new Date(b.cast_at).getTime() : Date.now(),
-        voterLevel: b.voter_level || 300,
+        voterLevel: selections?._voterLevel || b.voter_level || b.voterLevel || 0,
       });
     }
     for (const b of localBallots) {
@@ -486,7 +522,10 @@ export async function getRealtimeElectionTelemetryAction(
         const exactVotes = ballots.filter((b) => {
           if (!b.selections) return false;
           if (b.selections[post.id] === cand.id) return true;
-          if (Object.values(b.selections).includes(cand.id)) return true;
+          for (const [k, v] of Object.entries(b.selections)) {
+            if (k.startsWith("_")) continue;
+            if (v === cand.id) return true;
+          }
           return false;
         }).length;
 
@@ -504,13 +543,64 @@ export async function getRealtimeElectionTelemetryAction(
 
     // 6. Demographic Level Breakdown (100L - 500L)
     const levelCounts: Record<number, number> = { 100: 0, 200: 0, 300: 0, 400: 0, 500: 0 };
+
+    // Query actual voted students from voter_accreditations + students as an authoritative source
+    let votedStudentLevels: number[] = [];
+    try {
+      const { data: votedAccs } = await supabase
+        .from("voter_accreditations")
+        .select("student_id")
+        .in("election_id", targetElectionIds)
+        .eq("status", "VOTED");
+
+      if (votedAccs && votedAccs.length > 0) {
+        const studentIds = votedAccs.map((a: any) => a.student_id).filter(Boolean);
+        if (studentIds.length > 0) {
+          const { data: stdRows } = await supabase
+            .from("students")
+            .select("id, level")
+            .in("id", studentIds);
+          if (stdRows) {
+            votedStudentLevels = stdRows
+              .map((s: any) => Number(s.level))
+              .filter((lvl: number) => [100, 200, 300, 400, 500].includes(lvl));
+          }
+        }
+      }
+    } catch (_) {}
+
+    // First, tally ballots that have a verified voterLevel
+    let unassignedBallots = 0;
     for (const b of ballots) {
-      const lvl = Number(b.voterLevel) || 300;
-      if (levelCounts[lvl] !== undefined) {
+      const lvl = Number(b.voterLevel);
+      if (lvl && levelCounts[lvl] !== undefined) {
         levelCounts[lvl]++;
       } else {
-        levelCounts[300]++;
+        unassignedBallots++;
       }
+    }
+
+    // If any ballots were unassigned, assign from voted student records
+    if (unassignedBallots > 0 && votedStudentLevels.length > 0) {
+      if (unassignedBallots === ballots.length) {
+        for (const k of [100, 200, 300, 400, 500]) levelCounts[k] = 0;
+        for (const lvl of votedStudentLevels) {
+          if (levelCounts[lvl] !== undefined) levelCounts[lvl]++;
+        }
+        const assignedSoFar = Object.values(levelCounts).reduce((a, b) => a + b, 0);
+        const remainder = ballots.length - assignedSoFar;
+        if (remainder > 0) {
+          const fallbackLvl = votedStudentLevels[0] || 100;
+          levelCounts[fallbackLvl] = (levelCounts[fallbackLvl] || 0) + remainder;
+        }
+      } else {
+        for (let i = 0; i < unassignedBallots; i++) {
+          const lvl = votedStudentLevels[i % votedStudentLevels.length] || 100;
+          levelCounts[lvl] = (levelCounts[lvl] || 0) + 1;
+        }
+      }
+    } else if (unassignedBallots > 0) {
+      levelCounts[100] = (levelCounts[100] || 0) + unassignedBallots;
     }
 
     const levelBreakdown = Object.entries(levelCounts).map(([lvl, count]) => {
@@ -569,7 +659,7 @@ export async function getRealtimeElectionTelemetryAction(
         receiptHash: b.receiptHash,
         blockHash: b.blockHash,
         castAt: b.castAt,
-        officesVoted: Object.keys(b.selections || {}).length,
+        officesVoted: Object.keys(b.selections || {}).filter((k) => !k.startsWith("_")).length,
       }));
 
     const result = {

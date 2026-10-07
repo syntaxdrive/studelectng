@@ -558,12 +558,13 @@ export default function OrganizationPortalPage({
     }
 
     const studentData = {
+      id: (res.student as any)?.id,
       matricNo: res.student!.matricNo,
       normalizedMatric: res.student!.matricNo.replace(/[^a-zA-Z0-9]/g, "").toUpperCase(),
       fullName: res.student!.fullName,
       faculty: "Faculty of Science",
       department: res.student!.department,
-      level: res.student!.level,
+      level: Number(res.student!.level) || 100,
       programType: "FULL_TIME" as const,
       isRegisteredSession: true,
       duesPaid: true,
@@ -641,13 +642,14 @@ export default function OrganizationPortalPage({
     try {
       const res = await castBallotAction({
         ballotToken: tokenToUse,
+        studentId: (authenticatedStudent as any)?.id,
         matricNo: authenticatedStudent?.matricNo,
         selections: selectedCandidates,
         votes: Object.entries(selectedCandidates).map(([postId, candidateId]) => ({
           postId,
           candidateId,
         })),
-        voterLevel: authenticatedStudent?.level || 300,
+        voterLevel: Number(authenticatedStudent?.level) || 100,
       });
 
       if (res.success && res.receipt) {
