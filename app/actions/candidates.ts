@@ -297,8 +297,6 @@ export async function createPostAction(input: {
     await invalidateTelemetryCacheAction(targetElectionId);
   } catch (_) {}
 
-  revalidatePath("/[institution]/admin");
-  revalidatePath("/[institution]/[organization]");
   return {
     success: true,
     postId: newPostId,
@@ -426,8 +424,6 @@ export async function createCandidateAction(input: {
     const { invalidateTelemetryCacheAction } = await import("./vote");
     await invalidateTelemetryCacheAction(targetElectionId);
   } catch (_) {}
-  revalidatePath("/[institution]/admin");
-  revalidatePath("/[institution]/[organization]");
   return {
     success: true,
     candidateId: newCandId,
@@ -553,8 +549,185 @@ export async function deletePostAction(postId: string) {
     const { invalidateTelemetryCacheAction } = await import("./vote");
     await invalidateTelemetryCacheAction();
   } catch (_) {}
-  revalidatePath("/[institution]/admin");
-  revalidatePath("/[institution]/[organization]");
   return { success: true, message: "Elective post removed." };
+}
+
+/**
+ * Bulk create elective offices and candidates in a single high-speed batch operation
+ */
+export async function bulkCreateSlateAction(input: {
+  electionId: string;
+  posts: Array<{
+    id?: string;
+    title: string;
+    description?: string;
+    maxSelections?: number;
+    allowedLevels?: number[];
+    candidates?: Array<{
+      id?: string;
+      fullName: string;
+      nickname?: string;
+      matricNo?: string;
+      photoUrl?: string;
+      manifesto?: string;
+    }>;
+  }>;
+}): Promise<{
+  success: boolean;
+  postsCreated: number;
+  candidatesCreated: number;
+  message: string;
+  posts?: PostWithCandidatesDto[];
+}> {
+  try {
+    const targetElectionId = input.electionId || "elec-ui-nesa-2026";
+    const store = readServerStore();
+
+    let postsCreated = 0;
+    let candidatesCreated = 0;
+
+    const cloudPostsToInsert: any[] = [];
+    const cloudCandidatesToInsert: any[] = [];
+
+    const now = Date.now();
+
+    for (let i = 0; i < input.posts.length; i++) {
+      const p = input.posts[i];
+      if (!p.title?.trim()) continue;
+
+      const postId = p.id || `post-${now}-${i}-${Math.random().toString(36).substring(2, 6)}`;
+      const cleanTitle = p.title.trim();
+      const cleanDesc = p.description?.trim() || "";
+      const maxSel = p.maxSelections || 1;
+      const levels = p.allowedLevels || [];
+
+      // Check if post already exists in store by title or id
+      let existingPost = store.posts.find(
+        (sp) =>
+          (sp.electionId === targetElectionId || !sp.electionId) &&
+          (sp.id === postId || sp.title.toLowerCase() === cleanTitle.toLowerCase())
+      );
+
+      const resolvedPostId = existingPost ? existingPost.id : postId;
+
+      if (!existingPost) {
+        existingPost = {
+          id: resolvedPostId,
+          electionId: targetElectionId,
+          title: cleanTitle,
+          description: cleanDesc,
+          maxSelections: maxSel,
+          allowedLevels: levels,
+          candidates: [],
+        };
+        store.posts.push(existingPost);
+        postsCreated++;
+
+        cloudPostsToInsert.push({
+          id: resolvedPostId,
+          election_id: targetElectionId,
+          title: cleanTitle,
+          description: cleanDesc,
+          max_selections: maxSel,
+          display_order: i + 1,
+          allowed_levels: levels,
+          allowed_departments: [],
+        });
+      }
+
+      if (Array.isArray(p.candidates)) {
+        for (let j = 0; j < p.candidates.length; j++) {
+          const c = p.candidates[j];
+          if (!c.fullName?.trim()) continue;
+
+          const candId = c.id || `cand-${now}-${i}-${j}-${Math.random().toString(36).substring(2, 6)}`;
+          const cleanName = c.fullName.trim();
+          const cleanNick = c.nickname?.trim() || "";
+          const cleanMatric = c.matricNo?.trim() || "";
+          const cleanPhoto = c.photoUrl?.trim() || "";
+          const cleanManifesto = c.manifesto?.trim() || "";
+
+          // Avoid duplicating candidates in same post
+          const candExists = existingPost.candidates.some(
+            (sc) =>
+              sc.fullName.toLowerCase() === cleanName.toLowerCase() ||
+              (cleanMatric && sc.matricNo === cleanMatric)
+          );
+
+          if (!candExists) {
+            const newCand: CandidateDto = {
+              id: candId,
+              postId: resolvedPostId,
+              fullName: cleanName,
+              nickname: cleanNick,
+              matricNo: cleanMatric,
+              photoUrl: cleanPhoto,
+              manifesto: cleanManifesto,
+              status: "CLEARED",
+              voteCount: 0,
+            };
+            existingPost.candidates.push(newCand);
+            candidatesCreated++;
+
+            cloudCandidatesToInsert.push({
+              id: candId,
+              post_id: resolvedPostId,
+              full_name: cleanName,
+              nickname: cleanNick,
+              matric_no: cleanMatric,
+              photo_url: cleanPhoto,
+              manifesto: cleanManifesto,
+              status: "CLEARED",
+              vote_count: 0,
+            });
+          }
+        }
+      }
+    }
+
+    // 1. Write store to disk
+    writeServerStore(store);
+
+    // 2. Batch write to Supabase cloud in parallel
+    const dbPromises: Promise<any>[] = [];
+    if (cloudPostsToInsert.length > 0) {
+      dbPromises.push(supabase.from("posts").upsert(cloudPostsToInsert));
+    }
+    if (cloudCandidatesToInsert.length > 0) {
+      dbPromises.push(supabase.from("candidates").upsert(cloudCandidatesToInsert));
+    }
+
+    try {
+      await Promise.allSettled(dbPromises);
+    } catch (dbErr) {
+      console.warn("bulkCreateSlateAction cloud insert notice:", dbErr);
+    }
+
+    // 3. Clear cache
+    invalidateCache("posts:");
+    invalidateCache("telemetry:");
+    try {
+      const { invalidateTelemetryCacheAction } = await import("./vote");
+      await invalidateTelemetryCacheAction(targetElectionId);
+    } catch (_) {}
+
+    const matchingPosts = store.posts.filter((p) => p.electionId === targetElectionId);
+
+    return {
+      success: true,
+      postsCreated,
+      candidatesCreated,
+      message: `Batch complete: created ${postsCreated} elective ${postsCreated === 1 ? "office" : "offices"} and ${candidatesCreated} ${candidatesCreated === 1 ? "candidate" : "candidates"}.`,
+      posts: matchingPosts,
+    };
+  } catch (err: any) {
+    console.error("bulkCreateSlateAction error:", err);
+    return {
+      success: false,
+      postsCreated: 0,
+      candidatesCreated: 0,
+      message: err.message || "Failed to batch create slate.",
+    };
+  }
 }
 

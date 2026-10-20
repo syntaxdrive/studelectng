@@ -60,6 +60,7 @@ import {
   exportElectionBackupAction,
   importElectionBackupAction,
 } from "@/app/actions/election-backup";
+import { AiSlateCopilotModal } from "@/app/_components/AiSlateCopilotModal";
 import {
   UploadCloud,
   FileSpreadsheet,
@@ -121,6 +122,7 @@ import {
   AlertTriangle,
   Lock,
   Loader2,
+  Sparkles,
 } from "lucide-react";
 
 export default function InstitutionAdminPage({
@@ -203,6 +205,8 @@ export default function InstitutionAdminPage({
   const [revealedPins, setRevealedPins] = useState<Set<string>>(new Set());
   const [voterSearch, setVoterSearch] = useState("");
   const [currentAdminUser, setCurrentAdminUser] = useState<any | null>(null);
+  const [updatingDuesStudentId, setUpdatingDuesStudentId] = useState<string | null>(null);
+  const [updatingActiveStudentId, setUpdatingActiveStudentId] = useState<string | null>(null);
 
   // ── Voter PIN Slips Search & Filter State ────────────────────────────────────
   const [pinSearchQuery, setPinSearchQuery] = useState("");
@@ -212,6 +216,9 @@ export default function InstitutionAdminPage({
   const [copiedSlipMatric, setCopiedSlipMatric] = useState<string | null>(null);
   const [visiblePinLimit, setVisiblePinLimit] = useState(48);
   const [printMode, setPrintMode] = useState<"CERTIFICATE" | "PIN_SLIPS">("CERTIFICATE");
+
+  // AI Copilot Modal State
+  const [isAiCopilotOpen, setIsAiCopilotOpen] = useState(false);
 
   // New Post Modal State
   const [isAddPostModalOpen, setIsAddPostModalOpen] = useState(false);
@@ -880,19 +887,66 @@ export default function InstitutionAdminPage({
 
   // ── Voter Management Handlers ───────────────────────────────────────────────
   const handleToggleDues = async (studentId: string, current: boolean) => {
+    if (updatingDuesStudentId === studentId) return;
+    setUpdatingDuesStudentId(studentId);
+
+    // Optimistic UI update
     setVoterRoll((prev) =>
       prev.map((s) => (s.id === studentId ? { ...s, duesPaid: !current } : s))
     );
-    await updateStudentDuesAction(studentId, !current);
+
+    try {
+      const res = await updateStudentDuesAction(studentId, !current);
+      if (!res.success) {
+        // Rollback on failure
+        setVoterRoll((prev) =>
+          prev.map((s) => (s.id === studentId ? { ...s, duesPaid: current } : s))
+        );
+        setAdminActionMessage(res.message || "Failed to update dues in database.");
+      } else {
+        setAdminActionMessage(`Dues status successfully set to ${!current ? "PAID" : "UNPAID"}.`);
+      }
+    } catch (err: any) {
+      setVoterRoll((prev) =>
+        prev.map((s) => (s.id === studentId ? { ...s, duesPaid: current } : s))
+      );
+      setAdminActionMessage(err?.message || "Error updating dues.");
+    } finally {
+      setUpdatingDuesStudentId(null);
+      setTimeout(() => setAdminActionMessage(null), 4000);
+    }
   };
 
   const handleToggleActive = async (studentId: string, currentStatus: string) => {
+    if (updatingActiveStudentId === studentId) return;
+    setUpdatingActiveStudentId(studentId);
+
     const isActive = currentStatus === "GOOD_STANDING";
     const newStatus = isActive ? "SUSPENDED" : "GOOD_STANDING";
     setVoterRoll((prev) =>
       prev.map((s) => (s.id === studentId ? { ...s, disciplinaryStatus: newStatus } : s))
     );
-    await toggleStudentActiveAction(studentId, !isActive);
+
+    try {
+      const res = await toggleStudentActiveAction(studentId, !isActive);
+      if (!res.success) {
+        // Rollback on failure
+        setVoterRoll((prev) =>
+          prev.map((s) => (s.id === studentId ? { ...s, disciplinaryStatus: currentStatus } : s))
+        );
+        setAdminActionMessage(res.message || "Failed to update voter status.");
+      } else {
+        setAdminActionMessage(`Voter account ${!isActive ? "activated" : "suspended"}.`);
+      }
+    } catch (err: any) {
+      setVoterRoll((prev) =>
+        prev.map((s) => (s.id === studentId ? { ...s, disciplinaryStatus: currentStatus } : s))
+      );
+      setAdminActionMessage(err?.message || "Error updating status.");
+    } finally {
+      setUpdatingActiveStudentId(null);
+      setTimeout(() => setAdminActionMessage(null), 4000);
+    }
   };
 
   const handleResetPin = async (studentId: string) => {
@@ -1225,7 +1279,10 @@ export default function InstitutionAdminPage({
   const studentVoters = voterRoll.filter((s) => !s.isAdmin);
   const totalVoters = studentVoters.length;
   const duesPaidCount = studentVoters.filter((s) => s.duesPaid).length;
-  const activeCount = studentVoters.filter((s) => s.disciplinaryStatus === "GOOD_STANDING").length;
+  const isDuesEnforced = electionRules.requireDuesPayment !== false;
+  const activeCount = studentVoters.filter(
+    (s) => s.disciplinaryStatus === "GOOD_STANDING" && (!isDuesEnforced || s.duesPaid)
+  ).length;
   const adminCount = voterRoll.filter((s) => s.isAdmin).length;
   const levelCounts: Record<number, number> = { 100: 0, 200: 0, 300: 0, 400: 0, 500: 0 };
   studentVoters.forEach((s) => {
@@ -1301,17 +1358,19 @@ export default function InstitutionAdminPage({
       setNewPostTitle("");
       setNewPostDesc("");
       setIsAddPostModalOpen(false);
+      setIsCreatingPost(false);
       setAdminActionMessage(res.message || "Office created successfully.");
       setTimeout(() => setAdminActionMessage(null), 4000);
 
-      // Re-fetch to sync fresh data from server
-      const fresh = await getElectionPostsAndCandidatesAction(electionId);
-      if (fresh && fresh.length > 0) {
-        setPosts(fresh);
-        try {
-          localStorage.setItem(`studelect_posts_${instSlug}_${activeOrgSlug}`, JSON.stringify(fresh));
-        } catch (_) {}
-      }
+      // Re-fetch to sync fresh data from server in background
+      getElectionPostsAndCandidatesAction(electionId).then((fresh) => {
+        if (fresh && fresh.length > 0) {
+          setPosts(fresh);
+          try {
+            localStorage.setItem(`studelect_posts_${instSlug}_${activeOrgSlug}`, JSON.stringify(fresh));
+          } catch (_) {}
+        }
+      });
     } catch (err: any) {
       alert(err?.message || "Failed to create elective office.");
     } finally {
@@ -1336,6 +1395,7 @@ export default function InstitutionAdminPage({
       });
 
       if (!res.success) {
+        setIsSubmittingCandidate(false);
         setAdminActionMessage(res.message || "Failed to nominate candidate.");
         setTimeout(() => setAdminActionMessage(null), 5000);
         return;
@@ -1373,17 +1433,19 @@ export default function InstitutionAdminPage({
 
       setCandForm({ fullName: "", nickname: "", matricNo: "", photoUrl: "", manifesto: "" });
       setActivePostForNomination(null);
+      setIsSubmittingCandidate(false);
       setAdminActionMessage(res.message || "Candidate nominated successfully.");
       setTimeout(() => setAdminActionMessage(null), 4000);
 
-      // Re-fetch to sync fresh state
-      const fresh = await getElectionPostsAndCandidatesAction(electionId);
-      if (fresh && fresh.length > 0) {
-        setPosts(fresh);
-        try {
-          localStorage.setItem(`studelect_posts_${instSlug}_${activeOrgSlug}`, JSON.stringify(fresh));
-        } catch (_) {}
-      }
+      // Re-fetch to sync fresh state in background without locking UI
+      getElectionPostsAndCandidatesAction(electionId).then((fresh) => {
+        if (fresh && fresh.length > 0) {
+          setPosts(fresh);
+          try {
+            localStorage.setItem(`studelect_posts_${instSlug}_${activeOrgSlug}`, JSON.stringify(fresh));
+          } catch (_) {}
+        }
+      });
       loadTelemetry();
     } catch (err: any) {
       alert(err?.message || "Failed to nominate candidate.");
@@ -3034,18 +3096,66 @@ export default function InstitutionAdminPage({
               </p>
             </div>
 
-            <button
-              type="button"
-              onClick={() => setIsAddPostModalOpen(true)}
-              className="px-4 py-2 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-xs"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Add New Elective Office</span>
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setIsAiCopilotOpen(true)}
+                className="px-4 py-2 rounded-lg bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 hover:from-amber-400 hover:to-amber-500 text-zinc-950 text-xs font-bold transition flex items-center gap-2 shadow-xs border border-amber-400/40 group"
+                title="Launch conversational AI model to auto-create offices and candidates from WhatsApp memos, press releases, or bulleted lists"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-zinc-950 group-hover:rotate-12 transition-transform" />
+                <span>AI Slate Architect</span>
+                <span className="px-1.5 py-0.2 rounded text-[9px] uppercase font-mono bg-zinc-950/20 text-zinc-950 font-extrabold tracking-wide">
+                  ChatGPT Mode
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsAddPostModalOpen(true)}
+                className="px-4 py-2 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-xs"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Add New Elective Office</span>
+              </button>
+            </div>
           </div>
 
           <div className="space-y-4">
-            {posts.map((post, idx) => (
+            {posts.length === 0 ? (
+              <div className="p-8 rounded-2xl bg-zinc-50 border border-dashed border-zinc-300 text-center space-y-4">
+                <div className="w-12 h-12 rounded-xl bg-amber-500/10 text-amber-600 border border-amber-500/20 flex items-center justify-center mx-auto">
+                  <Sparkles className="w-6 h-6" />
+                </div>
+                <div className="space-y-1">
+                  <h3 className="font-bold text-sm text-zinc-900">
+                    No Elective Offices or Candidates Published Yet
+                  </h3>
+                  <p className="text-xs text-zinc-500 max-w-md mx-auto">
+                    You can add offices individually, or launch the <strong>AI Slate Architect</strong> to paste your entire WhatsApp memo or candidate list and create everything in one click.
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setIsAiCopilotOpen(true)}
+                    className="px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold text-xs transition flex items-center gap-1.5 shadow-xs"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Launch AI Slate Architect</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsAddPostModalOpen(true)}
+                    className="px-4 py-2 rounded-lg border border-zinc-300 hover:bg-white text-zinc-800 font-bold text-xs transition flex items-center gap-1.5"
+                  >
+                    <Plus className="w-3.5 h-3.5 text-zinc-600" />
+                    <span>Add Office Manually</span>
+                  </button>
+                </div>
+              </div>
+            ) : (
+              posts.map((post, idx) => (
               <div
                 key={post.id}
                 className="p-5 rounded-xl bg-white border border-zinc-200 shadow-sm space-y-4"
@@ -3179,7 +3289,8 @@ export default function InstitutionAdminPage({
                   </div>
                 )}
               </div>
-            ))}
+            ))
+            )}
           </div>
         </div>
       )}
@@ -3366,10 +3477,12 @@ export default function InstitutionAdminPage({
 
             <div className="p-4 rounded-xl bg-white border border-zinc-200 shadow-xs">
               <span className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider block">
-                Active Voters
+                Active / Cleared
               </span>
               <p className="text-2xl font-black text-blue-600 mt-1">{activeCount}</p>
-              <span className="text-[10px] text-zinc-400 mt-0.5 block">Good Standing</span>
+              <span className="text-[10px] text-zinc-400 mt-0.5 block">
+                {isDuesEnforced ? "Eligible for Ballot" : "Good Standing"}
+              </span>
             </div>
 
             <div className="p-4 rounded-xl bg-white border border-zinc-200 shadow-xs">
@@ -3382,10 +3495,12 @@ export default function InstitutionAdminPage({
 
             <div className="p-4 rounded-xl bg-white border border-zinc-200 shadow-xs">
               <span className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider block">
-                Suspended / Blocked
+                Gated / Ineligible
               </span>
               <p className="text-2xl font-black text-rose-600 mt-1">{totalVoters - activeCount}</p>
-              <span className="text-[10px] text-zinc-400 mt-0.5 block">Access Revoked</span>
+              <span className="text-[10px] text-zinc-400 mt-0.5 block">
+                {isDuesEnforced ? "Unpaid or Suspended" : "Access Revoked"}
+              </span>
             </div>
           </div>
 
@@ -3686,15 +3801,22 @@ export default function InstitutionAdminPage({
                           <td className="px-4 py-3">
                             <button
                               type="button"
+                              disabled={updatingDuesStudentId === s.id}
                               onClick={() => handleToggleDues(s.id, s.duesPaid)}
-                              className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold transition flex items-center gap-1 border ${
+                              className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold transition flex items-center gap-1 border disabled:opacity-50 ${
                                 s.duesPaid
                                   ? "bg-zinc-100 text-zinc-900 border-zinc-300 hover:bg-zinc-200"
                                   : "bg-rose-50 text-rose-800 border-rose-200 hover:bg-rose-100"
                               }`}
                               title="Click to toggle financial dues status"
                             >
-                              {s.duesPaid ? "PAID" : "UNPAID"}
+                              {updatingDuesStudentId === s.id ? (
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                              ) : s.duesPaid ? (
+                                "PAID"
+                              ) : (
+                                "UNPAID"
+                              )}
                             </button>
                           </td>
 
@@ -3702,15 +3824,22 @@ export default function InstitutionAdminPage({
                           <td className="px-4 py-3">
                             <button
                               type="button"
+                              disabled={updatingActiveStudentId === s.id}
                               onClick={() => handleToggleActive(s.id, s.disciplinaryStatus)}
-                              className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold transition flex items-center gap-1 border ${
+                              className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold transition flex items-center gap-1 border disabled:opacity-50 ${
                                 isActive
                                   ? "bg-zinc-900 text-white border-zinc-900 hover:bg-zinc-800"
                                   : "bg-zinc-200 text-zinc-600 border-zinc-300 hover:bg-zinc-300"
                               }`}
                               title="Click to enable or disable student voting privileges"
                             >
-                              {isActive ? "ACTIVE" : "DISABLED"}
+                              {updatingActiveStudentId === s.id ? (
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                              ) : isActive ? (
+                                "ACTIVE"
+                              ) : (
+                                "DISABLED"
+                              )}
                             </button>
                           </td>
 
@@ -4808,6 +4937,31 @@ export default function InstitutionAdminPage({
           </div>
         </div>
       )}
+
+      {/* ========================================================================= */}
+      {/* MODAL: AI SLATE ARCHITECT (CHATGPT-STYLE CONVERSATIONAL MODEL)            */}
+      {/* ========================================================================= */}
+      <AiSlateCopilotModal
+        isOpen={isAiCopilotOpen}
+        onClose={() => setIsAiCopilotOpen(false)}
+        electionId={electionId}
+        orgSlug={activeOrgSlug}
+        instSlug={instSlug}
+        currentPostsCount={posts.length}
+        onSlateApplied={() => {
+          getElectionPostsAndCandidatesAction(electionId).then((fresh) => {
+            if (fresh && fresh.length > 0) {
+              setPosts(fresh);
+              try {
+                localStorage.setItem(`studelect_posts_${instSlug}_${activeOrgSlug}`, JSON.stringify(fresh));
+              } catch (_) {}
+            }
+          });
+          loadTelemetry();
+          setAdminActionMessage("Election slate successfully updated by AI Slate Architect!");
+          setTimeout(() => setAdminActionMessage(null), 5000);
+        }}
+      />
 
       {/* ========================================================================= */}
       {/* MODAL: ADD NEW ELECTIVE POST                                              */}

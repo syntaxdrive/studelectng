@@ -333,12 +333,7 @@ export async function getOrgVoterRollAction(institutionSlug: string, orgSlug?: s
   const institutionId = `inst-${cleanSlug}`;
   const cleanOrgSlug = (orgSlug || "").toLowerCase().trim();
 
-  const cacheKey = cleanOrgSlug
-    ? `voter_roll:${cleanSlug}:${cleanOrgSlug}`
-    : `voter_roll:${cleanSlug}`;
-
-  return fetchWithCache(cacheKey, 20, async () => {
-    try {
+  try {
       let org: any = null;
       let orgElectionIds: string[] = [];
       let accreditedStudentIds = new Set<string>();
@@ -588,22 +583,38 @@ export async function getOrgVoterRollAction(institutionSlug: string, orgSlug?: s
       console.error("getOrgVoterRollAction exception:", err);
       return { success: false, students: [], message: err.message };
     }
-  });
 }
 
 /**
  * Toggle dues paid status for a student
  */
 export async function updateStudentDuesAction(studentId: string, paid: boolean) {
-  invalidateCache("voter_roll:");
+  invalidateCache("voter_roll");
   try {
-    await supabase
-      .from("students")
-      .update({ dues_paid: paid })
-      .eq("id", studentId);
+    const cleanId = (studentId || "").trim();
+    if (!cleanId) return { success: false, message: "Missing student ID." };
+
+    let query = supabase.from("students").update({ dues_paid: paid });
+    if (cleanId.startsWith("stud-")) {
+      query = query.eq("id", cleanId);
+    } else {
+      query = query.or(`id.eq.${cleanId},normalized_matric.eq.${cleanId.toUpperCase()}`);
+    }
+
+    const res = await query;
+    if (res?.error) {
+      console.error("updateStudentDuesAction Supabase error:", res.error);
+      return { success: false, message: res.error.message || "Failed to update dues in database." };
+    }
+
+    invalidateCache("voter_roll");
+    revalidatePath("/[institution]/admin");
+    revalidatePath("/[institution]/[organization]");
+
     return { success: true };
   } catch (err: any) {
-    return { success: false, message: err.message };
+    console.error("updateStudentDuesAction exception:", err);
+    return { success: false, message: err.message || "Exception updating student dues." };
   }
 }
 
@@ -611,17 +622,35 @@ export async function updateStudentDuesAction(studentId: string, paid: boolean) 
  * Enable or disable a student voter (uses disciplinary_status as the gate)
  */
 export async function toggleStudentActiveAction(studentId: string, active: boolean) {
-  invalidateCache("voter_roll:");
+  invalidateCache("voter_roll");
   try {
-    await supabase
-      .from("students")
-      .update({
-        disciplinary_status: active ? "GOOD_STANDING" : "SUSPENDED",
-      })
-      .eq("id", studentId);
+    const cleanId = (studentId || "").trim();
+    if (!cleanId) return { success: false, message: "Missing student ID." };
+
+    let query = supabase.from("students").update({
+      disciplinary_status: active ? "GOOD_STANDING" : "SUSPENDED",
+    });
+
+    if (cleanId.startsWith("stud-")) {
+      query = query.eq("id", cleanId);
+    } else {
+      query = query.or(`id.eq.${cleanId},normalized_matric.eq.${cleanId.toUpperCase()}`);
+    }
+
+    const res = await query;
+    if (res?.error) {
+      console.error("toggleStudentActiveAction Supabase error:", res.error);
+      return { success: false, message: res.error.message || "Failed to update status in database." };
+    }
+
+    invalidateCache("voter_roll");
+    revalidatePath("/[institution]/admin");
+    revalidatePath("/[institution]/[organization]");
+
     return { success: true };
   } catch (err: any) {
-    return { success: false, message: err.message };
+    console.error("toggleStudentActiveAction exception:", err);
+    return { success: false, message: err.message || "Exception updating student status." };
   }
 }
 
@@ -629,16 +658,28 @@ export async function toggleStudentActiveAction(studentId: string, active: boole
  * Reset a student's voter PIN
  */
 export async function resetStudentPinAction(studentId: string, orgSlug: string) {
-  invalidateCache("voter_roll:");
+  invalidateCache("voter_roll");
   const { generateSingleVoterPin } = await import("@/lib/auth/pin-generator");
   const orgCode = (orgSlug || "ST").substring(0, 4).toUpperCase();
   const newPin = generateSingleVoterPin(orgCode);
 
   try {
-    await supabase
-      .from("students")
-      .update({ portal_pin: newPin })
-      .eq("id", studentId);
+    const cleanId = (studentId || "").trim();
+    let query = supabase.from("students").update({ portal_pin: newPin });
+    if (cleanId.startsWith("stud-")) {
+      query = query.eq("id", cleanId);
+    } else {
+      query = query.or(`id.eq.${cleanId},normalized_matric.eq.${cleanId.toUpperCase()}`);
+    }
+
+    const res = await query;
+    if (res?.error) {
+      console.error("resetStudentPinAction Supabase error:", res.error);
+      return { success: false, message: res.error.message };
+    }
+
+    invalidateCache("voter_roll");
+    revalidatePath("/[institution]/admin");
     return { success: true, newPin };
   } catch (err: any) {
     return { success: false, message: err.message };
@@ -649,16 +690,24 @@ export async function resetStudentPinAction(studentId: string, orgSlug: string) 
  * Delete a student voter record from the voter roll
  */
 export async function deleteStudentAction(studentId: string) {
-  invalidateCache("voter_roll:");
+  invalidateCache("voter_roll");
   try {
-    const { error } = await supabase
-      .from("students")
-      .delete()
-      .eq("id", studentId);
+    const cleanId = (studentId || "").trim();
+    let query = supabase.from("students").delete();
+    if (cleanId.startsWith("stud-")) {
+      query = query.eq("id", cleanId);
+    } else {
+      query = query.or(`id.eq.${cleanId},normalized_matric.eq.${cleanId.toUpperCase()}`);
+    }
+
+    const { error } = await query;
 
     if (error) {
       return { success: false, message: error.message };
     }
+
+    invalidateCache("voter_roll");
+    revalidatePath("/[institution]/admin");
     return { success: true, message: "Student record deleted from voter register." };
   } catch (err: any) {
     return { success: false, message: err.message || "Failed to delete student record." };

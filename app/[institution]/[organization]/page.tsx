@@ -5,7 +5,7 @@ import Link from "next/link";
 import { getInstitutionBySlug, CANONICAL_INSTITUTIONS } from "@/lib/db/institutions";
 import { MOCK_ELECTIONS, MOCK_STUDENTS, MockElection, MockStudent, MockPost, MockCandidate } from "@/lib/mock-data";
 import { accreditVoterAction } from "@/app/actions/accredit";
-import { castBallotAction, getElectionBallotCountAction } from "@/app/actions/vote";
+import { castBallotAction, getElectionBallotCountAction, getRealtimeElectionTelemetryAction } from "@/app/actions/vote";
 import {
   registerStudentAccountAction,
   lookupStudentStatusAction,
@@ -104,6 +104,7 @@ export default function OrganizationPortalPage({
   const [resultsVisibility, setResultsVisibility] = useState<string>("SEALED_UNTIL_CLOSE");
   const [isPaymentHalted, setIsPaymentHalted] = useState<boolean>(false);
   const [registrationOpen, setRegistrationOpen] = useState<boolean>(true);
+  const [telemetryResults, setTelemetryResults] = useState<any>(null);
   const isSubmittingVoteRef = useRef(false);
 
   const safeCopyToClipboard = async (text: string) => {
@@ -341,26 +342,30 @@ export default function OrganizationPortalPage({
     loadInst();
   }, [instSlug, orgSlug, currentOrg.dept]);
 
-  // ── Sync Live Ballot Count from Server ───────────────────────────────────
+  // ── Sync Live Ballot Count & Realtime Telemetry from Server ─────────────
   useEffect(() => {
     let isMounted = true;
-    async function loadBallotCount() {
+    async function loadLiveTelemetry() {
       try {
-        const res = await getElectionBallotCountAction(
-          election.id || `elec-${instSlug}-${orgSlug}-2026`,
-          orgSlug,
-          instSlug
+        const targetElectionId = election.id || `elec-${instSlug}-${orgSlug}-2026`;
+        const telemetry = await getRealtimeElectionTelemetryAction(
+          targetElectionId,
+          instSlug,
+          orgSlug
         );
-        if (isMounted && res.success && typeof res.count === "number") {
-          setRealBallotsCast(res.count);
+        if (isMounted && telemetry && telemetry.success) {
+          setTelemetryResults(telemetry);
+          if (typeof telemetry.totalBallotsCast === "number") {
+            setRealBallotsCast(telemetry.totalBallotsCast);
+          }
         }
       } catch (_) {}
     }
-    loadBallotCount();
+    loadLiveTelemetry();
     const interval = setInterval(() => {
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
-      loadBallotCount();
-    }, 10000);
+      loadLiveTelemetry();
+    }, 5000);
     return () => {
       isMounted = false;
       clearInterval(interval);
@@ -2201,24 +2206,63 @@ export default function OrganizationPortalPage({
                     {currentOrg.name} — Real-Time Standings
                   </h2>
                 </div>
-                <span className="px-2.5 py-1 rounded bg-zinc-100 text-zinc-800 font-mono text-[11px] font-medium">
-                  {realBallotsCast} {realBallotsCast === 1 ? "Ballot" : "Ballots"} Verified & Cast
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 font-mono text-[11px] font-medium">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                    <span>Live Synced</span>
+                  </span>
+                  <span className="px-2.5 py-1 rounded bg-zinc-100 text-zinc-800 font-mono text-[11px] font-medium">
+                    {realBallotsCast} {realBallotsCast === 1 ? "Ballot" : "Ballots"} Verified & Cast
+                  </span>
+                </div>
               </div>
 
+              {/* Demographic Turnout by Academic Level (when ballots are cast) */}
+              {telemetryResults?.levelBreakdown && telemetryResults.levelBreakdown.length > 0 && realBallotsCast > 0 && (
+                <div className="p-3.5 bg-zinc-50 rounded-lg border border-zinc-200 space-y-2">
+                  <span className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider font-mono">
+                    Turnout by Academic Level
+                  </span>
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                    {telemetryResults.levelBreakdown.map((lvl: any) => (
+                      <div key={lvl.level} className="p-2 bg-white rounded border border-zinc-200 text-center">
+                        <span className="font-bold text-zinc-700 text-xs">{lvl.level}</span>
+                        <p className="font-mono text-zinc-900 font-bold text-sm mt-0.5">{lvl.count}</p>
+                        <span className="text-[10px] text-zinc-400 font-mono">{lvl.percentage}%</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div className="space-y-6">
-                {displayPosts.map((post) => {
-                  const totalPostVotes = post.candidates.reduce((acc, c) => acc + c.votes, 0) || 1;
+                {(telemetryResults?.posts && telemetryResults.posts.length > 0
+                  ? telemetryResults.posts
+                  : displayPosts
+                ).map((post: any) => {
+                  const totalPostVotes = (post.candidates || []).reduce(
+                    (acc: number, c: any) => acc + (c.voteCount ?? c.votes ?? 0),
+                    0
+                  );
 
                   return (
                     <div key={post.id} className="space-y-3">
-                      <h3 className="font-bold text-zinc-900 text-sm border-b border-zinc-100 pb-1.5">
-                        {post.title}
-                      </h3>
+                      <div className="flex items-center justify-between border-b border-zinc-100 pb-1.5">
+                        <h3 className="font-bold text-zinc-900 text-sm">
+                          {post.title}
+                        </h3>
+                        <span className="text-[11px] font-mono text-zinc-500">
+                          {totalPostVotes} {totalPostVotes === 1 ? "vote" : "votes"} recorded
+                        </span>
+                      </div>
 
                       <div className="space-y-2.5">
-                        {post.candidates.map((cand) => {
-                          const percentage = Math.round((cand.votes / totalPostVotes) * 100);
+                        {(post.candidates || []).map((cand: any) => {
+                          const votes = cand.voteCount ?? cand.votes ?? 0;
+                          const percentage =
+                            totalPostVotes > 0
+                              ? Math.round((votes / totalPostVotes) * 100)
+                              : 0;
                           return (
                             <div key={cand.id} className="space-y-1">
                               <div className="flex items-center justify-between text-xs">
@@ -2226,7 +2270,7 @@ export default function OrganizationPortalPage({
                                   {cand.fullName} {cand.nickname && `("${cand.nickname}")`}
                                 </span>
                                 <span className="font-mono text-zinc-600">
-                                  {cand.votes} votes ({percentage}%)
+                                  {votes} {votes === 1 ? "vote" : "votes"} ({percentage}%)
                                 </span>
                               </div>
                               <div className="w-full bg-zinc-100 rounded-full h-2 overflow-hidden">

@@ -331,6 +331,10 @@ export class SupabaseQueryBuilder {
         filters.push({ column, operator: "ilike", value: pattern });
         return executor;
       },
+      or(filter: string) {
+        filters.push({ column: "or", operator: "", value: `(${filter})` });
+        return executor;
+      },
       async then(resolve: (value: { data: any; error: any }) => void) {
         try {
           const url = new URL(`${SUPABASE_URL}/rest/v1/${table}`);
@@ -399,6 +403,10 @@ export class SupabaseQueryBuilder {
       },
       ilike(column: string, pattern: string) {
         filters.push({ column, operator: "ilike", value: pattern });
+        return executor;
+      },
+      or(filter: string) {
+        filters.push({ column: "or", operator: "", value: `(${filter})` });
         return executor;
       },
       async then(resolve: (value: { data: any; error: any }) => void) {

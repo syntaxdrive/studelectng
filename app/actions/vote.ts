@@ -160,7 +160,8 @@ function incrementCandidateVotesInStore(selections: { [postId: string]: string }
       ...post,
       candidates: (post.candidates || []).map((c: any) => {
         if (selectedCandIds.has(c.id)) {
-          return { ...c, voteCount: (c.voteCount || 0) + 1 };
+          const nextCount = (c.voteCount || c.votes || 0) + 1;
+          return { ...c, voteCount: nextCount, votes: nextCount };
         }
         return c;
       }),
@@ -310,7 +311,8 @@ export async function castBallotAction(input: CastBallotInput) {
       });
 
       // Invalidate live telemetry cache so the new vote is counted immediately
-      telemetryCache.delete(electionId);
+      telemetryCache.clear();
+      invalidateCache("posts:");
 
       // 4. Atomic Synchronization to Supabase Cloud
       // Await so the serverless Lambda does not terminate before write finishes.
@@ -532,6 +534,7 @@ export async function getRealtimeElectionTelemetryAction(
         return {
           ...cand,
           voteCount: exactVotes,
+          votes: exactVotes,
         };
       });
 
