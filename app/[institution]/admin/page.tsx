@@ -2390,6 +2390,16 @@ export default function InstitutionAdminPage({
           <History className="w-4 h-4" />
           <span>System & Audit Logs</span>
         </button>
+
+        <button
+          type="button"
+          onClick={() => setIsAiCopilotOpen(true)}
+          className="ml-auto px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-zinc-950 font-bold transition flex items-center gap-1.5 shadow-xs border border-amber-400/40"
+          title="Open StudElect AI Slate Architect (ChatGPT Mode)"
+        >
+          <Sparkles className="w-3.5 h-3.5 text-zinc-950" />
+          <span>✨ AI Slate Architect</span>
+        </button>
       </div>
 
       {/* ========================================================================= */}
