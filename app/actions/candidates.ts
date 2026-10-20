@@ -308,6 +308,7 @@ export async function createPostAction(input: {
  * Add / Nominate a Candidate with Photo
  */
 export async function createCandidateAction(input: {
+  candidateId?: string;
   postId: string;
   fullName: string;
   nickname?: string;
@@ -316,7 +317,7 @@ export async function createCandidateAction(input: {
   manifesto?: string;
   electionId?: string;
 }) {
-  const newCandId = `cand-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+  const newCandId = input.candidateId || `cand-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
   const store = readServerStore();
 
   // 1. Ensure the parent post exists in Supabase posts table before inserting

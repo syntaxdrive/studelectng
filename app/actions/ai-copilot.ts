@@ -1,6 +1,8 @@
 "use server";
 
 import { bulkCreateSlateAction } from "./candidates";
+import { supabase } from "@/lib/supabase";
+import { normalizeMatricNo } from "@/lib/matric-normalizer";
 
 export interface AiChatMessage {
   id: string;
@@ -18,6 +20,11 @@ export interface StagedCandidate {
   matricNo?: string;
   photoUrl?: string;
   manifesto?: string;
+  department?: string;
+  level?: number;
+  duesPaid?: boolean;
+  disciplinaryStatus?: string;
+  isRosterVerified?: boolean;
 }
 
 export interface StagedPost {
@@ -34,6 +41,79 @@ export interface StagedSlate {
   totalOffices: number;
   totalCandidates: number;
   summary: string;
+  verifiedCount?: number;
+  flagNotices?: string[];
+}
+
+/**
+ * Cross-references extracted candidates with the registered students table in Supabase
+ * to automatically link academic level, department, and financial dues standing.
+ */
+async function enrichCandidatesWithRoster(
+  slate: StagedSlate,
+  instSlug: string
+): Promise<{ verifiedCount: number; flagNotices: string[] }> {
+  const cleanInst = (instSlug || "ui").toLowerCase();
+  const institutionId = `inst-${cleanInst}`;
+
+  let verifiedCount = 0;
+  const flagNotices: string[] = [];
+
+  for (const post of slate.posts) {
+    for (const cand of post.candidates) {
+      try {
+        let matchedStudent: any = null;
+
+        // 1. Try exact matric lookup first
+        if (cand.matricNo) {
+          const norm = normalizeMatricNo(cand.matricNo);
+          if (norm.isValid) {
+            const { data } = await supabase
+              .from("students")
+              .select("id, matric_no, full_name, level, department, dues_paid, disciplinary_status")
+              .eq("normalized_matric", norm.normalized)
+              .maybeSingle();
+            matchedStudent = data;
+          }
+        }
+
+        // 2. If no matric match, try fuzzy name search within institution
+        if (!matchedStudent && cand.fullName && cand.fullName.length > 4) {
+          const { data } = await supabase
+            .from("students")
+            .select("id, matric_no, full_name, level, department, dues_paid, disciplinary_status")
+            .eq("institution_id", institutionId)
+            .ilike("full_name", `%${cand.fullName}%`)
+            .limit(1);
+          if (data && data.length > 0) {
+            matchedStudent = data[0];
+          }
+        }
+
+        if (matchedStudent) {
+          cand.isRosterVerified = true;
+          verifiedCount++;
+          if (!cand.matricNo) cand.matricNo = matchedStudent.matric_no;
+          cand.level = Number(matchedStudent.level) || 300;
+          cand.department = matchedStudent.department || "";
+          cand.duesPaid = matchedStudent.dues_paid !== false;
+          cand.disciplinaryStatus = matchedStudent.disciplinary_status || "GOOD_STANDING";
+
+          if (cand.duesPaid === false) {
+            flagNotices.push(`⚠️ ${cand.fullName} (${cand.matricNo}) has UNPAID departmental dues.`);
+          }
+          if (cand.disciplinaryStatus !== "GOOD_STANDING") {
+            flagNotices.push(`⚠️ ${cand.fullName} (${cand.matricNo}) has disciplinary flag: ${cand.disciplinaryStatus}.`);
+          }
+        }
+      } catch (_) {}
+    }
+  }
+
+  slate.verifiedCount = verifiedCount;
+  slate.flagNotices = flagNotices;
+
+  return { verifiedCount, flagNotices };
 }
 
 /**
@@ -402,6 +482,9 @@ export async function processAiCopilotMessageAction(input: {
     const stagedSlate = parseElectionTextToSlate(prompt);
 
     if (stagedSlate.totalOffices > 0 || stagedSlate.totalCandidates > 0) {
+      // Cross-reference with voter roll
+      const { verifiedCount, flagNotices } = await enrichCandidatesWithRoster(stagedSlate, input.instSlug);
+
       const officeListStr = stagedSlate.posts
         .map((p) => {
           const cands = p.candidates || [];
@@ -414,6 +497,7 @@ export async function processAiCopilotMessageAction(input: {
                     let s = c.fullName;
                     if (c.nickname) s += ` ("${c.nickname}")`;
                     if (c.matricNo) s += ` [${c.matricNo}]`;
+                    if (c.isRosterVerified) s += ` ✓`;
                     return s;
                   })
                   .join(", ")
@@ -422,11 +506,19 @@ export async function processAiCopilotMessageAction(input: {
         })
         .join("\n");
 
-      const reply = `I parsed your election list for **${cleanOrg}** with 100% full detail:\n\n${officeListStr}\n\n**Total Slate:** ${stagedSlate.totalOffices} elective ${
+      let verificationReport = "";
+      if (verifiedCount > 0) {
+        verificationReport = `\n\n🛡️ **Identity Resolution:** ${verifiedCount} of ${stagedSlate.totalCandidates} candidates matched and verified on the student voter roll.`;
+      }
+      if (flagNotices.length > 0) {
+        verificationReport += `\n\n${flagNotices.join("\n")}`;
+      }
+
+      const reply = `I parsed your election list for **${cleanOrg}** with complete detail:\n\n${officeListStr}${verificationReport}\n\n**Total Slate:** ${stagedSlate.totalOffices} elective ${
         stagedSlate.totalOffices === 1 ? "office" : "offices"
       } and ${stagedSlate.totalCandidates} ${
         stagedSlate.totalCandidates === 1 ? "candidate" : "candidates"
-      }.\n\nClick **"⚡ Apply All to Election Slate"** below to commit everything into the database instantly in under half a second!`;
+      }.\n\nTap **"⚡ Commit to Official Ballot"** below to publish everything live in under half a second!`;
 
       return {
         success: true,
