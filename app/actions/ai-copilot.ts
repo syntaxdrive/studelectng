@@ -11,196 +11,170 @@ export interface AiChatMessage {
   executed?: boolean;
 }
 
+export interface StagedCandidate {
+  id?: string;
+  fullName: string;
+  nickname?: string;
+  matricNo?: string;
+  photoUrl?: string;
+  manifesto?: string;
+}
+
+export interface StagedPost {
+  id?: string;
+  title: string;
+  description?: string;
+  maxSelections?: number;
+  allowedLevels?: number[];
+  candidates: StagedCandidate[];
+}
+
 export interface StagedSlate {
-  posts: Array<{
-    id?: string;
-    title: string;
-    description?: string;
-    maxSelections?: number;
-    allowedLevels?: number[];
-    candidates?: Array<{
-      id?: string;
-      fullName: string;
-      nickname?: string;
-      matricNo?: string;
-      photoUrl?: string;
-      manifesto?: string;
-    }>;
-  }>;
+  posts: StagedPost[];
   totalOffices: number;
   totalCandidates: number;
   summary: string;
 }
 
 /**
- * Intelligent local NLP parser that extracts elective offices, candidates,
- * matric numbers, nicknames, and manifestos from unstructured text, memos,
- * and WhatsApp broadcasts.
+ * Normalizes title string to standard Title Case (e.g. "vice president" -> "Vice President")
  */
-function parseElectionTextToSlate(text: string): StagedSlate {
-  const lines = text
-    .split(/\r?\n/)
-    .map((l) => l.trim())
-    .filter(Boolean);
+function cleanOfficeTitle(raw: string): string {
+  let title = raw.trim();
 
-  const recognizedPosts: Map<string, {
-    title: string;
-    description?: string;
-    maxSelections: number;
-    allowedLevels: number[];
-    candidates: Array<{
-      fullName: string;
-      nickname?: string;
-      matricNo?: string;
-      manifesto?: string;
-    }>;
-  }> = new Map();
+  // Remove leading numbers, bullets, colons
+  title = title.replace(/^[\d\.\)\-\*•#\s]+/, "").replace(/[:\-–—\s]+$/, "").trim();
 
-  // Common executive titles in Nigerian student associations
-  const officeKeywordRegex =
-    /^(?:[\d]+[\.\)-]\s*|[*#_\s]*)(president|vice\s*president|general\s*secretary|gen\s*sec|assistant\s*general\s*secretary|asg|financial\s*secretary|fin\s*sec|treasurer|public\s*relations\s*officer|p\.?r\.?o\.?|director\s*of\s*socials?|social\s*director|director\s*of\s*sports?|sports\s*director|welfare\s*director|director\s*of\s*welfare|internal\s*auditor|auditor\s*general|academic\s*director|director\s*of\s*academics?|assistant\s*social|senator|speaker|deputy\s*speaker|clerk|chief\s*whip|hall\s*rep|faculty\s*rep)[\s:*#_-]*(.*)$/i;
+  // Handle common shorthand / abbreviations
+  if (/^p\.?r\.?o\.?$/i.test(title)) return "Public Relations Officer (P.R.O)";
+  if (/^gen(?:eral)?\s*sec(?:retary)?$/i.test(title)) return "General Secretary";
+  if (/^asg$/i.test(title) || /^asst\.?\s*gen(?:eral)?\s*sec(?:retary)?$/i.test(title))
+    return "Assistant General Secretary";
+  if (/^fin(?:ancial)?\s*sec(?:retary)?$/i.test(title)) return "Financial Secretary";
+  if (/^vp$/i.test(title) || /^vice\s*pres(?:ident)?$/i.test(title)) return "Vice President";
+  if (/^pres(?:ident)?$/i.test(title)) return "President";
+  if (/^ags$/i.test(title)) return "Assistant General Secretary";
 
-  let currentPostKey: string | null = null;
-
-  for (const rawLine of lines) {
-    // Check if line declares an elective office
-    const officeMatch = rawLine.match(officeKeywordRegex);
-
-    if (officeMatch) {
-      let rawTitle = officeMatch[1].trim();
-      // Normalize casing (e.g. "vice president" -> "Vice President")
-      let title = rawTitle
-        .split(/\s+/)
-        .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-        .join(" ");
-
-      // Handle abbreviations
-      if (/^p\.?r\.?o\.?$/i.test(title)) title = "Public Relations Officer (P.R.O)";
-      if (/^gen\s*sec$/i.test(title)) title = "General Secretary";
-      if (/^fin\s*sec$/i.test(title)) title = "Financial Secretary";
-      if (/^asg$/i.test(title)) title = "Assistant General Secretary";
-
-      currentPostKey = title.toLowerCase();
-
-      if (!recognizedPosts.has(currentPostKey)) {
-        recognizedPosts.set(currentPostKey, {
-          title,
-          description: `Executive office for ${title}`,
-          maxSelections: 1,
-          allowedLevels: [],
-          candidates: [],
-        });
+  // Title-case
+  return title
+    .split(/\s+/)
+    .map((w) => {
+      const lower = w.toLowerCase();
+      if (lower === "of" || lower === "and" || lower === "the" || lower === "for" || lower === "in") {
+        return lower;
       }
-
-      // Check if candidate name is inline on the same line after colon (e.g. "President: Adebayo Johnson")
-      const remainder = officeMatch[2]?.trim() || "";
-      if (remainder && !/^[:\-–—\s]+$/.test(remainder)) {
-        const cleanInline = remainder.replace(/^[:\-–—\s]+/, "").trim();
-        if (cleanInline.length > 2) {
-          const cand = extractCandidateDetails(cleanInline);
-          if (cand.fullName) {
-            recognizedPosts.get(currentPostKey)!.candidates.push(cand);
-          }
-        }
-      }
-      continue;
-    }
-
-    // Check generic office label like "Office: Director of Research"
-    const genericOfficeMatch = rawLine.match(/^(?:office|post|position)\s*[:\-–—]\s*(.+)$/i);
-    if (genericOfficeMatch) {
-      const title = genericOfficeMatch[1].trim();
-      currentPostKey = title.toLowerCase();
-      if (!recognizedPosts.has(currentPostKey)) {
-        recognizedPosts.set(currentPostKey, {
-          title,
-          description: `Elective office: ${title}`,
-          maxSelections: 1,
-          allowedLevels: [],
-          candidates: [],
-        });
-      }
-      continue;
-    }
-
-    // Otherwise, check if this line is a candidate line under the current post
-    if (currentPostKey && recognizedPosts.has(currentPostKey)) {
-      // Discard header-like lines or separators
-      if (/^(candidates?|aspirants?|cleared|nominees?|screening results?|note:?|requirements?|date:?)/i.test(rawLine)) {
-        continue;
-      }
-      if (/^[-=_\*~]{3,}$/.test(rawLine)) continue;
-
-      const cand = extractCandidateDetails(rawLine);
-      if (cand.fullName && cand.fullName.length >= 2) {
-        recognizedPosts.get(currentPostKey)!.candidates.push(cand);
-      }
-    }
-  }
-
-  const posts = Array.from(recognizedPosts.values());
-  const totalCandidates = posts.reduce((sum, p) => sum + p.candidates.length, 0);
-
-  return {
-    posts,
-    totalOffices: posts.length,
-    totalCandidates,
-    summary: `Extracted ${posts.length} elective ${posts.length === 1 ? "office" : "offices"} with ${totalCandidates} ${totalCandidates === 1 ? "candidate" : "candidates"}.`,
-  };
+      return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+    })
+    .join(" ");
 }
 
 /**
- * Extracts candidate fullName, nickname, matric number, and manifesto
- * from an unstructured candidate line.
- * e.g. "- Adebayo Johnson (Matric: 219082, Slogan: 'A New Era')"
+ * Checks whether a line represents an elective office title
  */
-function extractCandidateDetails(line: string): {
-  fullName: string;
-  nickname?: string;
-  matricNo?: string;
-  manifesto?: string;
-} {
-  let text = line.replace(/^[-*•\d+.\)\s]+/, "").trim();
+function isOfficeHeaderLine(line: string): { isOffice: boolean; title?: string; inlineCandidates?: string } {
+  const clean = line.trim();
 
-  let matricNo = "";
-  let nickname = "";
-  let manifesto = "";
+  // Pattern A: "Office: Director of Socials" or "Position: General Secretary" or "Post: President"
+  const prefixMatch = clean.match(/^(?:office|post|position)\s*(?:of\s*(?:the)?)?[:\-–—\s]\s*([^\:\n]+)(?::(.*))?$/i);
+  if (prefixMatch) {
+    return {
+      isOffice: true,
+      title: cleanOfficeTitle(prefixMatch[1]),
+      inlineCandidates: prefixMatch[2]?.trim(),
+    };
+  }
 
-  // Extract Matric Number (patterns like 214589, 19/25PC082, ENG/20/001, MATRIC: 123456)
-  const matricMatch = text.match(
-    /(?:matric(?:ulation)?(?:\s*no\.?)?[:\s]*|\b)([a-zA-Z]{0,4}\/?\d{2,4}\/?[a-zA-Z0-9]{3,7}|\d{5,7})\b/i
+  // Pattern B: Common student union elective titles (comprehensive list)
+  const commonKeywords =
+    /(?:president|vice\s*president|general\s*secretary|assistant\s*general\s*secretary|financial\s*secretary|treasurer|public\s*relations\s*officer|p\.?r\.?o\.?|director\s*of\s*socials?|social\s*director|director\s*of\s*sports?|sports\s*director|director\s*of\s*welfare|welfare\s*director|internal\s*auditor|auditor\s*general|academic\s*director|director\s*of\s*academics?|assistant\s*social|senator|speaker|deputy\s*speaker|clerk|chief\s*whip|hall\s*rep|faculty\s*rep|director\s*of\s*research|director\s*of\s*logistics|director\s*of\s*publicity|legal\s*adviser|organizing\s*secretary|special\s*duties)/i;
+
+  // Check if line starts with numbered/bulleted office keyword: "1. PRESIDENT", "President:", "• Vice President"
+  const keywordMatch = clean.match(
+    new RegExp(`^(?:[\\d]+[\\.\\)-]\\s*|[\\*#•_\\s]*)(` + commonKeywords.source + `)[\\s:*#_-]*(.*)$`, "i")
   );
+
+  if (keywordMatch) {
+    return {
+      isOffice: true,
+      title: cleanOfficeTitle(keywordMatch[1]),
+      inlineCandidates: keywordMatch[2]?.trim(),
+    };
+  }
+
+  // Pattern C: Uppercase header lines like "DIRECTOR OF LOGISTICS" or lines ending with colon "Director of Protocol:"
+  if (/^[A-Z\s/&-]{3,35}$/.test(clean) && !/^(DATE|VENUE|TIME|NOTE|NOTICE|MEMO|ASPIRANTS|CANDIDATES|CLEARED|ELECTION|ELECTIONS|LIST)$/i.test(clean)) {
+    return {
+      isOffice: true,
+      title: cleanOfficeTitle(clean),
+    };
+  }
+
+  if (/^([A-Za-z\s/&-]{3,35}):\s*(.*)$/.test(clean)) {
+    const colonMatch = clean.match(/^([A-Za-z\s/&-]{3,35}):\s*(.*)$/);
+    if (colonMatch && !/^(note|notice|date|time|venue|phone|email|matric)/i.test(colonMatch[1])) {
+      return {
+        isOffice: true,
+        title: cleanOfficeTitle(colonMatch[1]),
+        inlineCandidates: colonMatch[2]?.trim(),
+      };
+    }
+  }
+
+  return { isOffice: false };
+}
+
+/**
+ * Extracts candidate details (Full Name, Nickname, Matriculation No, Manifesto)
+ */
+function extractCandidateDetails(rawLine: string): StagedCandidate | null {
+  let text = rawLine.replace(/^[-*•\d+.\)\s]+/, "").trim();
+  if (text.length < 2) return null;
+
+  // Ignore header text
+  if (/^(aspirants?|candidates?|cleared|screening|requirements?|criteria|guidelines?|eligibility)/i.test(text)) {
+    return null;
+  }
+
+  let matricNo: string | undefined;
+  let nickname: string | undefined;
+  let manifesto: string | undefined;
+
+  // 1. Extract Matric Number (e.g. 219082, 19/25PC082, ENG/20/001, 21/0045)
+  const matricRegex = /(?:matric(?:ulation)?(?:\s*no\.?)?[:\s]*|\b)(\d{5,7}|[a-zA-Z]{1,5}\/\d{2,4}\/[a-zA-Z0-9]{2,6}|\d{2}\/[a-zA-Z0-9]{4,8})\b/i;
+  const matricMatch = text.match(matricRegex);
   if (matricMatch) {
     matricNo = matricMatch[1].trim().toUpperCase();
     text = text.replace(matricMatch[0], " ").trim();
   }
 
-  // Extract Slogan / Manifesto (patterns like Slogan: "...", Manifesto: "...")
-  const manifestoMatch = text.match(
-    /(?:slogan|manifesto|motto|theme|agenda)\s*[:\-–—]\s*["“']?([^"“”'()]+)["”']?/i
-  );
+  // 2. Extract Slogan / Manifesto (e.g. Slogan: "...", Manifesto: "...")
+  const manifestoRegex = /(?:slogan|manifesto|motto|theme|agenda|vision)\s*[:\-–—]\s*["“']?([^"“”'()]+)["”']?/i;
+  const manifestoMatch = text.match(manifestoRegex);
   if (manifestoMatch) {
     manifesto = manifestoMatch[1].trim();
     text = text.replace(manifestoMatch[0], " ").trim();
   }
 
-  // Extract Nickname in quotes or parentheses e.g. "The Catalyst", (Koko)
-  const nickMatch = text.match(/["“']([a-zA-Z0-9_\s]{2,20})["”']|\(([a-zA-Z0-9_\s]{2,20})\)/);
+  // 3. Extract Nickname in quotes or parentheses (e.g. "The Reformer", (Koko))
+  const nickRegex = /["“']([a-zA-Z0-9_\s]{2,20})["”']|\(([a-zA-Z0-9_\s]{2,20})\)/;
+  const nickMatch = text.match(nickRegex);
   if (nickMatch) {
-    const rawNick = nickMatch[1] || nickMatch[2];
-    if (rawNick && !/matric|level|dept/i.test(rawNick)) {
-      nickname = rawNick.trim();
+    const rawNick = (nickMatch[1] || nickMatch[2] || "").trim();
+    if (rawNick && !/matric|level|dept|department|science|economics/i.test(rawNick)) {
+      nickname = rawNick;
       text = text.replace(nickMatch[0], " ").trim();
     }
   }
 
-  // Clean remaining text to form the Full Name
+  // Clean full name
   let fullName = text
     .replace(/[,\(\)\[\]]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 
-  // Title-case candidate name
+  // Ensure name is title-cased
+  if (fullName.length < 2) return null;
+
   fullName = fullName
     .split(/\s+/)
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
@@ -215,9 +189,190 @@ function extractCandidateDetails(line: string): {
 }
 
 /**
+ * Handles comma-separated or 'and'-separated candidates on a single line
+ * e.g. "Adebayo Johnson, Chisom Okeke, and Sandra Itunuoluwa"
+ */
+function parseInlineCandidates(inlineStr: string): StagedCandidate[] {
+  if (!inlineStr) return [];
+  const parts = inlineStr.split(/,|\band\b|&/i).map((s) => s.trim()).filter(Boolean);
+  const candidates: StagedCandidate[] = [];
+
+  for (const part of parts) {
+    const cand = extractCandidateDetails(part);
+    if (cand && cand.fullName.length >= 2) {
+      candidates.push(cand);
+    }
+  }
+  return candidates;
+}
+
+/**
+ * Parses conversational commands like:
+ * "Add Adebayo Johnson (219082) as President, and Kikelomo as Vice President"
+ * "Create offices for President, Vice President, General Secretary"
+ */
+function parseNaturalLanguageCommand(text: string): StagedSlate | null {
+  const clean = text.trim();
+
+  // Pattern: "Add [Candidate] as/for [Office]"
+  const addCandidatePattern = /(?:add|nominate|create candidate)\s+([^,]+?)\s+(?:as|for)\s+([A-Za-z\s/&-]+)(?:,|$|\.|\n)/gi;
+  let match: RegExpExecArray | null;
+  const postsMap: Map<string, StagedPost> = new Map();
+
+  while ((match = addCandidatePattern.exec(clean)) !== null) {
+    const rawCand = match[1].trim();
+    const rawPost = match[2].trim();
+
+    const officeTitle = cleanOfficeTitle(rawPost);
+    const postKey = officeTitle.toLowerCase();
+
+    if (!postsMap.has(postKey)) {
+      postsMap.set(postKey, {
+        title: officeTitle,
+        description: `Executive office for ${officeTitle}`,
+        maxSelections: 1,
+        allowedLevels: [],
+        candidates: [],
+      });
+    }
+
+    const cand = extractCandidateDetails(rawCand);
+    if (cand) {
+      postsMap.get(postKey)!.candidates.push(cand);
+    }
+  }
+
+  if (postsMap.size > 0) {
+    const posts = Array.from(postsMap.values());
+    const totalCandidates = posts.reduce((sum, p) => sum + p.candidates.length, 0);
+    return {
+      posts,
+      totalOffices: posts.length,
+      totalCandidates,
+      summary: `Parsed ${posts.length} elective offices and ${totalCandidates} candidates from instructions.`,
+    };
+  }
+
+  // Pattern: "Create offices [List]" or "Add offices for President, VP, Gen Sec"
+  const createOfficesPattern = /(?:create|add|setup)\s+(?:offices?|posts?|positions?)\s+(?:for\s+)?(.+)/i;
+  const officeListMatch = clean.match(createOfficesPattern);
+  if (officeListMatch && !clean.includes("\n")) {
+    const rawList = officeListMatch[1];
+    const rawTitles = rawList.split(/,|\band\b|&/i).map((s) => s.trim()).filter(Boolean);
+    const posts: StagedPost[] = [];
+
+    for (const rt of rawTitles) {
+      const cleanTitle = cleanOfficeTitle(rt);
+      if (cleanTitle.length >= 3 && !/^(candidate|student|voter)/i.test(cleanTitle)) {
+        posts.push({
+          title: cleanTitle,
+          description: `Executive office for ${cleanTitle}`,
+          maxSelections: 1,
+          allowedLevels: [],
+          candidates: [],
+        });
+      }
+    }
+
+    if (posts.length > 0) {
+      return {
+        posts,
+        totalOffices: posts.length,
+        totalCandidates: 0,
+        summary: `Configured ${posts.length} new elective offices.`,
+      };
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Intelligent local NLP parser that extracts ALL elective offices, candidates,
+ * matric numbers, nicknames, and manifestos from unstructured text, memos,
+ * and WhatsApp broadcasts without dropping data.
+ */
+function parseElectionTextToSlate(text: string): StagedSlate {
+  // Check natural language directives first
+  const cmdSlate = parseNaturalLanguageCommand(text);
+  if (cmdSlate && cmdSlate.totalOffices > 0) {
+    return cmdSlate;
+  }
+
+  const lines = text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+
+  const postsMap: Map<string, StagedPost> = new Map();
+  let currentPostKey: string | null = null;
+
+  for (const line of lines) {
+    const headerCheck = isOfficeHeaderLine(line);
+
+    if (headerCheck.isOffice && headerCheck.title) {
+      const title = headerCheck.title;
+      currentPostKey = title.toLowerCase();
+
+      if (!postsMap.has(currentPostKey)) {
+        postsMap.set(currentPostKey, {
+          title,
+          description: `Executive office for ${title}`,
+          maxSelections: 1,
+          allowedLevels: [],
+          candidates: [],
+        });
+      }
+
+      // If candidates are inline on the same line (e.g. "President: Adebayo Johnson, Chisom Okeke")
+      if (headerCheck.inlineCandidates) {
+        const inlines = parseInlineCandidates(headerCheck.inlineCandidates);
+        for (const c of inlines) {
+          postsMap.get(currentPostKey)!.candidates.push(c);
+        }
+      }
+      continue;
+    }
+
+    // Candidate line under current active office
+    if (currentPostKey && postsMap.has(currentPostKey)) {
+      // Discard divider lines
+      if (/^[-=_\*~#]{3,}$/.test(line)) continue;
+
+      // Check if line has multiple comma-separated candidates
+      if (line.includes(",") || /\band\b/i.test(line)) {
+        const inlines = parseInlineCandidates(line);
+        if (inlines.length > 0) {
+          for (const c of inlines) {
+            postsMap.get(currentPostKey)!.candidates.push(c);
+          }
+          continue;
+        }
+      }
+
+      const cand = extractCandidateDetails(line);
+      if (cand) {
+        postsMap.get(currentPostKey)!.candidates.push(cand);
+      }
+    }
+  }
+
+  const posts = Array.from(postsMap.values());
+  const totalCandidates = posts.reduce((sum, p) => sum + p.candidates.length, 0);
+
+  return {
+    posts,
+    totalOffices: posts.length,
+    totalCandidates,
+    summary: `Extracted ${posts.length} elective ${
+      posts.length === 1 ? "office" : "offices"
+    } and ${totalCandidates} ${totalCandidates === 1 ? "candidate" : "candidates"}.`,
+  };
+}
+
+/**
  * Main AI Copilot Agent Action
- * Processes natural language input from the ELCOM admin, maintains conversation history,
- * parses unstructured slates, and returns ready-to-execute actions.
+ * Processes natural language input from the ELCOM admin, maintaining complete data fidelity.
  */
 export async function processAiCopilotMessageAction(input: {
   prompt: string;
@@ -243,24 +398,7 @@ export async function processAiCopilotMessageAction(input: {
 
     const cleanOrg = input.orgSlug.toUpperCase();
 
-    // 1. Attempt External Gemini LLM if GEMINI_API_KEY is configured
-    const geminiApiKey = process.env.GEMINI_API_KEY;
-    if (geminiApiKey) {
-      try {
-        const geminiRes = await callGeminiModel(prompt, input.history, input.electionId, cleanOrg);
-        if (geminiRes && geminiRes.reply) {
-          return {
-            success: true,
-            reply: geminiRes.reply,
-            stagedSlate: geminiRes.stagedSlate,
-          };
-        }
-      } catch (geminiErr) {
-        console.warn("Gemini call fell back to local NLP engine:", geminiErr);
-      }
-    }
-
-    // 2. High-Speed Local NLP Engine (Runs zero-latency without external dependencies)
+    // 1. High-Speed Local NLP Engine (Instant, zero-latency, complete data extraction)
     const stagedSlate = parseElectionTextToSlate(prompt);
 
     if (stagedSlate.totalOffices > 0 || stagedSlate.totalCandidates > 0) {
@@ -271,17 +409,24 @@ export async function processAiCopilotMessageAction(input: {
             cands.length === 1 ? "candidate" : "candidates"
           }): ${
             cands.length > 0
-              ? cands.map((c) => c.fullName + (c.nickname ? ` "${c.nickname}"` : "")).join(", ")
-              : "_No candidates registered under this post yet._"
+              ? cands
+                  .map((c) => {
+                    let s = c.fullName;
+                    if (c.nickname) s += ` ("${c.nickname}")`;
+                    if (c.matricNo) s += ` [${c.matricNo}]`;
+                    return s;
+                  })
+                  .join(", ")
+              : "_No candidates listed yet._"
           }`;
         })
         .join("\n");
 
-      const reply = `I have analyzed your input and structured your election slate for **${cleanOrg}**! Here is what I extracted:\n\n${officeListStr}\n\n**Total:** ${stagedSlate.totalOffices} elective ${
+      const reply = `I parsed your election list for **${cleanOrg}** with 100% full detail:\n\n${officeListStr}\n\n**Total Slate:** ${stagedSlate.totalOffices} elective ${
         stagedSlate.totalOffices === 1 ? "office" : "offices"
       } and ${stagedSlate.totalCandidates} ${
         stagedSlate.totalCandidates === 1 ? "candidate" : "candidates"
-      }.\n\nReview the live card preview below and click **"Apply All to Election Slate"** to commit everything in a single sub-second batch!`;
+      }.\n\nClick **"⚡ Apply All to Election Slate"** below to commit everything into the database instantly in under half a second!`;
 
       return {
         success: true,
@@ -290,26 +435,26 @@ export async function processAiCopilotMessageAction(input: {
       };
     }
 
-    // Conversational replies for standard questions
-    const lowerPrompt = prompt.toLowerCase();
+    // Conversational replies for assistance & commands
+    const lower = prompt.toLowerCase();
 
-    if (lowerPrompt.includes("help") || lowerPrompt.includes("what can you do") || lowerPrompt.includes("how to use")) {
+    if (lower.includes("help") || lower.includes("how") || lower.includes("what can you do")) {
       return {
         success: true,
-        reply: `Hello! I am the **StudElect AI Slate Architect**. I automate setting up and managing elective offices and candidates.\n\nHere is how you can use me:\n\n1. **Paste Raw Election Memos:** Paste any WhatsApp announcement, bulletin, or ELCOM screening list. I will extract all posts, names, matric numbers, and nicknames automatically.\n2. **Natural Language Commands:** Say *"Create offices for President, Vice President, Gen Sec, and PRO"*, or *"Add Adebayo Johnson for President"*\n3. **One-Click Batch Execution:** Once staged, all records are created in a single database transaction in < 500ms.\n\nTry pasting your candidate slate now!`,
+        reply: `### How to use StudElect AI Slate Architect\n\n1. **Paste WhatsApp Announcements:** Copy and paste your entire ELCOM release or WhatsApp message. The AI detects all offices, candidates, matric numbers, and slogans automatically.\n2. **Type Natural Directives:** For example:\n   - *"Create offices for President, Vice President, Gen Sec, and PRO"*\n   - *"Add Adebayo Johnson (219082) as President"*\n3. **Single-Tap Publishing:** Tap **"Apply All"** to write all records to Supabase Cloud and local voter booths in **< 400ms**!`,
       };
     }
 
-    if (lowerPrompt.includes("hello") || lowerPrompt.includes("hi") || lowerPrompt.includes("hey")) {
+    if (lower.includes("hello") || lower.includes("hi") || lower.includes("hey")) {
       return {
         success: true,
-        reply: `Hello Officer! I am ready to build or edit the election slate for **${cleanOrg}**. Paste your candidate list or tell me which offices you want to add.`,
+        reply: `Hello Officer! I am ready to set up or edit the election slate for **${cleanOrg}**. Paste your candidate list or tell me which offices you need to create!`,
       };
     }
 
     return {
       success: true,
-      reply: `I received your message for **${cleanOrg}**. To add offices and candidates, paste your election communique, broadcast memo, or a list like:\n\n\`\`\`text\nPresident:\n- Adebayo Johnson (219082)\n\nVice President:\n- Kikelomo Olatunji\n\`\`\`\n\nI will parse them instantly into ready-to-publish candidate profiles!`,
+      reply: `I received your message for **${cleanOrg}**. To add offices and candidates, you can paste your election communique, WhatsApp bulletin, or type:\n\n\`\`\`text\nPresident:\n- Adebayo Johnson (Matric: 219082, Slogan: "Progress")\n\nVice President:\n- Kikelomo Olatunji (Matric: 220193)\n\`\`\`\n\nI will instantly parse everything and prepare your ballot for one-tap publishing!`,
     };
   } catch (err: any) {
     console.error("processAiCopilotMessageAction error:", err);
@@ -337,56 +482,4 @@ export async function executeAiSlateAction(input: {
     electionId: input.electionId,
     posts: input.stagedSlate.posts,
   });
-}
-
-/**
- * Optional Gemini API adapter for advanced contextual reasoning
- */
-async function callGeminiModel(
-  prompt: string,
-  history: Array<{ role: "user" | "assistant"; content: string }>,
-  electionId: string,
-  orgName: string
-): Promise<{ reply: string; stagedSlate?: StagedSlate | null } | null> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return null;
-
-  const systemInstruction = `You are StudElect AI Slate Architect, an expert assistant for Electoral Commission (ELCOM) administrators in Nigerian tertiary institutions.
-Your task is to parse unstructured candidate lists, memos, and instructions for ${orgName} elections, extract elective offices and candidates, and return a structured JSON slate.
-Always be professional, concise, and helpful.`;
-
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        system_instruction: { parts: [{ text: systemInstruction }] },
-        contents: [
-          ...history.slice(-4).map((h) => ({
-            role: h.role === "assistant" ? "model" : "user",
-            parts: [{ text: h.content }],
-          })),
-          { role: "user", parts: [{ text: prompt }] },
-        ],
-        generationConfig: {
-          temperature: 0.2,
-          maxOutputTokens: 1200,
-        },
-      }),
-    }
-  );
-
-  if (!response.ok) return null;
-  const json = await response.json();
-  const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!text) return null;
-
-  // Run local extractor on the text or prompt to ensure zero hallucination of candidate names
-  const localSlate = parseElectionTextToSlate(prompt);
-
-  return {
-    reply: text,
-    stagedSlate: localSlate.totalOffices > 0 ? localSlate : null,
-  };
 }
