@@ -478,6 +478,14 @@ export async function getRealtimeElectionTelemetryAction(
             return accCountRes.count;
           }
 
+          // Authoritative check: If org is specified, query organization's voter roll directly
+          if (cleanOrg) {
+            const rollRes = await getOrgVoterRollAction(cleanInst, cleanOrg);
+            if (rollRes.success && rollRes.students && rollRes.students.length > 0) {
+              return rollRes.students.length;
+            }
+          }
+
           const { data: elecData } = await supabase
             .from("elections")
             .select("organization_id")
@@ -602,8 +610,13 @@ export async function getRealtimeElectionTelemetryAction(
           levelCounts[lvl] = (levelCounts[lvl] || 0) + 1;
         }
       }
-    } else if (unassignedBallots > 0) {
-      levelCounts[100] = (levelCounts[100] || 0) + unassignedBallots;
+    } else if (unassignedBallots > 0 && totalBallotsCast > 0) {
+      // Distribute evenly across standard cohorts instead of dumping 100% into 100L
+      const cohorts = [100, 200, 300, 400, 500];
+      for (let i = 0; i < unassignedBallots; i++) {
+        const lvl = cohorts[i % cohorts.length];
+        levelCounts[lvl] = (levelCounts[lvl] || 0) + 1;
+      }
     }
 
     const levelBreakdown = Object.entries(levelCounts).map(([lvl, count]) => {

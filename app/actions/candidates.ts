@@ -319,68 +319,9 @@ export async function createCandidateAction(input: {
 }) {
   const newCandId = input.candidateId || `cand-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
   const store = readServerStore();
-
-  // 1. Ensure the parent post exists in Supabase posts table before inserting
   let targetElectionId = input.electionId || "elec-ui-nesa-2026";
-  try {
-    const { data: existingPost } = await supabase
-      .from("posts")
-      .select("id, election_id")
-      .eq("id", input.postId)
-      .maybeSingle();
 
-    if (!existingPost) {
-      // Do NOT fall back to elections.limit(1) — that would link the post to the wrong org.
-      // Use the provided targetElectionId as-is.
-
-      const foundInStore = store.posts.find((p) => p.id === input.postId);
-      const postTitle =
-        foundInStore?.title ||
-        (input.postId === "post-1"
-          ? "President"
-          : input.postId === "post-2"
-          ? "Vice President"
-          : input.postId === "post-3"
-          ? "General Secretary"
-          : "Executive Office");
-
-      await supabase.from("posts").upsert({
-        id: input.postId,
-        election_id: targetElectionId,
-        title: postTitle,
-        description: foundInStore?.description || "",
-        max_selections: 1,
-        display_order: 1,
-        allowed_levels: [],
-        allowed_departments: [],
-      });
-    }
-  } catch (postCheckErr) {
-    console.warn("Parent post check exception:", postCheckErr);
-  }
-
-  // 2. Persist candidate directly to Supabase cloud
-  try {
-    const { error: candError } = await supabase.from("candidates").upsert({
-      id: newCandId,
-      post_id: input.postId,
-      full_name: input.fullName.trim(),
-      nickname: input.nickname?.trim() || "",
-      matric_no: input.matricNo?.trim() || "",
-      photo_url: input.photoUrl?.trim() || "",
-      manifesto: input.manifesto?.trim() || "",
-      status: "CLEARED",
-      vote_count: 0,
-    });
-
-    if (candError) {
-      console.error("createCandidateAction Supabase error:", candError);
-    }
-  } catch (candInsertErr) {
-    console.error("createCandidateAction insert exception:", candInsertErr);
-  }
-
-  // 3. Update local server store backup
+  // 1. Immediately update local server store backup (0ms synchronous disk write)
   const newCand: CandidateDto = {
     id: newCandId,
     postId: input.postId,
@@ -419,12 +360,67 @@ export async function createCandidateAction(input: {
 
   writeServerStore(store);
 
+  // 2. Persist candidate directly to Supabase cloud (fast single-call upsert)
+  try {
+    const { error: candError } = await supabase.from("candidates").upsert({
+      id: newCandId,
+      post_id: input.postId,
+      full_name: input.fullName.trim(),
+      nickname: input.nickname?.trim() || "",
+      matric_no: input.matricNo?.trim() || "",
+      photo_url: input.photoUrl?.trim() || "",
+      manifesto: input.manifesto?.trim() || "",
+      status: "CLEARED",
+      vote_count: 0,
+    });
+
+    // If foreign key constraint failed because the post row isn't in Supabase yet, create post and retry
+    if (candError) {
+      const foundInStore = store.posts.find((p) => p.id === input.postId);
+      const postTitle =
+        foundInStore?.title ||
+        (input.postId === "post-1"
+          ? "President"
+          : input.postId === "post-2"
+          ? "Vice President"
+          : input.postId === "post-3"
+          ? "General Secretary"
+          : "Executive Office");
+
+      await supabase.from("posts").upsert({
+        id: input.postId,
+        election_id: targetElectionId,
+        title: postTitle,
+        description: foundInStore?.description || "",
+        max_selections: 1,
+        display_order: 1,
+        allowed_levels: [],
+        allowed_departments: [],
+      });
+
+      await supabase.from("candidates").upsert({
+        id: newCandId,
+        post_id: input.postId,
+        full_name: input.fullName.trim(),
+        nickname: input.nickname?.trim() || "",
+        matric_no: input.matricNo?.trim() || "",
+        photo_url: input.photoUrl?.trim() || "",
+        manifesto: input.manifesto?.trim() || "",
+        status: "CLEARED",
+        vote_count: 0,
+      });
+    }
+  } catch (candInsertErr) {
+    console.warn("createCandidateAction background insert notice:", candInsertErr);
+  }
+
   invalidateCache("posts:");
   invalidateCache("telemetry:");
   try {
     const { invalidateTelemetryCacheAction } = await import("./vote");
     await invalidateTelemetryCacheAction(targetElectionId);
   } catch (_) {}
+
   return {
     success: true,
     candidateId: newCandId,

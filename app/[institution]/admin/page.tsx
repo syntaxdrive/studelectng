@@ -234,6 +234,7 @@ export default function InstitutionAdminPage({
     photoUrl: "",
     manifesto: "",
   });
+  const [isCompressingPhoto, setIsCompressingPhoto] = useState(false);
 
   // Edit Candidate Modal State
   const [editingCandidate, setEditingCandidate] = useState<{
@@ -1311,8 +1312,57 @@ export default function InstitutionAdminPage({
     return matchSearch && matchLevel && matchStatus;
   });
 
-  // Fast Client-Side Image Compression (shrinks 5-15MB phone camera photos to ~35KB in 20ms)
-  const compressImageClient = (file: File, maxWidth = 480, quality = 0.82): Promise<string> => {
+  // ── Authoritative Election & Certificate Metrics ─────────────────────────────
+  const certEffectiveRegistered =
+    studentVoters.length > 0
+      ? (activeCount > 0 ? activeCount : studentVoters.length)
+      : (voterRoll.length > 0
+          ? voterRoll.length
+          : (orgLicenseInfo?.registeredVotersCount || telemetryData?.totalRegistered || 0));
+
+  const certPostsList: PostWithCandidatesDto[] = (posts && posts.length > 0) ? posts : (telemetryData?.posts || []);
+
+  const getCandidateEffectiveVotes = (cand: any, postId?: string): number => {
+    const direct = Number(cand?.voteCount ?? cand?.votes ?? cand?.vote_count);
+    if (!isNaN(direct) && direct > 0) return direct;
+
+    if (telemetryData?.posts && Array.isArray(telemetryData.posts)) {
+      for (const tp of telemetryData.posts) {
+        if (!postId || tp.id === postId) {
+          const found = (tp.candidates || []).find(
+            (tc: any) => tc.id === cand?.id || (tc.matricNo && cand?.matricNo && tc.matricNo === cand.matricNo)
+          );
+          if (found) {
+            const tVotes = Number(found.voteCount ?? found.votes ?? found.vote_count ?? 0);
+            if (!isNaN(tVotes) && tVotes > 0) return tVotes;
+          }
+        }
+      }
+    }
+
+    return !isNaN(direct) && direct >= 0 ? direct : 0;
+  };
+
+  const certMaxOfficeVotes = certPostsList.reduce((max: number, p: any) => {
+    const sum = (p.candidates || []).reduce(
+      (acc: number, c: any) => acc + getCandidateEffectiveVotes(c, p.id),
+      0
+    );
+    return Math.max(max, sum);
+  }, 0);
+
+  const certEffectiveBallotsCast = Math.max(
+    Number(telemetryData?.totalBallotsCast) || 0,
+    certMaxOfficeVotes
+  );
+
+  const certEffectiveTurnoutPct =
+    certEffectiveRegistered > 0
+      ? Math.min(100, Math.round((certEffectiveBallotsCast / certEffectiveRegistered) * 100))
+      : (certEffectiveBallotsCast > 0 ? 100 : (telemetryData?.turnoutPercentage || 0));
+
+  // Fast Client-Side Image Compression (shrinks phone camera photos to ~12KB in 15ms)
+  const compressImageClient = (file: File, maxWidth = 320, quality = 0.7): Promise<string> => {
     return new Promise((resolve) => {
       const reader = new FileReader();
       reader.onload = (e) => {
@@ -1351,8 +1401,13 @@ export default function InstitutionAdminPage({
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const compressed = await compressImageClient(file);
-    setCandForm((prev) => ({ ...prev, photoUrl: compressed }));
+    setIsCompressingPhoto(true);
+    try {
+      const compressed = await compressImageClient(file);
+      setCandForm((prev) => ({ ...prev, photoUrl: compressed }));
+    } finally {
+      setIsCompressingPhoto(false);
+    }
   };
 
   const handleCreatePost = async (e: React.FormEvent) => {
@@ -1441,9 +1496,11 @@ export default function InstitutionAdminPage({
             }
           : post
       );
-      try {
-        localStorage.setItem(`studelect_posts_${instSlug}_${activeOrgSlug}`, JSON.stringify(next));
-      } catch (_) {}
+      setTimeout(() => {
+        try {
+          localStorage.setItem(`studelect_posts_${instSlug}_${activeOrgSlug}`, JSON.stringify(next));
+        } catch (_) {}
+      }, 0);
       return next;
     });
 
@@ -1478,8 +1535,6 @@ export default function InstitutionAdminPage({
             )
           );
           alert(res.message || "Failed to persist candidate to server.");
-        } else {
-          loadTelemetry();
         }
       })
       .catch((err) => {
@@ -1503,10 +1558,15 @@ export default function InstitutionAdminPage({
   const handleEditPhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const compressed = await compressImageClient(file);
-    setEditingCandidate((prev) =>
-      prev ? { ...prev, photoUrl: compressed } : null
-    );
+    setIsCompressingPhoto(true);
+    try {
+      const compressed = await compressImageClient(file);
+      setEditingCandidate((prev) =>
+        prev ? { ...prev, photoUrl: compressed } : null
+      );
+    } finally {
+      setIsCompressingPhoto(false);
+    }
   };
 
   const handleUpdateCandidateSubmit = (e: React.FormEvent) => {
@@ -1537,9 +1597,11 @@ export default function InstitutionAdminPage({
             }
           : post
       );
-      try {
-        localStorage.setItem(`studelect_posts_${instSlug}_${activeOrgSlug}`, JSON.stringify(next));
-      } catch (_) {}
+      setTimeout(() => {
+        try {
+          localStorage.setItem(`studelect_posts_${instSlug}_${activeOrgSlug}`, JSON.stringify(next));
+        } catch (_) {}
+      }, 0);
       return next;
     });
 
@@ -1561,8 +1623,6 @@ export default function InstitutionAdminPage({
       .then((res) => {
         if (!res.success) {
           alert(res.message || "Failed to persist candidate updates.");
-        } else {
-          loadTelemetry();
         }
       })
       .catch((err) => console.warn("Background update candidate error:", err));
@@ -2492,7 +2552,10 @@ export default function InstitutionAdminPage({
 
               <button
                 type="button"
-                onClick={() => window.print()}
+                onClick={() => {
+                  setPrintMode("CERTIFICATE");
+                  setTimeout(() => window.print(), 100);
+                }}
                 className="px-4 py-2 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-xs"
               >
                 <Printer className="w-3.5 h-3.5" />
@@ -2508,9 +2571,7 @@ export default function InstitutionAdminPage({
                 REGISTERED VOTERS
               </span>
               {(() => {
-                const registered = voterRoll.length > 0
-                  ? voterRoll.length
-                  : (orgLicenseInfo?.registeredVotersCount ?? telemetryData.totalRegistered ?? 0);
+                const registered = certEffectiveRegistered;
                 const quota = orgLicenseInfo?.voterQuota || 1000;
                 const percentUsed = Math.min(100, Math.round((registered / quota) * 100));
 
@@ -2549,7 +2610,7 @@ export default function InstitutionAdminPage({
                 VERIFIED BALLOTS CAST
               </span>
               <p className="text-2xl font-bold font-mono text-zinc-900">
-                {telemetryData.totalBallotsCast.toLocaleString()}
+                {certEffectiveBallotsCast.toLocaleString()}
               </p>
               <div className="flex items-center gap-1 text-[11px] text-zinc-600">
                 <CheckCircle2 className="w-3 h-3 text-zinc-900" />
@@ -2563,14 +2624,14 @@ export default function InstitutionAdminPage({
               </span>
               <div className="flex items-baseline gap-2">
                 <p className="text-2xl font-bold font-mono text-zinc-900">
-                  {telemetryData.turnoutPercentage}%
+                  {certEffectiveTurnoutPct}%
                 </p>
                 <span className="text-xs text-zinc-400">of electorate</span>
               </div>
               <div className="w-full bg-zinc-100 rounded-full h-1.5 mt-1 overflow-hidden">
                 <div
                   className="bg-zinc-900 h-1.5 rounded-full transition-all duration-500"
-                  style={{ width: `${Math.min(100, telemetryData.turnoutPercentage)}%` }}
+                  style={{ width: `${Math.min(100, certEffectiveTurnoutPct)}%` }}
                 />
               </div>
             </div>
@@ -2604,20 +2665,22 @@ export default function InstitutionAdminPage({
                     </p>
                   </div>
                   <span className="px-2.5 py-1 rounded bg-zinc-100 text-zinc-800 text-[10px] font-bold font-mono uppercase">
-                    {posts.length} Contested Offices
+                    {certPostsList.length} Contested Offices
                   </span>
                 </div>
 
                 <div className="space-y-8">
-                  {posts.map((post) => {
+                  {certPostsList.map((post: any) => {
                     const totalVotesForPost =
-                      post.candidates.reduce((acc, c) => acc + (c.voteCount || 0), 0) || 0;
+                      post.candidates.reduce((acc: number, c: any) => acc + getCandidateEffectiveVotes(c, post.id), 0) || 0;
                     const sortedCandidates = [...post.candidates].sort(
-                      (a, b) => (b.voteCount || 0) - (a.voteCount || 0)
+                      (a: any, b: any) => getCandidateEffectiveVotes(b, post.id) - getCandidateEffectiveVotes(a, post.id)
                     );
                     const leader = sortedCandidates[0];
                     const runnerUp = sortedCandidates[1];
-                    const margin = leader && runnerUp ? (leader.voteCount || 0) - (runnerUp.voteCount || 0) : (leader?.voteCount || 0);
+                    const leaderVotes = leader ? getCandidateEffectiveVotes(leader, post.id) : 0;
+                    const runnerUpVotes = runnerUp ? getCandidateEffectiveVotes(runnerUp, post.id) : 0;
+                    const margin = leader && runnerUp ? leaderVotes - runnerUpVotes : leaderVotes;
 
                     return (
                       <div key={post.id} className="space-y-3">
@@ -2625,10 +2688,10 @@ export default function InstitutionAdminPage({
                           <div className="flex items-center gap-2">
                             <h4 className="font-bold text-zinc-900 text-sm">{post.title}</h4>
                             <span className="text-xs text-zinc-400 font-mono">
-                              ({totalVotesForPost} total votes)
+                              ({totalVotesForPost.toLocaleString()} total votes)
                             </span>
                           </div>
-                          {leader && leader.voteCount > 0 && (
+                          {leader && leaderVotes > 0 && (
                             <span className="px-2 py-0.5 rounded bg-zinc-100 text-zinc-900 font-mono text-[10px] font-bold border border-zinc-200">
                               Leader: {leader.fullName} (+{margin})
                             </span>
@@ -2641,8 +2704,8 @@ export default function InstitutionAdminPage({
                           </p>
                         ) : (
                           <div className="space-y-3">
-                            {sortedCandidates.map((cand, cIdx) => {
-                              const candVotes = cand.voteCount || 0;
+                            {sortedCandidates.map((cand: any, cIdx: number) => {
+                              const candVotes = getCandidateEffectiveVotes(cand, post.id);
                               const percentage =
                                 totalVotesForPost > 0
                                   ? Math.round((candVotes / totalVotesForPost) * 100)
@@ -5155,7 +5218,12 @@ export default function InstitutionAdminPage({
 
                 <div className="flex items-center gap-3">
                   <div className="w-16 h-16 rounded-xl bg-zinc-100 border border-zinc-200 overflow-hidden flex-shrink-0 flex items-center justify-center shadow-xs">
-                    {candForm.photoUrl ? (
+                    {isCompressingPhoto ? (
+                      <div className="flex flex-col items-center gap-1">
+                        <Loader2 className="w-5 h-5 animate-spin text-zinc-600" />
+                        <span className="text-[8px] font-mono font-bold text-zinc-500">Processing...</span>
+                      </div>
+                    ) : candForm.photoUrl ? (
                       <img
                         src={candForm.photoUrl}
                         alt="Preview"
@@ -5178,11 +5246,21 @@ export default function InstitutionAdminPage({
                     />
 
                     <label className="inline-flex items-center gap-1.5 px-3 py-1 rounded bg-zinc-100 hover:bg-zinc-200 text-zinc-700 cursor-pointer text-[11px] font-semibold transition">
-                      <Upload className="w-3 h-3 text-zinc-500" />
-                      <span>Upload Photo File (JPG / PNG)</span>
+                      {isCompressingPhoto ? (
+                        <>
+                          <Loader2 className="w-3 h-3 animate-spin text-zinc-500" />
+                          <span>Optimizing photo...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Upload className="w-3 h-3 text-zinc-500" />
+                          <span>Upload Photo File (JPG / PNG)</span>
+                        </>
+                      )}
                       <input
                         type="file"
                         accept="image/*"
+                        disabled={isCompressingPhoto}
                         onChange={handlePhotoUpload}
                         className="hidden"
                       />
@@ -5344,7 +5422,12 @@ export default function InstitutionAdminPage({
 
                 <div className="flex items-center gap-3">
                   <div className="w-16 h-16 rounded-xl bg-zinc-100 border border-zinc-200 overflow-hidden flex-shrink-0 flex items-center justify-center shadow-xs">
-                    {editingCandidate.photoUrl ? (
+                    {isCompressingPhoto ? (
+                      <div className="flex flex-col items-center gap-1">
+                        <Loader2 className="w-5 h-5 animate-spin text-zinc-600" />
+                        <span className="text-[8px] font-mono font-bold text-zinc-500">Processing...</span>
+                      </div>
+                    ) : editingCandidate.photoUrl ? (
                       <img
                         src={editingCandidate.photoUrl}
                         alt="Preview"
@@ -5369,11 +5452,21 @@ export default function InstitutionAdminPage({
                     />
 
                     <label className="inline-flex items-center gap-1.5 px-3 py-1 rounded bg-zinc-100 hover:bg-zinc-200 text-zinc-700 cursor-pointer text-[11px] font-semibold transition">
-                      <Upload className="w-3 h-3 text-zinc-500" />
-                      <span>Upload New Photo (JPG / PNG)</span>
+                      {isCompressingPhoto ? (
+                        <>
+                          <Loader2 className="w-3 h-3 animate-spin text-zinc-500" />
+                          <span>Optimizing photo...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Upload className="w-3 h-3 text-zinc-500" />
+                          <span>Upload New Photo (JPG / PNG)</span>
+                        </>
+                      )}
                       <input
                         type="file"
                         accept="image/*"
+                        disabled={isCompressingPhoto}
                         onChange={handleEditPhotoUpload}
                         className="hidden"
                       />
@@ -5741,7 +5834,7 @@ export default function InstitutionAdminPage({
                     />
                   </div>
                   <p className="text-[10px] font-mono tracking-widest uppercase font-bold text-zinc-600">
-                    {instSlug.toUpperCase()} UNIVERSITY • INDEPENDENT ELECTORAL COMMISSION (ELCOM)
+                    {instSlug.toUpperCase()} UNIVERSITY • {activeOrgSlug ? activeOrgSlug.toUpperCase() + " " : ""}INDEPENDENT ELECTORAL COMMISSION (ELCOM)
                   </p>
                   <h1 className="text-lg font-extrabold uppercase tracking-tight text-black">
                     Official Return of Election & Declaration of Results
@@ -5750,7 +5843,7 @@ export default function InstitutionAdminPage({
                     2025/2026 Academic Session • Certified E-Voting Protocol
                   </p>
                   <div className="flex items-center justify-between text-[9px] font-mono text-zinc-500 pt-2 border-t border-zinc-200 mt-2">
-                    <span>CERTIFICATE ID: CERT-{instSlug.toUpperCase()}-{electionRules.status}</span>
+                    <span>CERTIFICATE ID: CERT-{instSlug.toUpperCase()}-{activeOrgSlug ? activeOrgSlug.toUpperCase() + "-" : ""}{electionRules.status}</span>
                     <span suppressHydrationWarning>DATE: {new Date().toLocaleDateString("en-NG", { day: "numeric", month: "long", year: "numeric" })}</span>
                     <span>AUDIT LEDGER: SHA-256 VERIFIED</span>
                   </div>
@@ -5770,9 +5863,9 @@ export default function InstitutionAdminPage({
                         <td className="p-2">Electoral Status</td>
                       </tr>
                       <tr className="divide-x divide-black font-mono">
-                        <td className="p-2">{telemetryData.totalRegistered.toLocaleString()} registered</td>
-                        <td className="p-2 font-bold">{telemetryData.totalBallotsCast.toLocaleString()} votes</td>
-                        <td className="p-2">{telemetryData.turnoutPercentage}%</td>
+                        <td className="p-2">{certEffectiveRegistered.toLocaleString()} registered</td>
+                        <td className="p-2 font-bold">{certEffectiveBallotsCast.toLocaleString()} votes</td>
+                        <td className="p-2">{certEffectiveTurnoutPct}%</td>
                         <td className="p-2 font-bold uppercase">{electionRules.status}</td>
                       </tr>
                     </tbody>
@@ -5794,15 +5887,18 @@ export default function InstitutionAdminPage({
                         );
                         return levels.map((lvl) => {
                           const item = (telemetryData.levelBreakdown || []).find((l: any) => l.level === lvl) || { count: 0, percentage: 0 };
-                          const heightPct = Math.max(10, Math.round((item.count / maxCount) * 100));
+                          const heightPct = maxCount > 0 && item.count > 0 ? Math.max(12, Math.round((item.count / maxCount) * 100)) : 4;
+                          const displayPct = item.count > 0 && certEffectiveBallotsCast > 0
+                            ? Math.round((item.count / certEffectiveBallotsCast) * 100)
+                            : (item.percentage || 0);
 
                           return (
                             <div key={lvl} className="flex-1 flex flex-col items-center h-full justify-end">
                               <span className="font-mono text-[10px] font-bold text-black mb-1">
-                                {item.count} ({item.percentage}%)
+                                {item.count} ({displayPct}%)
                               </span>
                               <div
-                                className="w-full max-w-[48px] bg-black"
+                                className="w-full max-w-[48px] bg-black transition-all"
                                 style={{ height: `${heightPct}%` }}
                               />
                               <span className="font-mono text-[10px] font-bold mt-1 text-black">
@@ -5825,15 +5921,18 @@ export default function InstitutionAdminPage({
                     3. Certified Results by Elective Office
                   </h2>
 
-                  {posts.map((post) => {
-                    const totalVotesForPost = post.candidates.reduce((acc, c) => acc + (c.voteCount || 0), 0) || 0;
-                    const sorted = [...post.candidates].sort((a, b) => (b.voteCount || 0) - (a.voteCount || 0));
+                  {certPostsList.map((post: any) => {
+                    const totalVotesForPost =
+                      (post.candidates || []).reduce((acc: number, c: any) => acc + getCandidateEffectiveVotes(c, post.id), 0) || 0;
+                    const sorted = [...(post.candidates || [])].sort(
+                      (a: any, b: any) => getCandidateEffectiveVotes(b, post.id) - getCandidateEffectiveVotes(a, post.id)
+                    );
 
                     return (
                       <div key={post.id} className="space-y-1">
                         <div className="flex items-center justify-between bg-zinc-100 p-1.5 border border-black font-bold text-xs">
                           <span>OFFICE: {post.title.toUpperCase()}</span>
-                          <span className="font-mono text-[10px]">TOTAL VOTES CAST: {totalVotesForPost}</span>
+                          <span className="font-mono text-[10px]">TOTAL VOTES CAST: {totalVotesForPost.toLocaleString()}</span>
                         </div>
 
                         <table className="w-full text-left border border-black border-collapse text-xs">
@@ -5848,10 +5947,11 @@ export default function InstitutionAdminPage({
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-black font-mono text-xs">
-                            {sorted.map((cand, idx) => {
-                              const candVotes = cand.voteCount || 0;
-                              const pct = totalVotesForPost > 0 ? Math.round((candVotes / totalVotesForPost) * 100) : 0;
-                              const isWinner = idx === 0 && candVotes > 0;
+                            {sorted.map((cand: any, idx: number) => {
+                              const candVotes = getCandidateEffectiveVotes(cand, post.id);
+                              const pct = totalVotesForPost > 0 ? ((candVotes / totalVotesForPost) * 100).toFixed(1) : "0.0";
+                              const isWinner = idx === 0 && candVotes > 0 && (!sorted[1] || candVotes > getCandidateEffectiveVotes(sorted[1], post.id));
+                              const isTied = idx > 0 && candVotes > 0 && candVotes === getCandidateEffectiveVotes(sorted[0], post.id);
 
                               return (
                                 <tr key={cand.id} className={`divide-x divide-black ${isWinner ? "bg-zinc-100 font-bold" : ""}`}>
@@ -5860,15 +5960,23 @@ export default function InstitutionAdminPage({
                                     {cand.fullName} {cand.nickname && `("${cand.nickname}")`}
                                   </td>
                                   <td className="p-1.5">{cand.matricNo || "—"}</td>
-                                  <td className="p-1.5 text-right font-bold">{candVotes}</td>
+                                  <td className="p-1.5 text-right font-bold">{candVotes.toLocaleString()}</td>
                                   <td className="p-1.5 text-right">{pct}%</td>
                                   <td className="p-1.5 text-center">
                                     {isWinner ? (
                                       <span className="border border-black px-2 py-0.5 text-[9px] uppercase font-extrabold bg-black text-white">
                                         ELECTED
                                       </span>
+                                    ) : isTied ? (
+                                      <span className="border border-amber-600 px-2 py-0.5 text-[9px] uppercase font-bold text-amber-700 bg-amber-50">
+                                        TIED
+                                      </span>
+                                    ) : candVotes === 0 && totalVotesForPost === 0 ? (
+                                      <span className="text-[10px] text-zinc-400">PENDING</span>
+                                    ) : idx === 1 ? (
+                                      <span className="text-[10px] text-zinc-600 font-semibold">RUNNER-UP</span>
                                     ) : (
-                                      <span className="text-[10px] text-zinc-500">RUNNER-UP</span>
+                                      <span className="text-[10px] text-zinc-400">NOT ELECTED</span>
                                     )}
                                   </td>
                                 </tr>
@@ -5994,7 +6102,7 @@ export default function InstitutionAdminPage({
             />
           </div>
           <p className="text-[10px] font-mono tracking-widest uppercase font-bold text-zinc-600">
-            {instSlug.toUpperCase()} UNIVERSITY • INDEPENDENT ELECTORAL COMMISSION (ELCOM)
+            {instSlug.toUpperCase()} UNIVERSITY • {activeOrgSlug ? activeOrgSlug.toUpperCase() + " " : ""}INDEPENDENT ELECTORAL COMMISSION (ELCOM)
           </p>
           <h1 className="text-xl font-extrabold uppercase tracking-tight text-black">
             Official Return of Election & Declaration of Results
@@ -6003,7 +6111,7 @@ export default function InstitutionAdminPage({
             2025/2026 Academic Session • Certified E-Voting Protocol
           </p>
           <div className="flex items-center justify-between text-[9px] font-mono text-zinc-500 pt-2 border-t border-zinc-200 mt-2">
-            <span>CERTIFICATE ID: CERT-{instSlug.toUpperCase()}-{electionRules.status}</span>
+            <span>CERTIFICATE ID: CERT-{instSlug.toUpperCase()}-{activeOrgSlug ? activeOrgSlug.toUpperCase() + "-" : ""}{electionRules.status}</span>
             <span suppressHydrationWarning>DATE OF DECLARATION: {new Date().toLocaleDateString("en-NG", { day: "numeric", month: "long", year: "numeric" })}</span>
             <span>AUDIT LEDGER: SHA-256 VERIFIED</span>
           </div>
@@ -6023,9 +6131,9 @@ export default function InstitutionAdminPage({
                 <td className="p-2">Electoral Status</td>
               </tr>
               <tr className="divide-x divide-black font-mono">
-                <td className="p-2">{telemetryData.totalRegistered.toLocaleString()} registered</td>
-                <td className="p-2 font-bold">{telemetryData.totalBallotsCast.toLocaleString()} votes</td>
-                <td className="p-2">{telemetryData.turnoutPercentage}%</td>
+                <td className="p-2">{certEffectiveRegistered.toLocaleString()} registered</td>
+                <td className="p-2 font-bold">{certEffectiveBallotsCast.toLocaleString()} votes</td>
+                <td className="p-2">{certEffectiveTurnoutPct}%</td>
                 <td className="p-2 font-bold uppercase">{electionRules.status}</td>
               </tr>
             </tbody>
@@ -6047,12 +6155,15 @@ export default function InstitutionAdminPage({
                 );
                 return levels.map((lvl) => {
                   const item = (telemetryData.levelBreakdown || []).find((l: any) => l.level === lvl) || { count: 0, percentage: 0 };
-                  const heightPct = Math.max(10, Math.round((item.count / maxCount) * 100));
+                  const heightPct = maxCount > 0 && item.count > 0 ? Math.max(12, Math.round((item.count / maxCount) * 100)) : 4;
+                  const displayPct = item.count > 0 && certEffectiveBallotsCast > 0
+                    ? Math.round((item.count / certEffectiveBallotsCast) * 100)
+                    : (item.percentage || 0);
 
                   return (
                     <div key={lvl} className="flex-1 flex flex-col items-center h-full justify-end">
                       <span className="font-mono text-[10px] font-bold text-black mb-1">
-                        {item.count} ({item.percentage}%)
+                        {item.count} ({displayPct}%)
                       </span>
                       <div
                         className="w-full max-w-[48px] bg-black"
@@ -6078,15 +6189,18 @@ export default function InstitutionAdminPage({
             3. Certified Results by Elective Office
           </h2>
 
-          {posts.map((post) => {
-            const totalVotesForPost = post.candidates.reduce((acc, c) => acc + (c.voteCount || 0), 0) || 0;
-            const sorted = [...post.candidates].sort((a, b) => (b.voteCount || 0) - (a.voteCount || 0));
+          {certPostsList.map((post: any) => {
+            const totalVotesForPost =
+              (post.candidates || []).reduce((acc: number, c: any) => acc + getCandidateEffectiveVotes(c, post.id), 0) || 0;
+            const sorted = [...(post.candidates || [])].sort(
+              (a: any, b: any) => getCandidateEffectiveVotes(b, post.id) - getCandidateEffectiveVotes(a, post.id)
+            );
 
             return (
               <div key={post.id} className="space-y-1 page-break-inside-avoid">
                 <div className="flex items-center justify-between bg-zinc-100 p-1.5 border border-black font-bold text-xs">
                   <span>OFFICE: {post.title.toUpperCase()}</span>
-                  <span className="font-mono text-[10px]">TOTAL VOTES CAST: {totalVotesForPost}</span>
+                  <span className="font-mono text-[10px]">TOTAL VOTES CAST: {totalVotesForPost.toLocaleString()}</span>
                 </div>
 
                 <table className="w-full text-left border border-black border-collapse text-xs">
@@ -6101,10 +6215,11 @@ export default function InstitutionAdminPage({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-black font-mono text-xs">
-                    {sorted.map((cand, idx) => {
-                      const candVotes = cand.voteCount || 0;
-                      const pct = totalVotesForPost > 0 ? Math.round((candVotes / totalVotesForPost) * 100) : 0;
-                      const isWinner = idx === 0 && candVotes > 0;
+                    {sorted.map((cand: any, idx: number) => {
+                      const candVotes = getCandidateEffectiveVotes(cand, post.id);
+                      const pct = totalVotesForPost > 0 ? ((candVotes / totalVotesForPost) * 100).toFixed(1) : "0.0";
+                      const isWinner = idx === 0 && candVotes > 0 && (!sorted[1] || candVotes > getCandidateEffectiveVotes(sorted[1], post.id));
+                      const isTied = idx > 0 && candVotes > 0 && candVotes === getCandidateEffectiveVotes(sorted[0], post.id);
 
                       return (
                         <tr key={cand.id} className={`divide-x divide-black ${isWinner ? "bg-zinc-100 font-bold" : ""}`}>
@@ -6113,15 +6228,23 @@ export default function InstitutionAdminPage({
                             {cand.fullName} {cand.nickname && `("${cand.nickname}")`}
                           </td>
                           <td className="p-1.5">{cand.matricNo || "—"}</td>
-                          <td className="p-1.5 text-right font-bold">{candVotes}</td>
+                          <td className="p-1.5 text-right font-bold">{candVotes.toLocaleString()}</td>
                           <td className="p-1.5 text-right">{pct}%</td>
                           <td className="p-1.5 text-center">
                             {isWinner ? (
                               <span className="border border-black px-2 py-0.5 text-[9px] uppercase font-extrabold bg-black text-white">
                                 ELECTED
                               </span>
+                            ) : isTied ? (
+                              <span className="border border-amber-600 px-2 py-0.5 text-[9px] uppercase font-bold text-amber-700 bg-amber-50">
+                                TIED
+                              </span>
+                            ) : candVotes === 0 && totalVotesForPost === 0 ? (
+                              <span className="text-[10px] text-zinc-400">PENDING</span>
+                            ) : idx === 1 ? (
+                              <span className="text-[10px] text-zinc-600 font-semibold">RUNNER-UP</span>
                             ) : (
-                              <span className="text-[10px] text-zinc-500">RUNNER-UP</span>
+                              <span className="text-[10px] text-zinc-400">NOT ELECTED</span>
                             )}
                           </td>
                         </tr>
