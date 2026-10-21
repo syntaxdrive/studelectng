@@ -450,6 +450,148 @@ function parseElectionTextToSlate(text: string): StagedSlate {
   };
 }
 
+const GROQ_API_KEY = process.env.GROQ_API_KEY || "";
+
+/**
+ * Extracts JSON slate block from Groq LLM response
+ */
+function parseJsonSlateFromLlm(text: string): { slate: StagedSlate; reply: string } | null {
+  try {
+    // 1. Look for ```json ... ``` or ``` ... ```
+    const match = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+    let jsonStr = match ? match[1].trim() : text.trim();
+
+    // 2. If no fence, find outermost curly brackets
+    if (!jsonStr.startsWith("{") && text.includes("{")) {
+      const start = text.indexOf("{");
+      const end = text.lastIndexOf("}");
+      if (start > -1 && end > start) {
+        jsonStr = text.slice(start, end + 1);
+      }
+    }
+
+    const parsed = JSON.parse(jsonStr);
+    if (parsed && (parsed.isSlate || Array.isArray(parsed.posts))) {
+      const posts: StagedPost[] = (parsed.posts || []).map((p: any) => ({
+        title: cleanOfficeTitle(p.title || "Contested Office"),
+        description: p.description || `Contested position for ${p.title || "Office"}`,
+        maxSelections: Number(p.maxSelections) || 1,
+        allowedLevels: Array.isArray(p.allowedLevels) ? p.allowedLevels : [],
+        candidates: (p.candidates || []).map((c: any) => ({
+          fullName: (c.fullName || c.name || "Candidate").trim(),
+          nickname: c.nickname ? String(c.nickname).trim() : undefined,
+          matricNo: c.matricNo || c.matric_no || c.student_id ? String(c.matricNo || c.matric_no || c.student_id).trim().toUpperCase() : undefined,
+          manifesto: c.manifesto || c.slogan ? String(c.manifesto || c.slogan).trim() : undefined,
+        })),
+      }));
+
+      const totalCandidates = posts.reduce((sum, p) => sum + (p.candidates?.length || 0), 0);
+      const reply = parsed.reply || `Extracted ${posts.length} offices and ${totalCandidates} candidates.`;
+
+      return {
+        slate: {
+          posts,
+          totalOffices: posts.length,
+          totalCandidates,
+          summary: `Extracted ${posts.length} elective ${posts.length === 1 ? "office" : "offices"} and ${totalCandidates} ${totalCandidates === 1 ? "candidate" : "candidates"}.`,
+        },
+        reply,
+      };
+    }
+  } catch (_) {
+    // Not JSON or parse failure
+  }
+  return null;
+}
+
+/**
+ * Calls Groq Cloud AI with high-speed LLaMA / Qwen models
+ */
+async function callGroqAi(options: {
+  prompt: string;
+  history: Array<{ role: "user" | "assistant"; content: string }>;
+  orgSlug: string;
+  instSlug: string;
+  model?: string;
+}): Promise<string | null> {
+  const chosenModel =
+    options.model === "StudElect 3.8" ? "qwen/qwen3.8-27b" : "openai/gpt-oss-120b";
+
+  const systemPrompt = `You are the StudElect AI Slate Architect, an intelligent co-pilot for Nigerian tertiary student electoral committees (ELCOM) on the StudElect election platform.
+The active election is for: ${options.orgSlug.toUpperCase()} at ${(options.instSlug || "ui").toUpperCase()}.
+
+YOUR CAPABILITIES & EXPERTISE:
+1. Setting up elective offices and screening candidates from WhatsApp bulletins, memos, lists, or casual instructions.
+2. Managing single-winner (e.g. President) and multi-winner offices (e.g. choose up to 3 Senate seats).
+3. Advising on Nigerian student union electoral guidelines, screening checklists, voting hours, ballot auditing, and constitutional rules.
+4. Formatting official WhatsApp communiqués, declarations, and press releases for student voters.
+
+CRITICAL INSTRUCTIONS FOR SLATE DRAFTING:
+- IF the user provides candidates or offices to create/add (in ANY format, even messy or informal):
+  You MUST output a fenced JSON block with:
+  \`\`\`json
+  {
+    "isSlate": true,
+    "posts": [
+      {
+        "title": "Clean Office Title (e.g. President)",
+        "description": "Contested position for ...",
+        "maxSelections": 1,
+        "candidates": [
+          {
+            "fullName": "Student Full Name",
+            "nickname": "Optional Nickname or null",
+            "matricNo": "Optional Matric No or null",
+            "manifesto": "Optional Manifesto/Slogan or null"
+          }
+        ]
+      }
+    ],
+    "reply": "Friendly explanation summarizing the offices and candidates you staged for review."
+  }
+  \`\`\`
+- IF the user is asking questions, seeking advice, having a conversation, or discussing election guidelines:
+  Respond warmly, professionally, and authoritatively as the StudElect AI Assistant using clean Markdown formatting. Do NOT output a JSON block unless they provide offices/candidates to stage.`;
+
+  try {
+    const formattedHistory = (options.history || [])
+      .slice(-6)
+      .map((h) => ({
+        role: h.role === "assistant" ? "assistant" : "user",
+        content: h.content,
+      }));
+
+    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${GROQ_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: chosenModel,
+        messages: [
+          { role: "system", content: systemPrompt },
+          ...formattedHistory,
+          { role: "user", content: options.prompt },
+        ],
+        temperature: 0.2,
+      }),
+      signal: AbortSignal.timeout(12000), // 12 second fail-safe timeout
+    });
+
+    if (!response.ok) {
+      console.warn("Groq API returned HTTP error:", response.status);
+      return null;
+    }
+
+    const json = await response.json();
+    return json.choices?.[0]?.message?.content || null;
+  } catch (err: any) {
+    console.warn("Groq API request error:", err?.message || err);
+    return null;
+  }
+}
+
 /**
  * Main AI Copilot Agent Action
  * Processes natural language input from the ELCOM admin, maintaining complete data fidelity.
@@ -461,6 +603,7 @@ export async function processAiCopilotMessageAction(input: {
   orgSlug: string;
   instSlug: string;
   currentPostsCount: number;
+  model?: string;
 }): Promise<{
   success: boolean;
   reply: string;
@@ -478,7 +621,54 @@ export async function processAiCopilotMessageAction(input: {
 
     const cleanOrg = input.orgSlug.toUpperCase();
 
-    // 1. High-Speed Local NLP Engine (Instant, zero-latency, complete data extraction)
+    // ── 1. Groq Cloud LLM Processing ──────────────────────────────────────────
+    const groqReply = await callGroqAi({
+      prompt,
+      history: input.history,
+      orgSlug: input.orgSlug,
+      instSlug: input.instSlug,
+      model: input.model,
+    });
+
+    if (groqReply) {
+      // Check if Groq extracted a structured election slate
+      const llmSlateResult = parseJsonSlateFromLlm(groqReply);
+
+      if (llmSlateResult && llmSlateResult.slate.totalOffices > 0) {
+        const stagedSlate = llmSlateResult.slate;
+
+        // Cross-reference with voter roll in Supabase
+        const { verifiedCount, flagNotices } = await enrichCandidatesWithRoster(stagedSlate, input.instSlug);
+
+        let verificationReport = "";
+        if (verifiedCount > 0) {
+          verificationReport = `\n\n🛡️ **Identity Resolution:** ${verifiedCount} of ${stagedSlate.totalCandidates} candidates matched and verified on the official student voter roll.`;
+        }
+        if (flagNotices.length > 0) {
+          verificationReport += `\n\n${flagNotices.join("\n")}`;
+        }
+
+        const reply = `${llmSlateResult.reply}${verificationReport}\n\n**Total Staged:** ${stagedSlate.totalOffices} elective ${
+          stagedSlate.totalOffices === 1 ? "office" : "offices"
+        } and ${stagedSlate.totalCandidates} ${
+          stagedSlate.totalCandidates === 1 ? "candidate" : "candidates"
+        }.\n\nTap **"⚡ Commit to Official Ballot"** below to publish everything live!`;
+
+        return {
+          success: true,
+          reply,
+          stagedSlate,
+        };
+      }
+
+      // If it's a conversational reply without a candidate slate, return the clean LLM text directly!
+      return {
+        success: true,
+        reply: groqReply.replace(/```json[\s\S]*?```/gi, "").trim(),
+      };
+    }
+
+    // ── 2. Local Fallback NLP Engine (If Groq is offline or network fails) ────
     const stagedSlate = parseElectionTextToSlate(prompt);
 
     if (stagedSlate.totalOffices > 0 || stagedSlate.totalCandidates > 0) {
@@ -527,7 +717,7 @@ export async function processAiCopilotMessageAction(input: {
       };
     }
 
-    // Conversational replies for assistance & commands
+    // Conversational replies for assistance & commands (Local Fallback)
     const lower = prompt.toLowerCase();
 
     if (lower.includes("help") || lower.includes("how") || lower.includes("what can you do")) {

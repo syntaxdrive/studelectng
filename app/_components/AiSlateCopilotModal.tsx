@@ -142,6 +142,7 @@ export function AiSlateCopilotModal({
         orgSlug,
         instSlug,
         currentPostsCount,
+        model: selectedModel,
       });
 
       if (res.success) {
@@ -260,7 +261,10 @@ export function AiSlateCopilotModal({
           <div className="px-3.5 py-1 rounded-full bg-zinc-100 border border-zinc-200/80 text-[11px] font-medium text-zinc-600 flex items-center gap-1.5 shadow-2xs">
             <span className="font-semibold text-zinc-800">{orgSlug.toUpperCase()} ELCOM</span>
             <span className="text-zinc-400">•</span>
-            <span className="text-zinc-500">Live Agent</span>
+            <span className="text-zinc-500 flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              Groq LLM Active
+            </span>
           </div>
 
           <button
