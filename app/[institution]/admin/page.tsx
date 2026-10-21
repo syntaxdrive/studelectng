@@ -197,7 +197,16 @@ export default function InstitutionAdminPage({
   const [resetConfirmationInput, setResetConfirmationInput] = useState("");
 
   // ── Voter Management State ──────────────────────────────────────────────────
-  const [voterRoll, setVoterRoll] = useState<any[]>([]);
+  const [voterRoll, setVoterRoll] = useState<any[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const queryOrg = new URLSearchParams(window.location.search).get("org") || (instSlug === "unilag" ? "nacos" : "nesa");
+        const cached = sessionStorage.getItem(`studelect_voter_roll_${instSlug}_${queryOrg}`);
+        if (cached) return JSON.parse(cached);
+      } catch (_) {}
+    }
+    return [];
+  });
   const [voterRollLoading, setVoterRollLoading] = useState(false);
   const [levelFilter, setLevelFilter] = useState<number | "ALL">("ALL");
   const [duesFilter, setDuesFilter] = useState<"ALL" | "PAID" | "UNPAID">("ALL");
@@ -839,9 +848,14 @@ export default function InstitutionAdminPage({
   // ── Voter Roll Loader ───────────────────────────────────────────────────────
   const loadVoterRoll = async (targetOrg?: any) => {
     setVoterRollLoading(true);
-    const orgToUse = typeof targetOrg === "string" ? targetOrg : activeOrgSlug;
-    const res = await getOrgVoterRollAction(instSlug, orgToUse || undefined);
-    if (res.success) setVoterRoll(res.students);
+    const orgToUse = (typeof targetOrg === "string" && targetOrg) ? targetOrg : (activeOrgSlug || (instSlug === "unilag" ? "nacos" : "nesa"));
+    const res = await getOrgVoterRollAction(instSlug, orgToUse);
+    if (res.success && Array.isArray(res.students)) {
+      setVoterRoll(res.students);
+      try {
+        sessionStorage.setItem(`studelect_voter_roll_${instSlug}_${orgToUse}`, JSON.stringify(res.students));
+      } catch (_) {}
+    }
     setVoterRollLoading(false);
   };
 
@@ -3707,13 +3721,28 @@ export default function InstitutionAdminPage({
             </div>
           )}
 
+          {/* Electorate Lock Status Banner */}
+          {electionRules.registrationOpen === false && (
+            <div className="p-3 px-4 rounded-xl bg-emerald-50 border border-emerald-200 text-xs flex items-center justify-between">
+              <div className="flex items-center gap-2 text-emerald-800 font-semibold">
+                <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>Electorate Register Frozen &bull; Self-Registration Locked</span>
+              </div>
+              <span className="text-[11px] text-emerald-600 font-mono">Official Denominator: {totalVoters} Voters</span>
+            </div>
+          )}
+
           {/* KPI Analytics Cards */}
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
             <div className="p-4 rounded-xl bg-white border border-zinc-200 shadow-xs">
               <span className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider block">
                 Total Registered
               </span>
-              <p className="text-2xl font-black text-zinc-900 mt-1">{totalVoters}</p>
+              {voterRollLoading && voterRoll.length === 0 ? (
+                <p className="text-2xl font-black text-zinc-300 mt-1 animate-pulse">---</p>
+              ) : (
+                <p className="text-2xl font-black text-zinc-900 mt-1">{totalVoters}</p>
+              )}
               <span className="text-[10px] text-zinc-400 mt-0.5 block">Official Roster Count</span>
             </div>
 
@@ -3721,7 +3750,11 @@ export default function InstitutionAdminPage({
               <span className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider block">
                 Dues Compliant
               </span>
-              <p className="text-2xl font-black text-emerald-600 mt-1">{duesPaidCount}</p>
+              {voterRollLoading && voterRoll.length === 0 ? (
+                <p className="text-2xl font-black text-zinc-300 mt-1 animate-pulse">---</p>
+              ) : (
+                <p className="text-2xl font-black text-emerald-600 mt-1">{duesPaidCount}</p>
+              )}
               <span className="text-[10px] text-zinc-400 mt-0.5 block">
                 {totalVoters > 0 ? Math.round((duesPaidCount / totalVoters) * 100) : 0}% cleared for ballot
               </span>
@@ -3731,7 +3764,11 @@ export default function InstitutionAdminPage({
               <span className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider block">
                 Active / Cleared
               </span>
-              <p className="text-2xl font-black text-blue-600 mt-1">{activeCount}</p>
+              {voterRollLoading && voterRoll.length === 0 ? (
+                <p className="text-2xl font-black text-zinc-300 mt-1 animate-pulse">---</p>
+              ) : (
+                <p className="text-2xl font-black text-blue-600 mt-1">{activeCount}</p>
+              )}
               <span className="text-[10px] text-zinc-400 mt-0.5 block">
                 {isDuesEnforced ? "Eligible for Ballot" : "Good Standing"}
               </span>
@@ -3741,7 +3778,11 @@ export default function InstitutionAdminPage({
               <span className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider block">
                 Promoted Admins
               </span>
-              <p className="text-2xl font-black text-indigo-600 mt-1">{adminCount}</p>
+              {voterRollLoading && voterRoll.length === 0 ? (
+                <p className="text-2xl font-black text-zinc-300 mt-1 animate-pulse">---</p>
+              ) : (
+                <p className="text-2xl font-black text-indigo-600 mt-1">{adminCount}</p>
+              )}
               <span className="text-[10px] text-zinc-400 mt-0.5 block">Polling Agents / ELCOM</span>
             </div>
 
@@ -3749,7 +3790,11 @@ export default function InstitutionAdminPage({
               <span className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider block">
                 Gated / Ineligible
               </span>
-              <p className="text-2xl font-black text-rose-600 mt-1">{totalVoters - activeCount}</p>
+              {voterRollLoading && voterRoll.length === 0 ? (
+                <p className="text-2xl font-black text-zinc-300 mt-1 animate-pulse">---</p>
+              ) : (
+                <p className="text-2xl font-black text-rose-600 mt-1">{totalVoters - activeCount}</p>
+              )}
               <span className="text-[10px] text-zinc-400 mt-0.5 block">
                 {isDuesEnforced ? "Unpaid or Suspended" : "Access Revoked"}
               </span>

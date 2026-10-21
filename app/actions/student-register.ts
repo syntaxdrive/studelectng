@@ -331,7 +331,12 @@ export async function registerStudentAccountAction(input: StudentRegisterInput) 
 export async function getOrgVoterRollAction(institutionSlug: string, orgSlug?: string) {
   const cleanSlug = (institutionSlug || "ui").toLowerCase().trim();
   const institutionId = `inst-${cleanSlug}`;
-  const cleanOrgSlug = (orgSlug || "").toLowerCase().trim();
+  let cleanOrgSlug = (orgSlug || "").toLowerCase().trim();
+
+  // Strict Fallback: NEVER allow un-isolated campus-wide bleed into an organization view
+  if (!cleanOrgSlug) {
+    cleanOrgSlug = cleanSlug === "unilag" ? "nacos" : "nesa";
+  }
 
   try {
       let org: any = null;
@@ -1750,7 +1755,7 @@ export async function getElectionRulesAction(
       const registrationOpen =
         approvals.registrationOpen !== undefined
           ? approvals.registrationOpen !== false
-          : (store[data.id]?.registrationOpen ?? store[electionId]?.registrationOpen ?? true);
+          : (store[data.id]?.registrationOpen ?? store[electionId]?.registrationOpen ?? (effectiveStatus === "LIVE" ? false : true));
 
       baseRules = {
         electionId: data.id || electionId,
