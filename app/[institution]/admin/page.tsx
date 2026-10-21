@@ -42,7 +42,7 @@ import {
   SUPERADMIN_WHATSAPP_RAW,
   AdminWhatsAppReason,
 } from "@/lib/whatsapp";
-import { getCurrentUserSession } from "@/app/actions/auth";
+import { getCurrentUserSession, logoutAction } from "@/app/actions/auth";
 import { getInstitutionBySlug } from "@/lib/db/institutions";
 import { updateOrgLogoAction, getOrgLogoAction } from "@/app/actions/elections";
 import {
@@ -123,6 +123,7 @@ import {
   AlertTriangle,
   Lock,
   Loader2,
+  LogOut,
   Sparkles,
 } from "lucide-react";
 
@@ -215,6 +216,7 @@ export default function InstitutionAdminPage({
   const [revealedPins, setRevealedPins] = useState<Set<string>>(new Set());
   const [voterSearch, setVoterSearch] = useState("");
   const [currentAdminUser, setCurrentAdminUser] = useState<any | null>(null);
+  const [isSigningOut, setIsSigningOut] = useState(false);
   const [updatingDuesStudentId, setUpdatingDuesStudentId] = useState<string | null>(null);
   const [updatingActiveStudentId, setUpdatingActiveStudentId] = useState<string | null>(null);
 
@@ -650,12 +652,19 @@ export default function InstitutionAdminPage({
     };
   }, [instSlug]);
 
-  const handleAdminSignOut = async () => {
+  const handleAdminSignOut = () => {
+    setIsSigningOut(true);
+    // 1. Instantly expire client-side auth cookies and cached session data (0ms)
     try {
-      const { logoutAction } = await import("@/app/actions/auth");
-      await logoutAction();
+      document.cookie = "studelect_admin_session=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+      sessionStorage.clear();
     } catch (_) {}
-    window.location.href = `/${instSlug}`;
+
+    // 2. Fire server action in background without waiting on network
+    logoutAction().catch(() => {});
+
+    // 3. Instant client-side redirect
+    window.location.replace(`/${instSlug}`);
   };
 
   const handleOrgSwitch = (newOrgSlug: string) => {
@@ -1961,10 +1970,21 @@ export default function InstitutionAdminPage({
               <button
                 type="button"
                 onClick={handleAdminSignOut}
-                className="ml-1 pl-2 border-l border-zinc-700 text-zinc-400 hover:text-white transition text-[11px] font-semibold"
+                disabled={isSigningOut}
+                className="ml-1 pl-2 border-l border-zinc-700 text-zinc-400 hover:text-white transition text-[11px] font-semibold flex items-center gap-1.5 disabled:opacity-50"
                 title="Sign out of administration"
               >
-                Sign Out
+                {isSigningOut ? (
+                  <>
+                    <Loader2 className="w-3 h-3 animate-spin text-zinc-300" />
+                    <span>Signing out...</span>
+                  </>
+                ) : (
+                  <>
+                    <LogOut className="w-3 h-3" />
+                    <span>Sign Out</span>
+                  </>
+                )}
               </button>
             </div>
           )}
