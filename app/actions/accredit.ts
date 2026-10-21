@@ -23,9 +23,9 @@ export async function accreditVoterAction(input: AccreditVoterInput) {
       };
     }
 
-    // Rate limit PIN verification: max 5 attempts per 10 minutes per matric number
+    // Rate limit PIN verification: max 10 attempts per 5 minutes per matric number (forgiving for student typos)
     const rateLimitKey = `accredit:${norm.normalized}`;
-    const limit = checkRateLimit(rateLimitKey, 5, 10 * 60 * 1000);
+    const limit = checkRateLimit(rateLimitKey, 10, 5 * 60 * 1000);
     if (!limit.allowed) {
       return {
         success: false,

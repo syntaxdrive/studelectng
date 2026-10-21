@@ -2,15 +2,13 @@ import CryptoJS from "crypto-js";
 
 const SECRET_KEY =
   process.env.BALLOT_SIGNING_SECRET ||
-  (process.env.NODE_ENV === "production"
-    ? CryptoJS.lib.WordArray.random(32).toString()
-    : "studelect-dev-local-signing-key");
+  process.env.NEXTAUTH_SECRET ||
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+  "studelect-production-cryptographic-signing-key-2026-auth";
 
 const PIN_SALT =
   process.env.VOTER_PIN_SALT ||
-  (process.env.NODE_ENV === "production"
-    ? CryptoJS.lib.WordArray.random(16).toString()
-    : "studelect-voter-pin-salt-dev");
+  "studelect-voter-pin-salt-production-2026";
 
 /**
  * Generate a cryptographically blinded single-use voting token

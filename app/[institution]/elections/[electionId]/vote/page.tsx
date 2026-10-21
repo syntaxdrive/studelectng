@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, use } from "react";
+import React, { useState, useEffect, useRef, use } from "react";
 import Link from "next/link";
 import {
   MOCK_ELECTIONS,
@@ -138,6 +138,7 @@ export default function VotingPage({
   const [castTimestamp, setCastTimestamp] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [copiedReceipt, setCopiedReceipt] = useState(false);
+  const isSubmittingVoteRef = useRef(false);
 
   const handleAccreditation = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -188,6 +189,13 @@ export default function VotingPage({
       email: "",
     });
 
+    if ((res as any).alreadyVoted) {
+      setReceiptCode((res as any).receiptHash || "BALLOT_CONFIRMED");
+      setCastTimestamp(Date.now());
+      setStep("RECEIPT");
+      return;
+    }
+
     setBlindToken(res.ballotToken);
     setStep("BALLOT");
   };
@@ -231,37 +239,48 @@ export default function VotingPage({
   };
 
   const handleCastBallot = async () => {
-    if (!blindToken) return;
+    if (!blindToken || isSubmittingVoteRef.current) return;
+    isSubmittingVoteRef.current = true;
     setIsLoading(true);
+    setAuthError(null);
 
-    const flattenedVotes: Array<{ postId: string; candidateId: string }> = [];
-    for (const [postId, val] of Object.entries(selectedCandidates)) {
-      if (Array.isArray(val)) {
-        val.forEach((candidateId) => {
-          if (candidateId) flattenedVotes.push({ postId, candidateId });
-        });
-      } else if (val) {
-        flattenedVotes.push({ postId, candidateId: val });
+    try {
+      const flattenedVotes: Array<{ postId: string; candidateId: string }> = [];
+      for (const [postId, val] of Object.entries(selectedCandidates)) {
+        if (Array.isArray(val)) {
+          val.forEach((candidateId) => {
+            if (candidateId) flattenedVotes.push({ postId, candidateId });
+          });
+        } else if (val) {
+          flattenedVotes.push({ postId, candidateId: val });
+        }
       }
-    }
 
-    const res = await castBallotAction({
-      ballotToken: blindToken,
-      studentId: (authenticatedStudent as any)?.id,
-      matricNo: authenticatedStudent?.matricNo,
-      selections: selectedCandidates,
-      votes: flattenedVotes,
-      voterLevel: authenticatedStudent?.level || 100,
-    });
+      const res = await castBallotAction({
+        ballotToken: blindToken,
+        studentId: (authenticatedStudent as any)?.id,
+        matricNo: authenticatedStudent?.matricNo,
+        selections: selectedCandidates,
+        votes: flattenedVotes,
+        voterLevel: authenticatedStudent?.level || 100,
+      });
 
-    setIsLoading(false);
-
-    if (res.success && res.receipt) {
-      setReceiptCode(res.receipt.receiptCode);
-      setCastTimestamp(res.receipt.timestamp);
-      setStep("RECEIPT");
-    } else {
-      setAuthError(res.message || "Failed to record ballot.");
+      if (res.success && res.receipt) {
+        setReceiptCode(res.receipt.receiptCode);
+        setCastTimestamp(res.receipt.timestamp);
+        setStep("RECEIPT");
+      } else if (res.alreadyVoted && res.receiptHash) {
+        setReceiptCode(res.receiptHash);
+        setCastTimestamp(Date.now());
+        setStep("RECEIPT");
+      } else {
+        setAuthError(res.message || "Failed to record ballot.");
+      }
+    } catch (err: any) {
+      setAuthError(err?.message || "Network issue during vote submission. Please check your connection.");
+    } finally {
+      setIsLoading(false);
+      isSubmittingVoteRef.current = false;
     }
   };
 

@@ -216,9 +216,9 @@ export async function castBallotAction(input: CastBallotInput) {
       const rawMatric = input.matricNo || "";
       const normMatric = rawMatric.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
 
-      // Rate limit ballot submissions (max 3 attempts per 60 seconds per token/matric)
+      // Rate limit ballot submissions (max 10 attempts per 60 seconds per token/matric)
       const rateLimitKey = `vote:${tokenId}:${normMatric || "anon"}`;
-      const limit = checkRateLimit(rateLimitKey, 3, 60 * 1000);
+      const limit = checkRateLimit(rateLimitKey, 10, 60 * 1000);
       if (!limit.allowed) {
         return {
           success: false,
