@@ -15,7 +15,7 @@ export interface CastBallotInput {
   };
   studentId?: string;
   matricNo?: string;
-  selections?: { [postId: string]: string };
+  selections?: { [postId: string]: string | string[] | any };
   votes?: Array<{ postId: string; candidateId: string }>;
   voterLevel?: number;
 }
@@ -151,10 +151,21 @@ function appendBallotStore(ballot: StoredBallot) {
   }
 }
 
-function incrementCandidateVotesInStore(selections: { [postId: string]: string }) {
+function incrementCandidateVotesInStore(selections: { [postId: string]: any }) {
   try {
     const store = safeReadDataJson<{ posts: any[] }>("candidates-store.json", { posts: [] });
-    const selectedCandIds = new Set(Object.values(selections));
+    const selectedCandIds = new Set<string>();
+
+    for (const [k, v] of Object.entries(selections)) {
+      if (k.startsWith("_")) continue;
+      if (Array.isArray(v)) {
+        v.forEach((id) => {
+          if (typeof id === "string" && id) selectedCandIds.add(id);
+        });
+      } else if (typeof v === "string" && v) {
+        selectedCandIds.add(v);
+      }
+    }
 
     store.posts = (store.posts || []).map((post: any) => ({
       ...post,
@@ -246,12 +257,26 @@ export async function castBallotAction(input: CastBallotInput) {
 
       const receiptHash = generateReceiptHash(electionId, tokenId, timestamp);
 
-      // Normalize selections
-      const selectionsObj: { [postId: string]: string } = input.selections || {};
+      // Normalize selections (handles both single candidate choice and multiple candidate selections)
+      const selectionsObj: { [postId: string]: any } = {};
+      if (input.selections) {
+        for (const [k, v] of Object.entries(input.selections)) {
+          if (v) selectionsObj[k] = v;
+        }
+      }
       if (input.votes && Array.isArray(input.votes)) {
         for (const v of input.votes) {
           if (v.postId && v.candidateId) {
-            selectionsObj[v.postId] = v.candidateId;
+            const current = selectionsObj[v.postId];
+            if (!current) {
+              selectionsObj[v.postId] = v.candidateId;
+            } else if (Array.isArray(current)) {
+              if (!current.includes(v.candidateId)) {
+                current.push(v.candidateId);
+              }
+            } else if (current !== v.candidateId) {
+              selectionsObj[v.postId] = [current, v.candidateId];
+            }
           }
         }
       }
@@ -531,10 +556,13 @@ export async function getRealtimeElectionTelemetryAction(
       const candidatesWithExactVotes = post.candidates.map((cand) => {
         const exactVotes = ballots.filter((b) => {
           if (!b.selections) return false;
-          if (b.selections[post.id] === cand.id) return true;
+          const postChoice = b.selections[post.id];
+          if (postChoice === cand.id) return true;
+          if (Array.isArray(postChoice) && postChoice.includes(cand.id)) return true;
           for (const [k, v] of Object.entries(b.selections)) {
             if (k.startsWith("_")) continue;
             if (v === cand.id) return true;
+            if (Array.isArray(v) && v.includes(cand.id)) return true;
           }
           return false;
         }).length;

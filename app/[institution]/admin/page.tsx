@@ -9,6 +9,7 @@ import { toggleStudentAdminRoleAction } from "@/app/actions/promote-student";
 import {
   getElectionPostsAndCandidatesAction,
   createPostAction,
+  updatePostAction,
   createCandidateAction,
   updateCandidateAction,
   deleteCandidateAction,
@@ -224,6 +225,16 @@ export default function InstitutionAdminPage({
   const [isAddPostModalOpen, setIsAddPostModalOpen] = useState(false);
   const [newPostTitle, setNewPostTitle] = useState("");
   const [newPostDesc, setNewPostDesc] = useState("");
+  const [newPostSelectionMode, setNewPostSelectionMode] = useState<"SINGLE" | "MULTIPLE">("SINGLE");
+  const [newPostMaxSelections, setNewPostMaxSelections] = useState(2);
+
+  // Edit Post Modal State
+  const [editingPost, setEditingPost] = useState<PostWithCandidatesDto | null>(null);
+  const [editPostTitle, setEditPostTitle] = useState("");
+  const [editPostDesc, setEditPostDesc] = useState("");
+  const [editPostSelectionMode, setEditPostSelectionMode] = useState<"SINGLE" | "MULTIPLE">("SINGLE");
+  const [editPostMaxSelections, setEditPostMaxSelections] = useState(2);
+  const [isUpdatingPost, setIsUpdatingPost] = useState(false);
 
   // New Candidate Modal State
   const [activePostForNomination, setActivePostForNomination] = useState<string | null>(null);
@@ -1414,12 +1425,18 @@ export default function InstitutionAdminPage({
     e.preventDefault();
     if (!newPostTitle.trim() || isCreatingPost) return;
 
+    const targetMaxSelections =
+      newPostSelectionMode === "MULTIPLE"
+        ? Math.max(2, Number(newPostMaxSelections) || 2)
+        : 1;
+
     setIsCreatingPost(true);
     try {
       const res = await createPostAction({
         electionId,
         title: newPostTitle.trim(),
         description: newPostDesc.trim(),
+        maxSelections: targetMaxSelections,
       });
 
       const newPost: PostWithCandidatesDto = {
@@ -1427,7 +1444,7 @@ export default function InstitutionAdminPage({
         electionId,
         title: newPostTitle.trim(),
         description: newPostDesc.trim(),
-        maxSelections: 1,
+        maxSelections: targetMaxSelections,
         allowedLevels: [],
         candidates: [],
       };
@@ -1442,6 +1459,8 @@ export default function InstitutionAdminPage({
 
       setNewPostTitle("");
       setNewPostDesc("");
+      setNewPostSelectionMode("SINGLE");
+      setNewPostMaxSelections(2);
       setIsAddPostModalOpen(false);
       setIsCreatingPost(false);
       setAdminActionMessage(res.message || "Office created successfully.");
@@ -1460,6 +1479,75 @@ export default function InstitutionAdminPage({
       alert(err?.message || "Failed to create elective office.");
     } finally {
       setIsCreatingPost(false);
+    }
+  };
+
+  const handleOpenEditPost = (post: PostWithCandidatesDto) => {
+    setEditingPost(post);
+    setEditPostTitle(post.title);
+    setEditPostDesc(post.description || "");
+    setEditPostSelectionMode(post.maxSelections > 1 ? "MULTIPLE" : "SINGLE");
+    setEditPostMaxSelections(post.maxSelections > 1 ? post.maxSelections : 2);
+  };
+
+  const handleUpdatePost = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingPost || !editPostTitle.trim() || isUpdatingPost) return;
+
+    const targetMaxSelections =
+      editPostSelectionMode === "MULTIPLE"
+        ? Math.max(2, Number(editPostMaxSelections) || 2)
+        : 1;
+    const postId = editingPost.id;
+    const cleanTitle = editPostTitle.trim();
+    const cleanDesc = editPostDesc.trim();
+
+    setIsUpdatingPost(true);
+
+    // 0ms Optimistic UI update
+    setPosts((prev) => {
+      const next = prev.map((p) =>
+        p.id === postId
+          ? {
+              ...p,
+              title: cleanTitle,
+              description: cleanDesc,
+              maxSelections: targetMaxSelections,
+            }
+          : p
+      );
+      try {
+        localStorage.setItem(`studelect_posts_${instSlug}_${activeOrgSlug}`, JSON.stringify(next));
+      } catch (_) {}
+      return next;
+    });
+
+    try {
+      const res = await updatePostAction({
+        postId,
+        electionId,
+        title: cleanTitle,
+        description: cleanDesc,
+        maxSelections: targetMaxSelections,
+      });
+
+      setEditingPost(null);
+      setAdminActionMessage(res.message || "Office updated successfully.");
+      setTimeout(() => setAdminActionMessage(null), 4000);
+
+      // Background fresh sync
+      getElectionPostsAndCandidatesAction(electionId).then((fresh) => {
+        if (fresh && fresh.length > 0) {
+          setPosts(fresh);
+          try {
+            localStorage.setItem(`studelect_posts_${instSlug}_${activeOrgSlug}`, JSON.stringify(fresh));
+          } catch (_) {}
+        }
+      });
+    } catch (err: any) {
+      alert(err?.message || "Failed to update elective office.");
+    } finally {
+      setIsUpdatingPost(false);
     }
   };
 
@@ -3263,14 +3351,35 @@ export default function InstitutionAdminPage({
                       {idx + 1}
                     </span>
                     <div>
-                      <h3 className="font-bold text-zinc-900 text-base">{post.title}</h3>
-                      <p className="text-zinc-500 text-xs">
-                        {post.description || "Single-winner office"} • {post.candidates.length} Candidate(s)
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="font-bold text-zinc-900 text-base">{post.title}</h3>
+                        {post.maxSelections > 1 ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                            Multi-Choice (Max {post.maxSelections} Picks)
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-zinc-100 text-zinc-700 border border-zinc-200">
+                            Single Choice (1 Pick)
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-zinc-500 text-xs mt-0.5">
+                        {post.description || (post.maxSelections > 1 ? `Voters can select up to ${post.maxSelections} candidates` : "Single-winner office")} • {post.candidates.length} Candidate(s)
                       </p>
                     </div>
                   </div>
 
                   <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleOpenEditPost(post)}
+                      className="px-2.5 py-1.5 rounded-lg border border-zinc-300 hover:border-zinc-500 bg-white hover:bg-zinc-50 text-zinc-800 text-xs font-bold transition flex items-center gap-1.5 shadow-xs"
+                      title="Edit Office Title, Description, and Selection Mode"
+                    >
+                      <Pencil className="w-3.5 h-3.5 text-zinc-600" />
+                      <span>Edit Office</span>
+                    </button>
+
                     <button
                       type="button"
                       onClick={() => setActivePostForNomination(post.id)}
@@ -5108,6 +5217,89 @@ export default function InstitutionAdminPage({
                 />
               </div>
 
+              {/* Voter Selection Rule */}
+              <div className="space-y-2">
+                <label className="block font-semibold uppercase text-zinc-700">
+                  Voter Selection Rule
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setNewPostSelectionMode("SINGLE")}
+                    className={`p-3 rounded-xl border text-left transition flex flex-col justify-between ${
+                      newPostSelectionMode === "SINGLE"
+                        ? "border-zinc-900 bg-zinc-900 text-white shadow-xs"
+                        : "border-zinc-200 bg-white hover:border-zinc-400 text-zinc-800"
+                    }`}
+                  >
+                    <div>
+                      <p className="font-bold text-xs">Single Choice</p>
+                      <p className={`text-[10px] mt-0.5 ${newPostSelectionMode === "SINGLE" ? "text-zinc-300" : "text-zinc-500"}`}>
+                        Voter picks only 1 candidate
+                      </p>
+                    </div>
+                    <span className={`text-[10px] font-mono mt-2 inline-block font-bold ${newPostSelectionMode === "SINGLE" ? "text-blue-300" : "text-zinc-400"}`}>
+                      1 Winner
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setNewPostSelectionMode("MULTIPLE")}
+                    className={`p-3 rounded-xl border text-left transition flex flex-col justify-between ${
+                      newPostSelectionMode === "MULTIPLE"
+                        ? "border-zinc-900 bg-zinc-900 text-white shadow-xs"
+                        : "border-zinc-200 bg-white hover:border-zinc-400 text-zinc-800"
+                    }`}
+                  >
+                    <div>
+                      <p className="font-bold text-xs">Multiple Selection</p>
+                      <p className={`text-[10px] mt-0.5 ${newPostSelectionMode === "MULTIPLE" ? "text-zinc-300" : "text-zinc-500"}`}>
+                        Voter can pick up to N candidates
+                      </p>
+                    </div>
+                    <span className={`text-[10px] font-mono mt-2 inline-block font-bold ${newPostSelectionMode === "MULTIPLE" ? "text-blue-300" : "text-zinc-400"}`}>
+                      Multi-Winner
+                    </span>
+                  </button>
+                </div>
+
+                {newPostSelectionMode === "MULTIPLE" && (
+                  <div className="p-3 bg-zinc-50 rounded-xl border border-zinc-200 space-y-1.5 animate-in fade-in duration-150">
+                    <div className="flex items-center justify-between">
+                      <label className="font-semibold text-zinc-700 text-xs">
+                        Maximum Selections Allowed for Voters
+                      </label>
+                      <span className="font-mono font-bold text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                        Pick up to {newPostMaxSelections}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="range"
+                        min={2}
+                        max={10}
+                        step={1}
+                        value={newPostMaxSelections}
+                        onChange={(e) => setNewPostMaxSelections(Number(e.target.value))}
+                        className="flex-1 accent-zinc-900 cursor-pointer"
+                      />
+                      <input
+                        type="number"
+                        min={2}
+                        max={20}
+                        value={newPostMaxSelections}
+                        onChange={(e) => setNewPostMaxSelections(Math.max(2, Math.min(20, Number(e.target.value) || 2)))}
+                        className="w-16 px-2.5 py-1.5 rounded-lg border border-zinc-300 text-center font-bold text-xs"
+                      />
+                    </div>
+                    <p className="text-[10px] text-zinc-500">
+                      e.g., voters can choose up to {newPostMaxSelections} candidates on their ballot for this office.
+                    </p>
+                  </div>
+                )}
+              </div>
+
               <div className="pt-3 border-t border-zinc-100 flex items-center justify-end gap-2">
                 <button
                   type="button"
@@ -5131,6 +5323,169 @@ export default function InstitutionAdminPage({
                     <>
                       <Plus className="w-3.5 h-3.5" />
                       <span>Create Office</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL: EDIT ELECTIVE OFFICE                                               */}
+      {/* ========================================================================= */}
+      {editingPost && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl border border-zinc-200 max-w-md w-full p-6 space-y-4 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
+              <div>
+                <h3 className="text-lg font-bold text-zinc-900">Edit Elective Office</h3>
+                <p className="text-xs text-zinc-500">Update office name, description, and voter selection rules.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingPost(null)}
+                className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdatePost} className="space-y-4 text-xs">
+              <div>
+                <label className="block font-semibold uppercase text-zinc-700 mb-1">
+                  Office / Post Title
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Director of Socials & Welfare"
+                  value={editPostTitle}
+                  onChange={(e) => setEditPostTitle(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-lg border border-zinc-300 focus:ring-1 focus:ring-zinc-900 focus:outline-none font-medium"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold uppercase text-zinc-700 mb-1">
+                  Description / Responsibilities (Optional)
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Single-winner executive council office"
+                  value={editPostDesc}
+                  onChange={(e) => setEditPostDesc(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-lg border border-zinc-300 focus:ring-1 focus:ring-zinc-900 focus:outline-none"
+                />
+              </div>
+
+              {/* Voter Selection Rule */}
+              <div className="space-y-2">
+                <label className="block font-semibold uppercase text-zinc-700">
+                  Voter Selection Rule
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditPostSelectionMode("SINGLE")}
+                    className={`p-3 rounded-xl border text-left transition flex flex-col justify-between ${
+                      editPostSelectionMode === "SINGLE"
+                        ? "border-zinc-900 bg-zinc-900 text-white shadow-xs"
+                        : "border-zinc-200 bg-white hover:border-zinc-400 text-zinc-800"
+                    }`}
+                  >
+                    <div>
+                      <p className="font-bold text-xs">Single Choice</p>
+                      <p className={`text-[10px] mt-0.5 ${editPostSelectionMode === "SINGLE" ? "text-zinc-300" : "text-zinc-500"}`}>
+                        Voter picks only 1 candidate
+                      </p>
+                    </div>
+                    <span className={`text-[10px] font-mono mt-2 inline-block font-bold ${editPostSelectionMode === "SINGLE" ? "text-blue-300" : "text-zinc-400"}`}>
+                      1 Winner
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setEditPostSelectionMode("MULTIPLE")}
+                    className={`p-3 rounded-xl border text-left transition flex flex-col justify-between ${
+                      editPostSelectionMode === "MULTIPLE"
+                        ? "border-zinc-900 bg-zinc-900 text-white shadow-xs"
+                        : "border-zinc-200 bg-white hover:border-zinc-400 text-zinc-800"
+                    }`}
+                  >
+                    <div>
+                      <p className="font-bold text-xs">Multiple Selection</p>
+                      <p className={`text-[10px] mt-0.5 ${editPostSelectionMode === "MULTIPLE" ? "text-zinc-300" : "text-zinc-500"}`}>
+                        Voter can pick up to N candidates
+                      </p>
+                    </div>
+                    <span className={`text-[10px] font-mono mt-2 inline-block font-bold ${editPostSelectionMode === "MULTIPLE" ? "text-blue-300" : "text-zinc-400"}`}>
+                      Multi-Winner
+                    </span>
+                  </button>
+                </div>
+
+                {editPostSelectionMode === "MULTIPLE" && (
+                  <div className="p-3 bg-zinc-50 rounded-xl border border-zinc-200 space-y-1.5 animate-in fade-in duration-150">
+                    <div className="flex items-center justify-between">
+                      <label className="font-semibold text-zinc-700 text-xs">
+                        Maximum Selections Allowed for Voters
+                      </label>
+                      <span className="font-mono font-bold text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                        Pick up to {editPostMaxSelections}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="range"
+                        min={2}
+                        max={10}
+                        step={1}
+                        value={editPostMaxSelections}
+                        onChange={(e) => setEditPostMaxSelections(Number(e.target.value))}
+                        className="flex-1 accent-zinc-900 cursor-pointer"
+                      />
+                      <input
+                        type="number"
+                        min={2}
+                        max={20}
+                        value={editPostMaxSelections}
+                        onChange={(e) => setEditPostMaxSelections(Math.max(2, Math.min(20, Number(e.target.value) || 2)))}
+                        className="w-16 px-2.5 py-1.5 rounded-lg border border-zinc-300 text-center font-bold text-xs"
+                      />
+                    </div>
+                    <p className="text-[10px] text-zinc-500">
+                      e.g., voters can choose up to {editPostMaxSelections} candidates on their ballot for this office.
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              <div className="pt-3 border-t border-zinc-100 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  disabled={isUpdatingPost}
+                  onClick={() => setEditingPost(null)}
+                  className="px-4 py-2 rounded-lg border border-zinc-300 hover:bg-zinc-50 text-zinc-700 font-semibold disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isUpdatingPost || !editPostTitle.trim()}
+                  className="px-5 py-2 rounded-lg bg-zinc-900 hover:bg-zinc-800 disabled:bg-zinc-400 text-white font-bold transition flex items-center gap-1.5 shadow-xs"
+                >
+                  {isUpdatingPost ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Saving Changes...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-3.5 h-3.5" />
+                      <span>Save Changes</span>
                     </>
                   )}
                 </button>

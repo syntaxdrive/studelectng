@@ -93,7 +93,7 @@ export default function OrganizationPortalPage({
   const [authError, setAuthError] = useState<string | null>(null);
   const [authenticatedStudent, setAuthenticatedStudent] = useState<MockStudent | null>(null);
   const [blindToken, setBlindToken] = useState<any | null>(null);
-  const [selectedCandidates, setSelectedCandidates] = useState<{ [postId: string]: string }>({});
+  const [selectedCandidates, setSelectedCandidates] = useState<{ [postId: string]: string | string[] }>({});
   const [receiptCode, setReceiptCode] = useState<string | null>(null);
   const [castTimestamp, setCastTimestamp] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -621,13 +621,48 @@ export default function OrganizationPortalPage({
     } catch (_) {}
   };
 
-  // Select Candidate
-  const handleSelectCandidate = (postId: string, candidateId: string) => {
+  // Select Candidate (Supports Single and Multi-winner offices)
+  const handleSelectCandidate = (postId: string, candidateId: string, maxSelections: number = 1) => {
     if (electionStatus !== "LIVE") return;
-    setSelectedCandidates((prev) => ({
-      ...prev,
-      [postId]: candidateId,
-    }));
+    setSelectedCandidates((prev) => {
+      const current = prev[postId];
+      const currentList: string[] = Array.isArray(current) ? [...current] : current ? [current] : [];
+
+      if (maxSelections <= 1) {
+        // Single choice: toggle or replace
+        if (currentList.includes(candidateId)) {
+          const { [postId]: _, ...rest } = prev;
+          return rest;
+        }
+        return {
+          ...prev,
+          [postId]: candidateId,
+        };
+      } else {
+        // Multi choice: up to maxSelections
+        if (currentList.includes(candidateId)) {
+          // Deselect
+          const nextList = currentList.filter((id) => id !== candidateId);
+          return {
+            ...prev,
+            [postId]: nextList,
+          };
+        } else {
+          if (currentList.length < maxSelections) {
+            return {
+              ...prev,
+              [postId]: [...currentList, candidateId],
+            };
+          } else {
+            // Rotate selection: replace the earliest selection
+            return {
+              ...prev,
+              [postId]: [...currentList.slice(1), candidateId],
+            };
+          }
+        }
+      }
+    });
   };
 
   // Cast Ballot (Protected against rapid double-clicks and network retry drops)
@@ -645,15 +680,23 @@ export default function OrganizationPortalPage({
     };
 
     try {
+      const flattenedVotes: Array<{ postId: string; candidateId: string }> = [];
+      for (const [postId, val] of Object.entries(selectedCandidates)) {
+        if (Array.isArray(val)) {
+          val.forEach((candidateId) => {
+            if (candidateId) flattenedVotes.push({ postId, candidateId });
+          });
+        } else if (val) {
+          flattenedVotes.push({ postId, candidateId: val });
+        }
+      }
+
       const res = await castBallotAction({
         ballotToken: tokenToUse,
         studentId: (authenticatedStudent as any)?.id,
         matricNo: authenticatedStudent?.matricNo,
         selections: selectedCandidates,
-        votes: Object.entries(selectedCandidates).map(([postId, candidateId]) => ({
-          postId,
-          candidateId,
-        })),
+        votes: flattenedVotes,
         voterLevel: Number(authenticatedStudent?.level) || 100,
       });
 
@@ -1368,20 +1411,43 @@ export default function OrganizationPortalPage({
                     </p>
                   </div>
                 ) : (
-                  displayPosts.map((post, postIndex) => (
+                  displayPosts.map((post, postIndex) => {
+                    const maxSelections = post.maxSelections || 1;
+                    const postSelections = Array.isArray(selectedCandidates[post.id])
+                      ? (selectedCandidates[post.id] as string[])
+                      : selectedCandidates[post.id]
+                      ? [selectedCandidates[post.id] as string]
+                      : [];
+
+                    return (
                     <div
                       key={post.id}
                       className="bg-white rounded-xl border border-zinc-200 shadow-sm overflow-hidden"
                     >
                       <div className="bg-zinc-50 px-5 py-3 border-b border-zinc-200 flex items-center justify-between">
                         <div>
-                          <span className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider font-mono">
-                            Office {postIndex + 1} of {displayPosts.length}
-                          </span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider font-mono">
+                              Office {postIndex + 1} of {displayPosts.length}
+                            </span>
+                            {maxSelections > 1 && (
+                              <span className="text-[10px] font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
+                                Multi-Choice (Pick up to {maxSelections})
+                              </span>
+                            )}
+                          </div>
                           <h2 className="text-base font-bold text-zinc-900">{post.title}</h2>
                         </div>
-                        <span className="text-xs text-zinc-500 font-medium">
-                          {selectedCandidates[post.id] ? "Selection Made" : "Select 1 Candidate"}
+                        <span className={`text-xs font-semibold px-2.5 py-1 rounded-full transition ${
+                          postSelections.length > 0
+                            ? "bg-zinc-900 text-white"
+                            : "bg-zinc-100 text-zinc-500 border border-zinc-200"
+                        }`}>
+                          {maxSelections > 1
+                            ? `${postSelections.length} of ${maxSelections} Selected`
+                            : postSelections.length > 0
+                            ? "Selection Made"
+                            : "Select 1 Candidate"}
                         </span>
                       </div>
 
@@ -1393,13 +1459,14 @@ export default function OrganizationPortalPage({
                           </div>
                         ) : (
                           post.candidates.map((candidate) => {
-                            const isSelected = selectedCandidates[post.id] === candidate.id;
+                            const isSelected = postSelections.includes(candidate.id);
+                            const selectionIndex = isSelected ? postSelections.indexOf(candidate.id) + 1 : 0;
                             return (
                               <button
                                 key={candidate.id}
                                 type="button"
                                 disabled={electionStatus !== "LIVE"}
-                                onClick={() => handleSelectCandidate(post.id, candidate.id)}
+                                onClick={() => handleSelectCandidate(post.id, candidate.id, maxSelections)}
                                 className={`p-4 rounded-lg border text-left transition flex items-start gap-3 relative ${
                                   isSelected
                                     ? "border-zinc-900 bg-zinc-50/80 ring-1 ring-zinc-900"
@@ -1416,11 +1483,18 @@ export default function OrganizationPortalPage({
 
                                 <div className="space-y-1 flex-1 text-xs">
                                   <div className="flex items-center justify-between">
-                                    <h3 className="font-bold text-zinc-900 text-sm">
-                                      {candidate.fullName}
-                                    </h3>
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      <h3 className="font-bold text-zinc-900 text-sm">
+                                        {candidate.fullName}
+                                      </h3>
+                                      {maxSelections > 1 && isSelected && (
+                                        <span className="text-[10px] font-bold text-zinc-700 bg-zinc-200/80 px-1.5 py-0.2 rounded">
+                                          Choice #{selectionIndex}
+                                        </span>
+                                      )}
+                                    </div>
                                     <div
-                                      className={`w-5 h-5 rounded-full border flex items-center justify-center ${
+                                      className={`w-5 h-5 ${maxSelections > 1 ? "rounded-md" : "rounded-full"} border flex items-center justify-center ${
                                         isSelected
                                           ? "bg-zinc-900 border-zinc-900 text-white"
                                           : "border-zinc-300"
@@ -1454,9 +1528,10 @@ export default function OrganizationPortalPage({
                         )}
                       </div>
                     </div>
-                  ))
-                )}
-              </div>
+                  );
+                })
+              )}
+            </div>
 
               <div className="flex items-center justify-between pt-4 border-t border-zinc-200">
                 <button
@@ -1510,24 +1585,56 @@ export default function OrganizationPortalPage({
 
               <div className="divide-y divide-zinc-200 border-y border-zinc-200 py-2 space-y-3">
                 {displayPosts.map((post) => {
-                  const selectedCandId = selectedCandidates[post.id];
-                  const cand = post.candidates.find((c) => c.id === selectedCandId);
+                  const maxSelections = post.maxSelections || 1;
+                  const postSelections = Array.isArray(selectedCandidates[post.id])
+                    ? (selectedCandidates[post.id] as string[])
+                    : selectedCandidates[post.id]
+                    ? [selectedCandidates[post.id] as string]
+                    : [];
+                  const pickedCands = post.candidates.filter((c) => postSelections.includes(c.id));
 
                   return (
-                    <div key={post.id} className="pt-3 first:pt-0 flex items-center justify-between">
-                      <div>
-                        <span className="text-zinc-400 uppercase font-semibold text-[10px]">{post.title}</span>
-                        <p className="text-sm font-bold text-zinc-900 mt-0.5">
-                          {cand ? cand.fullName : "Abstain / No Selection"}
-                        </p>
+                    <div key={post.id} className="pt-3 first:pt-0 flex items-start justify-between gap-3">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-zinc-400 uppercase font-semibold text-[10px]">{post.title}</span>
+                          {maxSelections > 1 && (
+                            <span className="text-[9px] font-bold text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
+                              Multi-Choice (Up to {maxSelections})
+                            </span>
+                          )}
+                        </div>
+                        {pickedCands.length === 0 ? (
+                          <p className="text-sm font-semibold text-zinc-400 italic mt-0.5">
+                            Abstain / No Selection
+                          </p>
+                        ) : (
+                          <div className="space-y-1 mt-1">
+                            {pickedCands.map((cand, cIdx) => (
+                              <div key={cand.id} className="flex items-center gap-2">
+                                <span className="text-xs font-mono font-bold text-zinc-400">
+                                  {maxSelections > 1 ? `#${cIdx + 1}` : "•"}
+                                </span>
+                                {cand.photoUrl && (
+                                  <img
+                                    src={cand.photoUrl}
+                                    alt={cand.fullName}
+                                    className="w-5 h-5 rounded-md object-cover border"
+                                  />
+                                )}
+                                <span className="text-sm font-bold text-zinc-900">
+                                  {cand.fullName}
+                                </span>
+                                {cand.nickname && (
+                                  <span className="text-xs text-zinc-500">
+                                    "{cand.nickname}"
+                                  </span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
-                      {cand && (
-                        <img
-                          src={cand.photoUrl}
-                          alt={cand.fullName}
-                          className="w-10 h-10 rounded-md object-cover border"
-                        />
-                      )}
                     </div>
                   );
                 })}

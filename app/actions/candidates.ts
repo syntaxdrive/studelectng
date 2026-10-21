@@ -550,6 +550,84 @@ export async function deletePostAction(postId: string) {
 }
 
 /**
+ * Update an existing Elective Office/Post (Title, Description, and Single vs Multiple Selection)
+ */
+export async function updatePostAction(input: {
+  postId: string;
+  electionId?: string;
+  title: string;
+  description?: string;
+  maxSelections?: number;
+  allowedLevels?: number[];
+}): Promise<{
+  success: boolean;
+  message: string;
+  post?: PostWithCandidatesDto;
+}> {
+  const store = readServerStore();
+  const cleanTitle = input.title.trim();
+  const cleanDesc = input.description?.trim() || "";
+  const maxSel = Math.max(1, Number(input.maxSelections) || 1);
+
+  let updatedPost: PostWithCandidatesDto | undefined;
+
+  store.posts = store.posts.map((post) => {
+    if (post.id === input.postId) {
+      updatedPost = {
+        ...post,
+        title: cleanTitle,
+        description: cleanDesc,
+        maxSelections: maxSel,
+        allowedLevels: input.allowedLevels !== undefined ? input.allowedLevels : post.allowedLevels,
+      };
+      return updatedPost;
+    }
+    return post;
+  });
+
+  writeServerStore(store);
+
+  try {
+    const updatePayload: any = {
+      title: cleanTitle,
+      description: cleanDesc,
+      max_selections: maxSel,
+    };
+    if (input.allowedLevels !== undefined) {
+      updatePayload.allowed_levels = input.allowedLevels;
+    }
+
+    const { error } = await supabase
+      .from("posts")
+      .update(updatePayload)
+      .eq("id", input.postId);
+
+    if (error) {
+      console.warn("updatePostAction Supabase update notice:", error);
+    }
+  } catch (err) {
+    console.warn("updatePostAction exception:", err);
+  }
+
+  const targetElectionId = input.electionId || updatedPost?.electionId || "elec-ui-nesa-2026";
+  invalidateCache("posts:");
+  invalidateCache("telemetry:");
+  try {
+    const { invalidateTelemetryCacheAction } = await import("./vote");
+    await invalidateTelemetryCacheAction(targetElectionId);
+  } catch (_) {}
+
+  revalidatePath("/[institution]/admin");
+  revalidatePath("/[institution]/[organization]");
+
+  return {
+    success: true,
+    message: `Elective office "${cleanTitle}" updated successfully.`,
+    post: updatedPost,
+  };
+}
+
+/**
  * Bulk create elective offices and candidates in a single high-speed batch operation
  */
 export async function bulkCreateSlateAction(input: {

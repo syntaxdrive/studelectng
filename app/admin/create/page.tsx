@@ -114,6 +114,12 @@ export default function AdminCreateElectionPage() {
     setPosts((prev) => prev.filter((p) => p.id !== id));
   };
 
+  const handleTogglePostSelections = (postId: string, maxSelections: number) => {
+    setPosts((prev) =>
+      prev.map((p) => (p.id === postId ? { ...p, maxSelections } : p))
+    );
+  };
+
   // Fast Client-Side Image Compression (shrinks phone camera photos to ~15KB in 15ms)
   const compressImageClient = (file: File, maxWidth = 320, quality = 0.7): Promise<string> => {
     return new Promise((resolve) => {
@@ -839,12 +845,29 @@ export default function AdminCreateElectionPage() {
                     <div>
                       <h3 className="font-bold text-zinc-900 text-sm">{post.title}</h3>
                       <p className="text-zinc-500 text-[10px]">
-                        Single-winner office • {post.candidates.length} candidate(s) nominated
+                        {post.maxSelections > 1
+                          ? `Multi-Winner Office (Pick up to ${post.maxSelections})`
+                          : "Single-Winner Office (1 Pick)"}{" "}
+                        • {post.candidates.length} candidate(s) nominated
                       </p>
                     </div>
                   </div>
 
                   <div className="flex items-center gap-2">
+                    <select
+                      value={post.maxSelections > 1 ? post.maxSelections : 1}
+                      onChange={(e) => handleTogglePostSelections(post.id, Number(e.target.value))}
+                      className="text-[11px] font-semibold bg-white border border-zinc-200 rounded-lg px-2 py-1.5 text-zinc-700 focus:outline-none"
+                      title="Voter selection rule"
+                    >
+                      <option value={1}>Single Pick (1 Winner)</option>
+                      <option value={2}>Multi-Pick (Up to 2)</option>
+                      <option value={3}>Multi-Pick (Up to 3)</option>
+                      <option value={4}>Multi-Pick (Up to 4)</option>
+                      <option value={5}>Multi-Pick (Up to 5)</option>
+                      <option value={10}>Multi-Pick (Up to 10)</option>
+                    </select>
+
                     <button
                       type="button"
                       onClick={() => setActivePostForCandidate(post.id)}

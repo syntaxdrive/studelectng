@@ -97,6 +97,12 @@ export default function InitializeElectionPage({
     setPosts((prev) => prev.filter((p) => p.id !== postId));
   };
 
+  const handleTogglePostSelections = (postId: string, maxSelections: number) => {
+    setPosts((prev) =>
+      prev.map((p) => (p.id === postId ? { ...p, maxSelections } : p))
+    );
+  };
+
   const handleInitializeElection = async () => {
     setError(null);
     setIsLoading(true);
@@ -484,15 +490,35 @@ export default function InitializeElectionPage({
 
             <div className="space-y-1.5 pt-1">
               {posts.map((p) => (
-                <div key={p.id} className="p-3 rounded-lg border border-zinc-200 bg-zinc-50/50 flex items-center justify-between">
-                  <span className="font-semibold text-zinc-900">{p.title}</span>
-                  <button
-                    type="button"
-                    onClick={() => handleRemovePost(p.id)}
-                    className="text-red-600 hover:text-red-800 text-[11px] font-medium"
-                  >
-                    Delete
-                  </button>
+                <div key={p.id} className="p-3 rounded-lg border border-zinc-200 bg-zinc-50/50 flex items-center justify-between gap-3">
+                  <div>
+                    <span className="font-semibold text-zinc-900 block">{p.title}</span>
+                    <span className="text-[10px] text-zinc-500">
+                      {p.maxSelections > 1
+                        ? `Multi-Winner Office (Pick up to ${p.maxSelections})`
+                        : "Single-Winner Office (1 Pick)"}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={p.maxSelections > 1 ? p.maxSelections : 1}
+                      onChange={(e) => handleTogglePostSelections(p.id, Number(e.target.value))}
+                      className="text-[11px] font-semibold bg-white border border-zinc-200 rounded-lg px-2 py-1 text-zinc-700 focus:outline-none"
+                    >
+                      <option value={1}>Single Pick (1)</option>
+                      <option value={2}>Pick up to 2</option>
+                      <option value={3}>Pick up to 3</option>
+                      <option value={4}>Pick up to 4</option>
+                      <option value={5}>Pick up to 5</option>
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => handleRemovePost(p.id)}
+                      className="text-red-600 hover:text-red-800 text-[11px] font-medium"
+                    >
+                      Delete
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
