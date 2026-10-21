@@ -362,15 +362,19 @@ export default function OrganizationPortalPage({
       } catch (_) {}
     }
     loadLiveTelemetry();
+    // High-performance polling:
+    // When actively viewing RESULTS tab: poll every 6s
+    // When voting / registering: poll every 25s (saves 80% DB load during 9am-3pm rush hour)
+    const pollIntervalMs = activeTab === "RESULTS" ? 6000 : 25000;
     const interval = setInterval(() => {
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
       loadLiveTelemetry();
-    }, 5000);
+    }, pollIntervalMs);
     return () => {
       isMounted = false;
       clearInterval(interval);
     };
-  }, [election.id, instSlug, orgSlug]);
+  }, [election.id, instSlug, orgSlug, activeTab]);
 
   // ── Sync Live Election Status & Visibility in Real-Time ──────────────────
   useEffect(() => {

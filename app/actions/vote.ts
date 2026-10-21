@@ -335,8 +335,13 @@ export async function castBallotAction(input: CastBallotInput) {
         castAt: timestamp,
       });
 
-      // Invalidate live telemetry cache so the new vote is counted immediately
-      telemetryCache.clear();
+      // Optimistically update cached telemetry if present, preventing cache stampede / thundering herd on Supabase
+      const existingCache = telemetryCache.get(electionId);
+      if (existingCache && existingCache.data) {
+        existingCache.data.totalBallotsCast = (existingCache.data.totalBallotsCast || 0) + 1;
+      } else {
+        telemetryCache.clear();
+      }
       invalidateCache("posts:");
 
       // 4. Atomic Synchronization to Supabase Cloud
@@ -428,9 +433,9 @@ export async function getRealtimeElectionTelemetryAction(
       )
     );
 
-    // Check in-memory cache first (2s TTL)
+    // Check in-memory cache first (4s TTL - shields Supabase connection pool during 9am-3pm rush hour)
     const cached = telemetryCache.get(electionId);
-    if (cached && Date.now() - cached.timestamp < 2000) {
+    if (cached && Date.now() - cached.timestamp < 4000) {
       return cached.data;
     }
 
