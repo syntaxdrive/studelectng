@@ -334,7 +334,9 @@ export async function getOrgVoterRollAction(institutionSlug: string, orgSlug?: s
   let cleanOrgSlug = (orgSlug || "").toLowerCase().trim();
 
   // Strict Fallback: NEVER allow un-isolated campus-wide bleed into an organization view
-  if (!cleanOrgSlug) {
+  if (cleanOrgSlug === "all" || cleanOrgSlug === "*") {
+    cleanOrgSlug = "";
+  } else if (!cleanOrgSlug) {
     cleanOrgSlug = cleanSlug === "unilag" ? "nacos" : "nesa";
   }
 

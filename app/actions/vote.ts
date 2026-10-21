@@ -544,14 +544,14 @@ export async function getRealtimeElectionTelemetryAction(
             .from("students")
             .select("id", { count: "exact", head: true })
             .eq("institution_id", `inst-${cleanInst}`)
-            .or(`department.ilike.%${effectiveOrg}%,department.ilike.%economics%`);
+            .or(`department.ilike.%${effectiveOrg}%,department.ilike.%${effectiveOrg.slice(0, 4)}%`);
           if (deptCountRes.count && deptCountRes.count > 0) {
             return deptCountRes.count;
           }
 
-          return 252;
+          return Math.max(ballots.length, 1);
         } catch (_) {
-          return 252;
+          return Math.max(ballots.length, 1);
         }
       }
     );
