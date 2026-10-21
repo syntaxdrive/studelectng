@@ -137,11 +137,12 @@ export default function ElectionResultsPage({
 
                   <div className="space-y-4">
                     {sortedCandidates.map((cand, index) => {
+                      const maxWinners = (post as any).maxSelections || 1;
                       const percentage =
                         totalVotesForPost > 0
                           ? ((cand.votes / totalVotesForPost) * 100).toFixed(1)
                           : "0.0";
-                      const isLeading = index === 0 && cand.votes > 0;
+                      const isLeading = index < maxWinners && cand.votes > 0;
 
                       return (
                         <div key={cand.id} className="space-y-1.5 text-xs">
@@ -157,8 +158,8 @@ export default function ElectionResultsPage({
                                   {cand.fullName}
                                 </span>
                                 {isLeading && (
-                                  <span className="ml-1.5 px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-700 text-[10px] font-mono">
-                                    Leading
+                                  <span className="ml-1.5 px-1.5 py-0.5 rounded bg-zinc-900 text-white text-[10px] font-mono font-bold">
+                                    {maxWinners > 1 ? `Seat #${index + 1}` : "Leading"}
                                   </span>
                                 )}
                               </div>

@@ -2764,8 +2764,9 @@ export default function InstitutionAdminPage({
                     const sortedCandidates = [...post.candidates].sort(
                       (a: any, b: any) => getCandidateEffectiveVotes(b, post.id) - getCandidateEffectiveVotes(a, post.id)
                     );
+                    const maxWinners = Math.max(1, post.maxSelections || 1);
                     const leader = sortedCandidates[0];
-                    const runnerUp = sortedCandidates[1];
+                    const runnerUp = sortedCandidates[maxWinners];
                     const leaderVotes = leader ? getCandidateEffectiveVotes(leader, post.id) : 0;
                     const runnerUpVotes = runnerUp ? getCandidateEffectiveVotes(runnerUp, post.id) : 0;
                     const margin = leader && runnerUp ? leaderVotes - runnerUpVotes : leaderVotes;
@@ -2775,13 +2776,18 @@ export default function InstitutionAdminPage({
                         <div className="flex items-center justify-between border-b border-zinc-100 pb-1.5">
                           <div className="flex items-center gap-2">
                             <h4 className="font-bold text-zinc-900 text-sm">{post.title}</h4>
+                            {maxWinners > 1 && (
+                              <span className="text-[10px] font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
+                                Top {maxWinners} Seats Contested
+                              </span>
+                            )}
                             <span className="text-xs text-zinc-400 font-mono">
                               ({totalVotesForPost.toLocaleString()} total votes)
                             </span>
                           </div>
                           {leader && leaderVotes > 0 && (
                             <span className="px-2 py-0.5 rounded bg-zinc-100 text-zinc-900 font-mono text-[10px] font-bold border border-zinc-200">
-                              Leader: {leader.fullName} (+{margin})
+                              {maxWinners > 1 ? `Seat #1: ${leader.fullName}` : `Leader: ${leader.fullName} (+${margin})`}
                             </span>
                           )}
                         </div>
@@ -2798,7 +2804,7 @@ export default function InstitutionAdminPage({
                                 totalVotesForPost > 0
                                   ? Math.round((candVotes / totalVotesForPost) * 100)
                                   : 0;
-                              const isLeading = cIdx === 0 && candVotes > 0;
+                              const isWinning = cIdx < maxWinners && candVotes > 0;
                               const candidatePalette = [
                                 { bar: "bg-blue-600", text: "text-blue-700", light: "bg-blue-50 border-blue-200", dot: "bg-blue-600" },
                                 { bar: "bg-purple-600", text: "text-purple-700", light: "bg-purple-50 border-purple-200", dot: "bg-purple-600" },
@@ -2834,9 +2840,9 @@ export default function InstitutionAdminPage({
                                               "{cand.nickname}"
                                             </span>
                                           )}
-                                          {isLeading && (
+                                          {isWinning && (
                                             <span className="px-1.5 py-0.2 rounded bg-zinc-900 text-white text-[9px] font-bold uppercase font-mono">
-                                              Leader
+                                              {maxWinners > 1 ? `Seat #${cIdx + 1} Projected Winner` : "Leader"}
                                             </span>
                                           )}
                                         </div>
@@ -6303,10 +6309,34 @@ export default function InstitutionAdminPage({
                           </thead>
                           <tbody className="divide-y divide-black font-mono text-xs">
                             {sorted.map((cand: any, idx: number) => {
+                              const maxWinners = Math.max(1, post.maxSelections || 1);
                               const candVotes = getCandidateEffectiveVotes(cand, post.id);
                               const pct = totalVotesForPost > 0 ? ((candVotes / totalVotesForPost) * 100).toFixed(1) : "0.0";
-                              const isWinner = idx === 0 && candVotes > 0 && (!sorted[1] || candVotes > getCandidateEffectiveVotes(sorted[1], post.id));
-                              const isTied = idx > 0 && candVotes > 0 && candVotes === getCandidateEffectiveVotes(sorted[0], post.id);
+
+                              const firstExcludedCand = sorted[maxWinners];
+                              const firstExcludedVotes = firstExcludedCand ? getCandidateEffectiveVotes(firstExcludedCand, post.id) : -1;
+                              const lastIncludedCand = sorted[maxWinners - 1];
+                              const lastIncludedVotes = lastIncludedCand ? getCandidateEffectiveVotes(lastIncludedCand, post.id) : -1;
+
+                              const isTiedAtCutoff =
+                                candVotes > 0 &&
+                                firstExcludedVotes >= 0 &&
+                                firstExcludedVotes === lastIncludedVotes &&
+                                candVotes === firstExcludedVotes;
+
+                              const isWinner =
+                                idx < maxWinners &&
+                                candVotes > 0 &&
+                                !isTiedAtCutoff;
+
+                              const isTiedWithLeader =
+                                maxWinners === 1 &&
+                                idx > 0 &&
+                                candVotes > 0 &&
+                                candVotes === getCandidateEffectiveVotes(sorted[0], post.id);
+
+                              const isTied = isTiedAtCutoff || isTiedWithLeader;
+                              const isRunnerUp = !isTied && idx === maxWinners && candVotes > 0;
 
                               return (
                                 <tr key={cand.id} className={`divide-x divide-black ${isWinner ? "bg-zinc-100 font-bold" : ""}`}>
@@ -6320,7 +6350,7 @@ export default function InstitutionAdminPage({
                                   <td className="p-1.5 text-center">
                                     {isWinner ? (
                                       <span className="border border-black px-2 py-0.5 text-[9px] uppercase font-extrabold bg-black text-white">
-                                        ELECTED
+                                        {maxWinners > 1 ? `ELECTED (SEAT ${idx + 1})` : "ELECTED"}
                                       </span>
                                     ) : isTied ? (
                                       <span className="border border-amber-600 px-2 py-0.5 text-[9px] uppercase font-bold text-amber-700 bg-amber-50">
@@ -6328,7 +6358,7 @@ export default function InstitutionAdminPage({
                                       </span>
                                     ) : candVotes === 0 && totalVotesForPost === 0 ? (
                                       <span className="text-[10px] text-zinc-400">PENDING</span>
-                                    ) : idx === 1 ? (
+                                    ) : isRunnerUp ? (
                                       <span className="text-[10px] text-zinc-600 font-semibold">RUNNER-UP</span>
                                     ) : (
                                       <span className="text-[10px] text-zinc-400">NOT ELECTED</span>
@@ -6571,10 +6601,34 @@ export default function InstitutionAdminPage({
                   </thead>
                   <tbody className="divide-y divide-black font-mono text-xs">
                     {sorted.map((cand: any, idx: number) => {
+                      const maxWinners = Math.max(1, post.maxSelections || 1);
                       const candVotes = getCandidateEffectiveVotes(cand, post.id);
                       const pct = totalVotesForPost > 0 ? ((candVotes / totalVotesForPost) * 100).toFixed(1) : "0.0";
-                      const isWinner = idx === 0 && candVotes > 0 && (!sorted[1] || candVotes > getCandidateEffectiveVotes(sorted[1], post.id));
-                      const isTied = idx > 0 && candVotes > 0 && candVotes === getCandidateEffectiveVotes(sorted[0], post.id);
+
+                      const firstExcludedCand = sorted[maxWinners];
+                      const firstExcludedVotes = firstExcludedCand ? getCandidateEffectiveVotes(firstExcludedCand, post.id) : -1;
+                      const lastIncludedCand = sorted[maxWinners - 1];
+                      const lastIncludedVotes = lastIncludedCand ? getCandidateEffectiveVotes(lastIncludedCand, post.id) : -1;
+
+                      const isTiedAtCutoff =
+                        candVotes > 0 &&
+                        firstExcludedVotes >= 0 &&
+                        firstExcludedVotes === lastIncludedVotes &&
+                        candVotes === firstExcludedVotes;
+
+                      const isWinner =
+                        idx < maxWinners &&
+                        candVotes > 0 &&
+                        !isTiedAtCutoff;
+
+                      const isTiedWithLeader =
+                        maxWinners === 1 &&
+                        idx > 0 &&
+                        candVotes > 0 &&
+                        candVotes === getCandidateEffectiveVotes(sorted[0], post.id);
+
+                      const isTied = isTiedAtCutoff || isTiedWithLeader;
+                      const isRunnerUp = !isTied && idx === maxWinners && candVotes > 0;
 
                       return (
                         <tr key={cand.id} className={`divide-x divide-black ${isWinner ? "bg-zinc-100 font-bold" : ""}`}>
@@ -6588,7 +6642,7 @@ export default function InstitutionAdminPage({
                           <td className="p-1.5 text-center">
                             {isWinner ? (
                               <span className="border border-black px-2 py-0.5 text-[9px] uppercase font-extrabold bg-black text-white">
-                                ELECTED
+                                {maxWinners > 1 ? `ELECTED (SEAT ${idx + 1})` : "ELECTED"}
                               </span>
                             ) : isTied ? (
                               <span className="border border-amber-600 px-2 py-0.5 text-[9px] uppercase font-bold text-amber-700 bg-amber-50">
@@ -6596,7 +6650,7 @@ export default function InstitutionAdminPage({
                               </span>
                             ) : candVotes === 0 && totalVotesForPost === 0 ? (
                               <span className="text-[10px] text-zinc-400">PENDING</span>
-                            ) : idx === 1 ? (
+                            ) : isRunnerUp ? (
                               <span className="text-[10px] text-zinc-600 font-semibold">RUNNER-UP</span>
                             ) : (
                               <span className="text-[10px] text-zinc-400">NOT ELECTED</span>
