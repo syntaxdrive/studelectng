@@ -428,6 +428,10 @@ export default function InstitutionAdminPage({
         if (saved !== null) {
           setElectionRules((prev) => ({ ...prev, registrationOpen: saved === "true" }));
         }
+        const savedVis = localStorage.getItem(`studelect_results_visibility_${instSlug}_${org}`);
+        if (savedVis) {
+          setElectionRules((prev) => ({ ...prev, resultsVisibility: savedVis as any }));
+        }
       } catch (_) {}
 
       const res = await getElectionRulesAction(electionId, instSlug, activeOrgSlug);
@@ -439,7 +443,20 @@ export default function InstitutionAdminPage({
             effectiveReg = saved === "true";
           }
         } catch (_) {}
-        setElectionRules({ ...res, registrationOpen: effectiveReg });
+
+        let effectiveVisibility = res.resultsVisibility || "SEALED_UNTIL_CLOSE";
+        try {
+          const savedVis = localStorage.getItem(`studelect_results_visibility_${instSlug}_${activeOrgSlug}`);
+          if (savedVis) {
+            effectiveVisibility = savedVis as any;
+          }
+        } catch (_) {}
+
+        setElectionRules({
+          ...res,
+          registrationOpen: effectiveReg,
+          resultsVisibility: effectiveVisibility,
+        });
       }
     }
     loadRules();
@@ -1179,16 +1196,39 @@ export default function InstitutionAdminPage({
         : "Withhold / Seal election results? Live standings will be hidden from the student portal.";
     if (!confirm(confirmMsg)) return;
 
+    // 1. Optimistic React state update
     setElectionRules((prev) => ({ ...prev, resultsVisibility: newVisibility }));
+
+    // 2. Persist in localStorage under both keys so it never reverts on re-render / reload
     try {
       if (activeOrgSlug) {
         localStorage.setItem(`studelect_results_visibility_${instSlug}_${activeOrgSlug}`, newVisibility);
+        const savedRulesRaw = localStorage.getItem(`studelect_rules_${instSlug}_${activeOrgSlug}`);
+        if (savedRulesRaw) {
+          const parsed = JSON.parse(savedRulesRaw);
+          if (parsed && typeof parsed === "object") {
+            parsed.resultsVisibility = newVisibility;
+            localStorage.setItem(`studelect_rules_${instSlug}_${activeOrgSlug}`, JSON.stringify(parsed));
+          }
+        }
       }
     } catch (_) {}
 
-    const res = await updateResultsVisibilityAction(electionId, newVisibility);
+    // 3. Persist to server store and Supabase across all aliases
+    const res = await updateResultsVisibilityAction(electionId, newVisibility, instSlug, activeOrgSlug);
     setAdminActionMessage(res.message);
     setTimeout(() => setAdminActionMessage(null), 5000);
+
+    // 4. Re-sync other election rule fields from server while strictly keeping resultsVisibility = newVisibility
+    try {
+      const refreshed = await getElectionRulesAction(electionId, instSlug, activeOrgSlug);
+      if (refreshed) {
+        setElectionRules({
+          ...refreshed,
+          resultsVisibility: newVisibility,
+        });
+      }
+    } catch (_) {}
   };
 
   const handleToggleRegistration = async () => {

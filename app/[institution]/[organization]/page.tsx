@@ -321,9 +321,11 @@ export default function OrganizationPortalPage({
         if (savedLogo) setOrgLogoUrl(savedLogo);
         const savedStatus = localStorage.getItem(`studelect_election_status_${instSlug}_${orgSlug}`);
         if (savedStatus) setElectionStatus(savedStatus);
-        const savedVisibility = localStorage.getItem(`studelect_results_visibility_${instSlug}_${orgSlug}`);
-        if (savedVisibility) setResultsVisibility(savedVisibility);
-        else setResultsVisibility("SEALED_UNTIL_CLOSE");
+        // Results are sealed by default until ELCOM releases them
+        setResultsVisibility("SEALED_UNTIL_CLOSE");
+        try {
+          localStorage.setItem(`studelect_results_visibility_${instSlug}_${orgSlug}`, "SEALED_UNTIL_CLOSE");
+        } catch (_) {}
         const savedReg = localStorage.getItem(`studelect_registration_open_${instSlug}_${orgSlug}`);
         if (savedReg !== null) setRegistrationOpen(savedReg === "true");
       } catch (_) {}
@@ -388,7 +390,11 @@ export default function OrganizationPortalPage({
         );
         if (isMounted && rules) {
           if (rules.status) setElectionStatus(rules.status);
-          if (rules.resultsVisibility) setResultsVisibility(rules.resultsVisibility);
+          const currentVis = rules.resultsVisibility || "SEALED_UNTIL_CLOSE";
+          setResultsVisibility(currentVis);
+          try {
+            localStorage.setItem(`studelect_results_visibility_${instSlug}_${orgSlug}`, currentVis);
+          } catch (_) {}
           setIsPaymentHalted(!!rules.isPaymentHalted);
           let effectiveReg = rules.registrationOpen !== false;
           try {
@@ -446,6 +452,13 @@ export default function OrganizationPortalPage({
       window.removeEventListener("storage", onStorage);
     };
   }, [election.id, instSlug, orgSlug]);
+
+  // Safeguard: strictly block voter navigation to RESULTS tab whenever results are withheld / sealed
+  useEffect(() => {
+    if (activeTab === "RESULTS" && resultsVisibility !== "LIVE") {
+      setActiveTab("VOTE");
+    }
+  }, [activeTab, resultsVisibility]);
 
   // ── ELCOM Public Contact Loader ─────────────────────────────────────────────
   useEffect(() => {
@@ -589,7 +602,11 @@ export default function OrganizationPortalPage({
       setReceiptCode(res.receiptHash || "");
       setCastTimestamp(Date.now());
       setVoteStep("RECEIPT");
-      setActiveTab("RESULTS"); // Direct them straight to live results
+      if (resultsVisibility === "LIVE") {
+        setActiveTab("RESULTS");
+      } else {
+        setActiveTab("VOTE");
+      }
       try {
         sessionStorage.setItem(
           sessionKey,
@@ -979,18 +996,21 @@ export default function OrganizationPortalPage({
           <span>Candidates & Manifestos</span>
         </button>
 
-        <button
-          type="button"
-          onClick={() => setActiveTab("RESULTS")}
-          className={`px-4 py-2 rounded-lg transition flex items-center gap-1.5 ${
-            activeTab === "RESULTS"
-              ? "bg-zinc-900 text-white shadow-xs"
-              : "text-zinc-600 hover:bg-zinc-100"
-          }`}
-        >
-          <BarChart3 className="w-4 h-4" />
-          <span>Live Results</span>
-        </button>
+        {/* Live Results Tab — strictly deactivated and hidden until officially released by ELCOM */}
+        {resultsVisibility === "LIVE" && (
+          <button
+            type="button"
+            onClick={() => setActiveTab("RESULTS")}
+            className={`px-4 py-2 rounded-lg transition flex items-center gap-1.5 ${
+              activeTab === "RESULTS"
+                ? "bg-zinc-900 text-white shadow-xs"
+                : "text-zinc-600 hover:bg-zinc-100"
+            }`}
+          >
+            <BarChart3 className="w-4 h-4" />
+            <span>Live Results</span>
+          </button>
+        )}
       </div>
 
       {/* ========================================================================= */}
@@ -1071,14 +1091,21 @@ export default function OrganizationPortalPage({
                     <p className="text-[11px] text-zinc-600 leading-relaxed">
                       Voting has concluded and polls are officially closed. You can monitor the certified election standings in the Results tab.
                     </p>
-                    <button
-                      type="button"
-                      onClick={() => setActiveTab("RESULTS")}
-                      className="px-3.5 py-1.5 rounded-lg bg-zinc-900 text-white font-bold text-xs hover:bg-zinc-800 transition inline-flex items-center gap-1.5"
-                    >
-                      <BarChart3 className="w-3.5 h-3.5" />
-                      <span>View Final Standings</span>
-                    </button>
+                    {resultsVisibility === "LIVE" ? (
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab("RESULTS")}
+                        className="px-3.5 py-1.5 rounded-lg bg-zinc-900 text-white font-bold text-xs hover:bg-zinc-800 transition inline-flex items-center gap-1.5"
+                      >
+                        <BarChart3 className="w-3.5 h-3.5" />
+                        <span>View Final Standings</span>
+                      </button>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-200 text-zinc-700 text-xs font-semibold">
+                        <Lock className="w-3.5 h-3.5 text-zinc-600" />
+                        <span>Official Standings Withheld by ELCOM</span>
+                      </span>
+                    )}
                   </div>
                 )}
 
@@ -1320,14 +1347,16 @@ export default function OrganizationPortalPage({
               </div>
 
               <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setActiveTab("RESULTS")}
-                  className="w-full sm:w-auto px-5 py-2.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white font-bold text-xs transition flex items-center justify-center gap-2 shadow-xs"
-                >
-                  <BarChart3 className="w-3.5 h-3.5" />
-                  <span>View Live Election Standings</span>
-                </button>
+                {resultsVisibility === "LIVE" && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("RESULTS")}
+                    className="w-full sm:w-auto px-5 py-2.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white font-bold text-xs transition flex items-center justify-center gap-2 shadow-xs"
+                  >
+                    <BarChart3 className="w-3.5 h-3.5" />
+                    <span>View Live Election Standings</span>
+                  </button>
+                )}
 
                 <button
                   type="button"
@@ -1758,14 +1787,16 @@ export default function OrganizationPortalPage({
               />
 
               <div className="flex items-center justify-center gap-3 pt-2 text-xs">
-                <button
-                  type="button"
-                  onClick={() => setActiveTab("RESULTS")}
-                  className="px-4 py-2.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white font-bold transition flex items-center gap-1.5 shadow-xs"
-                >
-                  <BarChart3 className="w-3.5 h-3.5" />
-                  <span>View Live Election Standings</span>
-                </button>
+                {resultsVisibility === "LIVE" && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("RESULTS")}
+                    className="px-4 py-2.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white font-bold transition flex items-center gap-1.5 shadow-xs"
+                  >
+                    <BarChart3 className="w-3.5 h-3.5" />
+                    <span>View Live Election Standings</span>
+                  </button>
+                )}
 
                 <button
                   type="button"
