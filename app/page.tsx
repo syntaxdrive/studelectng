@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getInstitutions } from "@/lib/db/institutions";
+import { FloatingScarf } from "@/app/_components/FloatingScarf";
 import {
   Vote,
   Lock,
@@ -62,7 +63,10 @@ export default async function HomePage() {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(homeServiceSchema) }}
       />
-      {/* Clean Architectural Grid (Zero colorful gradients) */}
+      {/* Floating Rainbow Scarf Backdrop */}
+      <FloatingScarf />
+
+      {/* Clean Architectural Grid */}
       <div className="absolute inset-0 hero-dot-grid opacity-60 pointer-events-none" />
 
       {/* ========================================================================= */}
