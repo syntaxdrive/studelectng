@@ -684,20 +684,17 @@ export default function SuperAdminDashboard() {
             <span>View Public Pricing</span>
           </Link>
 
-          <button
-            type="button"
+          <a
+            href="/api/auth/logout?redirect=/admin/login"
             onClick={() => {
               try {
-                document.cookie = "studelect_admin_session=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT";
                 sessionStorage.clear();
               } catch (_) {}
-              logoutAction().catch(() => {});
-              window.location.replace("/admin/login");
             }}
             className="px-3.5 py-2 rounded-lg border border-zinc-300 hover:bg-zinc-50 text-zinc-700 text-xs font-semibold transition"
           >
             Sign Out
-          </button>
+          </a>
         </div>
       </div>
 

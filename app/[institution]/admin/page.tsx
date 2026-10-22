@@ -652,19 +652,14 @@ export default function InstitutionAdminPage({
     };
   }, [instSlug]);
 
-  const handleAdminSignOut = () => {
+  const handleAdminSignOut = (e?: React.MouseEvent) => {
+    if (e) e.preventDefault();
     setIsSigningOut(true);
-    // 1. Instantly expire client-side auth cookies and cached session data (0ms)
     try {
-      document.cookie = "studelect_admin_session=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT";
       sessionStorage.clear();
+      localStorage.removeItem("studelect_admin_user");
     } catch (_) {}
-
-    // 2. Fire server action in background without waiting on network
-    logoutAction().catch(() => {});
-
-    // 3. Instant client-side redirect
-    window.location.replace(`/${instSlug}`);
+    window.location.href = `/api/auth/logout?redirect=/${encodeURIComponent(instSlug)}`;
   };
 
   const handleOrgSwitch = (newOrgSlug: string) => {
@@ -1967,11 +1962,10 @@ export default function InstitutionAdminPage({
                   {currentAdminUser.role?.replace(/_/g, " ") || "OFFICER"}
                 </span>
               </div>
-              <button
-                type="button"
+              <a
+                href={`/api/auth/logout?redirect=/${encodeURIComponent(instSlug)}`}
                 onClick={handleAdminSignOut}
-                disabled={isSigningOut}
-                className="ml-1 pl-2 border-l border-zinc-700 text-zinc-400 hover:text-white transition text-[11px] font-semibold flex items-center gap-1.5 disabled:opacity-50"
+                className="ml-1 pl-2 border-l border-zinc-700 text-zinc-400 hover:text-white transition text-[11px] font-semibold flex items-center gap-1.5 cursor-pointer select-none"
                 title="Sign out of administration"
               >
                 {isSigningOut ? (
@@ -1985,7 +1979,7 @@ export default function InstitutionAdminPage({
                     <span>Sign Out</span>
                   </>
                 )}
-              </button>
+              </a>
             </div>
           )}
 
