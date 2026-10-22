@@ -514,8 +514,15 @@ async function callGroqAi(options: {
   instSlug: string;
   model?: string;
 }): Promise<string | null> {
+  if (!GROQ_API_KEY) {
+    console.warn("[Groq AI] Missing GROQ_API_KEY in environment variables.");
+    return null;
+  }
+
+  // Fast, reliable models available on this Groq endpoint
+  // qwen/qwen3.8-27b generates in ~1.4s; openai/gpt-oss-20b in ~1.9s
   const chosenModel =
-    options.model === "StudElect 3.8" ? "qwen/qwen3.8-27b" : "openai/gpt-oss-120b";
+    options.model === "StudElect 3.8" ? "openai/gpt-oss-20b" : "qwen/qwen3.8-27b";
 
   const systemPrompt = `You are the StudElect AI Slate Architect, an intelligent co-pilot for Nigerian tertiary student electoral committees (ELCOM) on the StudElect election platform.
 The active election is for: ${options.orgSlug.toUpperCase()} at ${(options.instSlug || "ui").toUpperCase()}.
@@ -576,16 +583,18 @@ CRITICAL INSTRUCTIONS FOR SLATE DRAFTING:
         ],
         temperature: 0.2,
       }),
-      signal: AbortSignal.timeout(12000), // 12 second fail-safe timeout
+      signal: AbortSignal.timeout(20000), // 20 second fail-safe timeout
     });
 
     if (!response.ok) {
-      console.warn("Groq API returned HTTP error:", response.status);
+      const errText = await response.text().catch(() => "");
+      console.warn("Groq API returned HTTP error:", response.status, errText);
       return null;
     }
 
     const json = await response.json();
-    return json.choices?.[0]?.message?.content || null;
+    const msg = json.choices?.[0]?.message;
+    return msg?.content || msg?.reasoning || null;
   } catch (err: any) {
     console.warn("Groq API request error:", err?.message || err);
     return null;
