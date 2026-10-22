@@ -73,11 +73,6 @@ export default async function HomePage() {
       {/* SECTION 1: HERO & CORE IDENTITY */}
       {/* ========================================================================= */}
       <section className="max-w-5xl mx-auto px-4 text-center space-y-8 relative z-10">
-        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white border border-zinc-200 text-zinc-700 text-xs font-semibold shadow-2xs">
-          <span className="h-2 w-2 rounded-full bg-zinc-900" />
-          <span className="font-mono uppercase text-[11px] tracking-wider">The Sovereign E-Voting Protocol for Higher Education</span>
-        </div>
-
         <h1 className="text-3xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-zinc-900 leading-[1.15]">
           Decoupled, Verifiable Campus Elections with Zero Rigging
         </h1>
