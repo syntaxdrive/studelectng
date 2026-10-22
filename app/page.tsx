@@ -112,12 +112,6 @@ export default async function HomePage() {
           </Link>
         </div>
 
-        {/* Subtle Interactive Campus Quad Prompt */}
-        <div className="pt-1 flex items-center justify-center gap-2 text-[11px] font-mono text-zinc-400 select-none">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-          <span>Interactive Campus Quad • Click anywhere to simulate a vote cast</span>
-        </div>
-
         {/* 3D Floating Ballot Card & Cryptographic Poll Simulation */}
         <div className="pt-6 max-w-xl mx-auto">
           <div className="floating-ballot-card relative bg-white rounded-2xl border border-zinc-200 shadow-xl p-5 text-left space-y-4">
