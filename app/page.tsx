@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getInstitutions } from "@/lib/db/institutions";
 import { FloatingScarf } from "@/app/_components/FloatingScarf";
+import { ElectorateSwarm } from "@/app/_components/ElectorateSwarm";
 import {
   Vote,
   Lock,
@@ -66,6 +67,9 @@ export default async function HomePage() {
       {/* Floating Rainbow Scarf Backdrop */}
       <FloatingScarf />
 
+      {/* The Living Electorate Swarm: Interactive Tiny Student Voters */}
+      <ElectorateSwarm />
+
       {/* Clean Architectural Grid */}
       <div className="absolute inset-0 hero-dot-grid opacity-60 pointer-events-none" />
 
@@ -106,6 +110,12 @@ export default async function HomePage() {
           >
             ELCOM Sign In
           </Link>
+        </div>
+
+        {/* Subtle Interactive Campus Quad Prompt */}
+        <div className="pt-1 flex items-center justify-center gap-2 text-[11px] font-mono text-zinc-400 select-none">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+          <span>Interactive Campus Quad • Click anywhere to simulate a vote cast</span>
         </div>
 
         {/* 3D Floating Ballot Card & Cryptographic Poll Simulation */}
