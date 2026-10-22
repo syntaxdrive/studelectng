@@ -91,108 +91,22 @@ export default function ElectionResultsPage({
         </div>
       </div>
 
-      {/* Results Mode Display */}
-      {election.resultsVisibility === "SEALED_UNTIL_CLOSE" ? (
-        <div className="p-8 rounded-lg bg-zinc-100 border border-zinc-200 text-center space-y-4 max-w-md mx-auto">
-          <div className="w-10 h-10 rounded-full bg-zinc-200 text-zinc-700 mx-auto flex items-center justify-center">
-            <Lock className="w-5 h-5" />
-          </div>
-          <div className="space-y-1">
-            <h2 className="text-base font-bold text-zinc-900">Ballots Sealed Until Close of Polls</h2>
-            <p className="text-xs text-zinc-600">
-              In accordance with electoral guidelines, candidate tallies remain sealed until the voting window concludes.
-            </p>
-          </div>
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded bg-white border text-xs font-mono text-zinc-700">
-            <Clock className="w-3.5 h-3.5" />
-            <span>Ends: {new Date(election.endsAt).toLocaleTimeString("en-NG")}</span>
-          </span>
+      {/* Results Sealed Notice — Emergency Action */}
+      <div className="p-8 rounded-lg bg-zinc-100 border border-zinc-200 text-center space-y-4 max-w-md mx-auto">
+        <div className="w-10 h-10 rounded-full bg-zinc-200 text-zinc-700 mx-auto flex items-center justify-center">
+          <Lock className="w-5 h-5" />
         </div>
-      ) : (
-        <div className="space-y-6">
-          <h2 className="text-base font-bold text-zinc-900">Candidate Standings</h2>
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {election.posts.map((post) => {
-              const totalVotesForPost = post.candidates.reduce(
-                (sum, c) => sum + c.votes,
-                0
-              );
-
-              const sortedCandidates = [...post.candidates].sort(
-                (a, b) => b.votes - a.votes
-              );
-
-              return (
-                <div
-                  key={post.id}
-                  className="p-5 rounded-lg bg-white border border-zinc-200 shadow-sm space-y-5"
-                >
-                  <div className="flex items-center justify-between border-b border-zinc-100 pb-2">
-                    <h3 className="text-sm font-bold text-zinc-900">{post.title}</h3>
-                    <span className="text-[11px] font-mono text-zinc-500">
-                      {totalVotesForPost.toLocaleString()} Votes
-                    </span>
-                  </div>
-
-                  <div className="space-y-4">
-                    {sortedCandidates.map((cand, index) => {
-                      const maxWinners = (post as any).maxSelections || 1;
-                      const percentage =
-                        totalVotesForPost > 0
-                          ? ((cand.votes / totalVotesForPost) * 100).toFixed(1)
-                          : "0.0";
-                      const isLeading = index < maxWinners && cand.votes > 0;
-
-                      return (
-                        <div key={cand.id} className="space-y-1.5 text-xs">
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-2">
-                              <img
-                                src={cand.photoUrl}
-                                alt={cand.fullName}
-                                className="w-7 h-7 rounded object-cover border"
-                              />
-                              <div>
-                                <span className="font-semibold text-zinc-900">
-                                  {cand.fullName}
-                                </span>
-                                {isLeading && (
-                                  <span className="ml-1.5 px-1.5 py-0.5 rounded bg-zinc-900 text-white text-[10px] font-mono font-bold">
-                                    {maxWinners > 1 ? `Seat #${index + 1}` : "Leading"}
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-
-                            <div className="text-right font-mono">
-                              <span className="font-bold text-zinc-900">
-                                {cand.votes.toLocaleString()}
-                              </span>
-                              <span className="text-zinc-500 ml-1.5">
-                                ({percentage}%)
-                              </span>
-                            </div>
-                          </div>
-
-                          <div className="w-full bg-zinc-100 rounded-full h-1.5 overflow-hidden">
-                            <div
-                              className={`h-full rounded-full transition-all duration-500 ${
-                                isLeading ? "bg-zinc-900" : "bg-zinc-400"
-                              }`}
-                              style={{ width: `${percentage}%` }}
-                            />
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+        <div className="space-y-1">
+          <h2 className="text-base font-bold text-zinc-900">Live Results Withheld by Electoral Commission</h2>
+          <p className="text-xs text-zinc-600">
+            Live standings are temporarily withheld to preserve election integrity. Official certified results will be published once voting concludes.
+          </p>
         </div>
-      )}
+        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded bg-white border text-xs font-mono text-zinc-700">
+          <Clock className="w-3.5 h-3.5" />
+          <span>Status: Official Tally Protected</span>
+        </span>
+      </div>
     </div>
   );
 }

@@ -13,6 +13,14 @@ export default function LogoutButton() {
         setIsPending(true);
         try {
           sessionStorage.clear();
+          const keysToRemove: string[] = [];
+          for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key && (key.startsWith("studelect_") || key.includes("studelect"))) {
+              keysToRemove.push(key);
+            }
+          }
+          keysToRemove.forEach((k) => localStorage.removeItem(k));
         } catch (_) {}
       }}
       className="p-1.5 rounded-md hover:bg-red-50 text-zinc-400 hover:text-red-600 transition flex-shrink-0"

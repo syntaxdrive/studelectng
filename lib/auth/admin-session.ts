@@ -135,6 +135,82 @@ function verifyPassword(inputPassword: string, storedHash?: string, isSuperAdmin
 }
 
 /**
+ * Helper: Resolve an administrator's organization and campus assignment
+ * across commissioner assignments, org licenses, and election approvals.
+ */
+async function resolveAdminOrgAssignment(cleanEmail: string): Promise<{
+  orgId?: string;
+  orgSlug?: string;
+  institutionSlug?: string;
+}> {
+  let orgId: string | undefined = undefined;
+  let orgSlug: string | undefined = undefined;
+  let institutionSlug: string | undefined = undefined;
+
+  // 1. Check commissioner assignments store
+  try {
+    const assignments = safeReadDataJson<Record<string, any>>("commissioner-assignments.json", {});
+    const assignment = assignments[cleanEmail];
+    if (assignment) {
+      orgId = assignment.orgId;
+      orgSlug = assignment.orgSlug;
+      if (assignment.institutionSlug) {
+        institutionSlug = assignment.institutionSlug.toLowerCase().trim();
+      }
+    }
+  } catch (_) {}
+
+  // 2. Check org licenses store
+  if (!orgId) {
+    try {
+      const licenses = safeReadDataJson<any[]>("org-licenses-store.json", []);
+      const lic = (licenses || []).find(
+        (l: any) =>
+          (l.contactAdminEmail && l.contactAdminEmail.toLowerCase().trim() === cleanEmail) ||
+          (l.email && l.email.toLowerCase().trim() === cleanEmail)
+      );
+      if (lic) {
+        orgId = lic.id;
+        orgSlug = lic.orgSlug;
+        if (lic.institutionSlug) {
+          institutionSlug = lic.institutionSlug.toLowerCase().trim();
+        }
+      }
+    } catch (_) {}
+  }
+
+  // 3. CLOUD AUTHORITY: Check Supabase elections table multi_sig_approvals
+  if (!orgId) {
+    try {
+      const { data: elecs } = await supabase
+        .from("elections")
+        .select("id, organization_id, multi_sig_approvals");
+
+      if (elecs && elecs.length > 0) {
+        for (const el of elecs) {
+          const approvals = (el.multi_sig_approvals as any) || {};
+          const commEmail = (approvals.commissionerEmail || "").toLowerCase().trim();
+          const licEmail = (approvals.license?.contactAdminEmail || "").toLowerCase().trim();
+          const contactEmail = (approvals.contact?.email || "").toLowerCase().trim();
+
+          if (commEmail === cleanEmail || licEmail === cleanEmail || contactEmail === cleanEmail) {
+            orgId = el.organization_id || approvals.orgId || approvals.license?.id;
+            orgSlug = approvals.orgSlug || approvals.license?.orgSlug;
+            break;
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
+  if (orgId && !orgSlug) {
+    orgSlug = orgId.replace(/^org-[^-]+-/, "").replace(/^org-/, "").toLowerCase().trim();
+  }
+
+  return { orgId, orgSlug, institutionSlug };
+}
+
+/**
  * Authenticate Administrative Users (Email + Password)
  * Strictly verifies against registered credentials in Supabase admin_users and authorized system accounts.
  * Eliminates unauthorized or arbitrary sign-ins.
@@ -155,6 +231,9 @@ export async function authenticateAdmin(
     };
   }
 
+  // Pre-resolve organization and campus assignment if registered
+  const orgAssignment = await resolveAdminOrgAssignment(cleanEmail);
+
   // 1. Check in Supabase admin_users table
   try {
     const { data: dbUser, error } = await supabase
@@ -173,75 +252,25 @@ export async function authenticateAdmin(
         };
       }
 
-      const instSlug = (dbUser.institution_id || "unilag")
+      const instSlug = (
+        orgAssignment.institutionSlug ||
+        dbUser.institution_id ||
+        "unilag"
+      )
         .replace(/^inst-/, "")
         .toLowerCase();
 
       const userRole: UserRole =
         dbUser.role === "SUPER_ADMIN" ? "SUPER_ADMIN" : "ELCOM_ADMIN";
 
-      // Resolve commissioner organization assignment
-      let orgId: string | undefined = undefined;
-      let orgSlug: string | undefined = undefined;
+      let finalOrgId = orgAssignment.orgId;
+      let finalOrgSlug = orgAssignment.orgSlug;
 
-      // 1. Check commissioner assignments in store
-      try {
-        const assignments = safeReadDataJson<Record<string, any>>("commissioner-assignments.json", {});
-        const assignment = assignments[cleanEmail];
-        if (assignment) {
-          orgId = assignment.orgId;
-          orgSlug = assignment.orgSlug;
-        }
-      } catch (e) {
-        // ignore
+      if (!finalOrgId && dbUser.role && dbUser.role.includes(":")) {
+        finalOrgId = dbUser.role.split(":")[1];
       }
-
-      // 2. Check org licenses store (by contactAdminEmail)
-      if (!orgId) {
-        try {
-          const licenses = safeReadDataJson<any[]>("org-licenses-store.json", []);
-          const lic = (licenses || []).find(
-            (l: any) =>
-              (l.contactAdminEmail && l.contactAdminEmail.toLowerCase().trim() === cleanEmail) ||
-              (l.email && l.email.toLowerCase().trim() === cleanEmail)
-          );
-          if (lic) {
-            orgId = lic.id;
-            orgSlug = lic.orgSlug;
-          }
-        } catch (_) {}
-      }
-
-      // 3. CLOUD AUTHORITY: Check Supabase elections table multi_sig_approvals
-      if (!orgId) {
-        try {
-          const { data: elecs } = await supabase
-            .from("elections")
-            .select("id, organization_id, multi_sig_approvals");
-
-          if (elecs && elecs.length > 0) {
-            for (const el of elecs) {
-              const approvals = (el.multi_sig_approvals as any) || {};
-              const commEmail = (approvals.commissionerEmail || "").toLowerCase().trim();
-              const licEmail = (approvals.license?.contactAdminEmail || "").toLowerCase().trim();
-              const contactEmail = (approvals.contact?.email || "").toLowerCase().trim();
-
-              if (commEmail === cleanEmail || licEmail === cleanEmail || contactEmail === cleanEmail) {
-                orgId = el.organization_id || approvals.orgId || approvals.license?.id;
-                orgSlug = approvals.orgSlug || approvals.license?.orgSlug;
-                break;
-              }
-            }
-          }
-        } catch (_) {}
-      }
-
-      if (!orgId && dbUser.role && dbUser.role.includes(":")) {
-        orgId = dbUser.role.split(":")[1];
-      }
-
-      if (orgId && !orgSlug) {
-        orgSlug = orgId.replace(/^org-[^-]+-/, "").replace(/^org-/, "").toLowerCase().trim();
+      if (finalOrgId && !finalOrgSlug) {
+        finalOrgSlug = finalOrgId.replace(/^org-[^-]+-/, "").replace(/^org-/, "").toLowerCase().trim();
       }
 
       return {
@@ -253,8 +282,8 @@ export async function authenticateAdmin(
           role: userRole,
           institutionId: dbUser.institution_id,
           institutionSlug: instSlug,
-          orgId,
-          orgSlug,
+          orgId: finalOrgId,
+          orgSlug: finalOrgSlug,
         },
         message: "Administrator authenticated successfully.",
       };
@@ -276,15 +305,22 @@ export async function authenticateAdmin(
         trimmedPassword === process.env.SUPERADMIN_PASSWORD.trim());
 
     if (isSystemAdminValid) {
+      const instSlug =
+        orgAssignment.institutionSlug ||
+        systemAdmin.institutionSlug ||
+        "unilag";
+
       return {
         success: true,
         user: {
-          id: `admin-${systemAdmin.role.toLowerCase()}-${systemAdmin.institutionSlug || "main"}`,
+          id: `admin-${systemAdmin.role.toLowerCase()}-${instSlug}`,
           email: systemAdmin.email,
           fullName: systemAdmin.fullName,
           role: systemAdmin.role,
           institutionId: systemAdmin.institutionId,
-          institutionSlug: systemAdmin.institutionSlug || "unilag",
+          institutionSlug: instSlug,
+          orgId: orgAssignment.orgId,
+          orgSlug: orgAssignment.orgSlug,
         },
         message: "Administrator authenticated successfully.",
       };
@@ -326,7 +362,12 @@ export async function authenticateAdmin(
       }
 
       if (isValid) {
-        const instSlug = (promotedMatch.institutionSlug || "ui").toLowerCase();
+        const instSlug = (
+          orgAssignment.institutionSlug ||
+          promotedMatch.institutionSlug ||
+          "ui"
+        ).toLowerCase();
+
         return {
           success: true,
           user: {
@@ -336,6 +377,8 @@ export async function authenticateAdmin(
             role: promotedMatch.role === "SUPER_ADMIN" ? "SUPER_ADMIN" : "ELCOM_ADMIN",
             institutionId: promotedMatch.institutionId || `inst-${instSlug}`,
             institutionSlug: instSlug,
+            orgId: orgAssignment.orgId,
+            orgSlug: orgAssignment.orgSlug,
           },
           message: "Officer authenticated successfully.",
         };
@@ -367,7 +410,12 @@ export async function authenticateAdmin(
             .maybeSingle();
 
           if (dbAdmin) {
-            const instSlug = (dbAdmin.institution_id || st.institution_id || "inst-ui")
+            const instSlug = (
+              orgAssignment.institutionSlug ||
+              dbAdmin.institution_id ||
+              st.institution_id ||
+              "inst-ui"
+            )
               .replace(/^inst-/, "")
               .toLowerCase();
             return {
@@ -379,6 +427,8 @@ export async function authenticateAdmin(
                 role: dbAdmin.role === "SUPER_ADMIN" ? "SUPER_ADMIN" : "ELCOM_ADMIN",
                 institutionId: dbAdmin.institution_id || st.institution_id,
                 institutionSlug: instSlug,
+                orgId: orgAssignment.orgId,
+                orgSlug: orgAssignment.orgSlug,
               },
               message: "Officer authenticated successfully.",
             };

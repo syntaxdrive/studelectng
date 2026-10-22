@@ -453,12 +453,12 @@ export default function OrganizationPortalPage({
     };
   }, [election.id, instSlug, orgSlug]);
 
-  // Safeguard: strictly block voter navigation to RESULTS tab whenever results are withheld / sealed
+  // Safeguard: strictly block voter navigation to RESULTS tab from student side
   useEffect(() => {
-    if (activeTab === "RESULTS" && resultsVisibility !== "LIVE") {
+    if (activeTab === "RESULTS") {
       setActiveTab("VOTE");
     }
-  }, [activeTab, resultsVisibility]);
+  }, [activeTab]);
 
   // ── ELCOM Public Contact Loader ─────────────────────────────────────────────
   useEffect(() => {
@@ -602,11 +602,7 @@ export default function OrganizationPortalPage({
       setReceiptCode(res.receiptHash || "");
       setCastTimestamp(Date.now());
       setVoteStep("RECEIPT");
-      if (resultsVisibility === "LIVE") {
-        setActiveTab("RESULTS");
-      } else {
-        setActiveTab("VOTE");
-      }
+      setActiveTab("VOTE");
       try {
         sessionStorage.setItem(
           sessionKey,
@@ -995,22 +991,6 @@ export default function OrganizationPortalPage({
           <Users className="w-4 h-4" />
           <span>Candidates & Manifestos</span>
         </button>
-
-        {/* Live Results Tab — strictly deactivated and hidden until officially released by ELCOM */}
-        {resultsVisibility === "LIVE" && (
-          <button
-            type="button"
-            onClick={() => setActiveTab("RESULTS")}
-            className={`px-4 py-2 rounded-lg transition flex items-center gap-1.5 ${
-              activeTab === "RESULTS"
-                ? "bg-zinc-900 text-white shadow-xs"
-                : "text-zinc-600 hover:bg-zinc-100"
-            }`}
-          >
-            <BarChart3 className="w-4 h-4" />
-            <span>Live Results</span>
-          </button>
-        )}
       </div>
 
       {/* ========================================================================= */}
@@ -1089,23 +1069,12 @@ export default function OrganizationPortalPage({
                       <span>Election Officially Concluded</span>
                     </div>
                     <p className="text-[11px] text-zinc-600 leading-relaxed">
-                      Voting has concluded and polls are officially closed. You can monitor the certified election standings in the Results tab.
+                      Voting has concluded and polls are officially closed. Official certified standings will be released by the Electoral Commission.
                     </p>
-                    {resultsVisibility === "LIVE" ? (
-                      <button
-                        type="button"
-                        onClick={() => setActiveTab("RESULTS")}
-                        className="px-3.5 py-1.5 rounded-lg bg-zinc-900 text-white font-bold text-xs hover:bg-zinc-800 transition inline-flex items-center gap-1.5"
-                      >
-                        <BarChart3 className="w-3.5 h-3.5" />
-                        <span>View Final Standings</span>
-                      </button>
-                    ) : (
-                      <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-200 text-zinc-700 text-xs font-semibold">
-                        <Lock className="w-3.5 h-3.5 text-zinc-600" />
-                        <span>Official Standings Withheld by ELCOM</span>
-                      </span>
-                    )}
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-200 text-zinc-700 text-xs font-semibold">
+                      <Lock className="w-3.5 h-3.5 text-zinc-600" />
+                      <span>Official Standings Withheld by ELCOM</span>
+                    </span>
                   </div>
                 )}
 
@@ -1347,17 +1316,6 @@ export default function OrganizationPortalPage({
               </div>
 
               <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
-                {resultsVisibility === "LIVE" && (
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab("RESULTS")}
-                    className="w-full sm:w-auto px-5 py-2.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white font-bold text-xs transition flex items-center justify-center gap-2 shadow-xs"
-                  >
-                    <BarChart3 className="w-3.5 h-3.5" />
-                    <span>View Live Election Standings</span>
-                  </button>
-                )}
-
                 <button
                   type="button"
                   onClick={() => setVoteStep("RECEIPT")}
@@ -1428,7 +1386,7 @@ export default function OrganizationPortalPage({
                     <span>Election Concluded</span>
                   </div>
                   <p className="text-[11px] text-zinc-600 leading-relaxed">
-                    Voting has officially closed. You can monitor certified final standings in the Results tab.
+                    Voting has officially closed. Official certified standings will be announced by the Electoral Commission.
                   </p>
                 </div>
               )}
@@ -1787,17 +1745,6 @@ export default function OrganizationPortalPage({
               />
 
               <div className="flex items-center justify-center gap-3 pt-2 text-xs">
-                {resultsVisibility === "LIVE" && (
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab("RESULTS")}
-                    className="px-4 py-2.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white font-bold transition flex items-center gap-1.5 shadow-xs"
-                  >
-                    <BarChart3 className="w-3.5 h-3.5" />
-                    <span>View Live Election Standings</span>
-                  </button>
-                )}
-
                 <button
                   type="button"
                   onClick={handleVoterLogout}
@@ -2316,9 +2263,9 @@ export default function OrganizationPortalPage({
 
 
       {/* ========================================================================= */}
-      {/* TAB 4: LIVE RESULTS & STANDINGS                                          */}
+      {/* TAB 4: LIVE RESULTS & STANDINGS (STRICTLY DISABLED FOR STUDENTS)          */}
       {/* ========================================================================= */}
-      {activeTab === "RESULTS" && (
+      {false && activeTab === "RESULTS" && (
         <div className="space-y-6">
           {resultsVisibility === "SEALED_UNTIL_CLOSE" ? (
             <div className="bg-white p-8 sm:p-12 rounded-2xl border border-zinc-200 shadow-sm text-center max-w-lg mx-auto space-y-4 animate-in fade-in">

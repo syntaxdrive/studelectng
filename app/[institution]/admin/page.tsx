@@ -167,13 +167,13 @@ export default function InstitutionAdminPage({
   const [posts, setPosts] = useState<PostWithCandidatesDto[]>(() => {
     if (typeof window !== "undefined") {
       try {
-        const queryOrg =
-          new URLSearchParams(window.location.search).get("org") ||
-          (instSlug === "unilag" ? "nacos" : "nesa");
-        const cached = localStorage.getItem(`studelect_posts_${instSlug}_${queryOrg}`);
-        if (cached) {
-          const parsed = JSON.parse(cached);
-          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        const queryOrg = new URLSearchParams(window.location.search).get("org");
+        if (queryOrg) {
+          const cached = localStorage.getItem(`studelect_posts_${instSlug}_${queryOrg}`);
+          if (cached) {
+            const parsed = JSON.parse(cached);
+            if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+          }
         }
       } catch (_) {}
     }
@@ -201,9 +201,11 @@ export default function InstitutionAdminPage({
   const [voterRoll, setVoterRoll] = useState<any[]>(() => {
     if (typeof window !== "undefined") {
       try {
-        const queryOrg = new URLSearchParams(window.location.search).get("org") || (instSlug === "unilag" ? "nacos" : "nesa");
-        const cached = sessionStorage.getItem(`studelect_voter_roll_${instSlug}_${queryOrg}`);
-        if (cached) return JSON.parse(cached);
+        const queryOrg = new URLSearchParams(window.location.search).get("org");
+        if (queryOrg) {
+          const cached = sessionStorage.getItem(`studelect_voter_roll_${instSlug}_${queryOrg}`);
+          if (cached) return JSON.parse(cached);
+        }
       } catch (_) {}
     }
     return [];
@@ -588,7 +590,7 @@ export default function InstitutionAdminPage({
         try {
           const session = await Promise.race([
             getCurrentUserSession(),
-            new Promise<null>((resolve) => setTimeout(() => resolve(null), 1000)),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000)),
           ]);
           if (session && !isCancelled) {
             userSession = session;
@@ -617,8 +619,26 @@ export default function InstitutionAdminPage({
           detectedOrg = instSlug === "unilag" ? "nacos" : "nesa";
         }
 
-        if (!isCancelled) {
-          setActiveOrgSlug((prev) => (prev !== detectedOrg ? detectedOrg : prev));
+        if (!isCancelled && detectedOrg) {
+          setActiveOrgSlug((prev) => {
+            if (prev !== detectedOrg) {
+              // WIPE OUT previous org data so switching orgs does not display stale data
+              setVoterRoll([]);
+              setPosts([]);
+              setTelemetryData({
+                totalRegistered: 0,
+                totalBallotsCast: 0,
+                turnoutPercentage: 0,
+                posts: [],
+                levelBreakdown: [],
+                recentAuditLedger: [],
+                lastUpdated: Date.now(),
+              });
+              setOrgLogoUrl(null);
+              return detectedOrg;
+            }
+            return prev;
+          });
         }
 
         // Ensure URL query param reflects active org
@@ -657,7 +677,14 @@ export default function InstitutionAdminPage({
     setIsSigningOut(true);
     try {
       sessionStorage.clear();
-      localStorage.removeItem("studelect_admin_user");
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && (key.startsWith("studelect_") || key.includes("studelect"))) {
+          keysToRemove.push(key);
+        }
+      }
+      keysToRemove.forEach((k) => localStorage.removeItem(k));
     } catch (_) {}
     window.location.href = `/api/auth/logout?redirect=/${encodeURIComponent(instSlug)}`;
   };
@@ -772,6 +799,12 @@ export default function InstitutionAdminPage({
         try {
           localStorage.setItem(`studelect_posts_${instSlug}_${activeOrgSlug}`, JSON.stringify(freshPosts));
         } catch (_) {}
+      } else {
+        // If this election currently has no posts, explicitly clear state
+        setPosts([]);
+        try {
+          localStorage.removeItem(`studelect_posts_${instSlug}_${activeOrgSlug}`);
+        } catch (_) {}
       }
     } catch (_) {}
   };
@@ -858,6 +891,11 @@ export default function InstitutionAdminPage({
       setVoterRoll(res.students);
       try {
         sessionStorage.setItem(`studelect_voter_roll_${instSlug}_${orgToUse}`, JSON.stringify(res.students));
+      } catch (_) {}
+    } else {
+      setVoterRoll([]);
+      try {
+        sessionStorage.removeItem(`studelect_voter_roll_${instSlug}_${orgToUse}`);
       } catch (_) {}
     }
     setVoterRollLoading(false);

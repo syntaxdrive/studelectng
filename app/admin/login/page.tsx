@@ -35,12 +35,25 @@ export default function AdminLoginPage() {
       return;
     }
 
+    // Cleanly wipe any previous admin session caches from browser memory
+    try {
+      sessionStorage.clear();
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && (key.startsWith("studelect_") || key.includes("studelect"))) {
+          keysToRemove.push(key);
+        }
+      }
+      keysToRemove.forEach((k) => localStorage.removeItem(k));
+    } catch (_) {}
+
     if (res.role === "SUPER_ADMIN") {
-      router.push("/super-admin");
+      window.location.href = "/super-admin";
     } else {
       const targetInst = res.institutionSlug || selectedCampus;
       const targetOrgQuery = res.orgSlug ? `?org=${encodeURIComponent(res.orgSlug)}` : "";
-      router.push(`/${targetInst}/admin${targetOrgQuery}`);
+      window.location.href = `/${targetInst}/admin${targetOrgQuery}`;
     }
   };
 
