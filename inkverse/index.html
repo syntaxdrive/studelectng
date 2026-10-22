@@ -1,0 +1,1381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>INKVERSE — 2.5D Stylized Action Platformer (Phase A)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bungee&family=Space+Grotesk:wght@500;700;900&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+  
+  <style>
+    :root {
+      --ink: #101020;
+      --shadow: #21183D;
+      --midtone: #44316F;
+      --crimson: #EF3D5A;
+      --highlight: #FFCB65;
+      --teal: #38DCCB;
+      --ivory: #F5F3E9;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: var(--ink);
+      font-family: 'Space Grotesk', system-ui, sans-serif;
+      color: var(--ivory);
+    }
+
+    #webgl-canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+      z-index: 1;
+    }
+
+    /* Comic UI Overlay */
+    #ui-layer {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 10;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 24px;
+    }
+
+    .comic-vignette {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background: radial-gradient(circle at 50% 50%, transparent 60%, rgba(16, 16, 32, 0.45) 100%);
+      z-index: 2;
+    }
+
+    /* Top Bar */
+    .top-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+    }
+
+    .brand-block {
+      background: var(--ink);
+      border: 3px solid var(--ivory);
+      box-shadow: 6px 6px 0px var(--crimson);
+      padding: 12px 20px;
+      transform: skew(-4deg);
+      pointer-events: auto;
+    }
+
+    .brand-title {
+      font-family: 'Bungee', cursive;
+      font-size: 26px;
+      letter-spacing: 2px;
+      line-height: 1;
+      color: var(--highlight);
+      text-shadow: 2px 2px 0px var(--crimson);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .brand-title .badge {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      background: var(--crimson);
+      color: var(--ivory);
+      padding: 3px 8px;
+      border-radius: 2px;
+      letter-spacing: 1px;
+      text-shadow: none;
+      transform: skew(4deg);
+    }
+
+    .brand-subtitle {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      color: var(--teal);
+      margin-top: 6px;
+    }
+
+    /* Diagnostics & Controls Panel */
+    .dev-panel {
+      background: rgba(16, 16, 32, 0.94);
+      border: 2.5px solid var(--ivory);
+      box-shadow: 5px 5px 0px var(--midtone);
+      border-radius: 4px;
+      padding: 14px 18px;
+      min-width: 290px;
+      pointer-events: auto;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+    }
+
+    .dev-panel h4 {
+      font-family: 'Space Grotesk', sans-serif;
+      font-weight: 900;
+      font-size: 13px;
+      color: var(--highlight);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 2px dashed rgba(245, 243, 233, 0.2);
+      padding-bottom: 6px;
+    }
+
+    .stat-row {
+      display: flex;
+      justify-content: space-between;
+      margin: 5px 0;
+      color: #ccc;
+    }
+
+    .stat-val {
+      font-weight: 700;
+      color: var(--teal);
+    }
+
+    .btn-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .btn-comic {
+      background: var(--midtone);
+      border: 2px solid var(--ivory);
+      color: var(--ivory);
+      padding: 8px 12px;
+      font-family: 'Space Grotesk', sans-serif;
+      font-weight: 700;
+      font-size: 11px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      cursor: pointer;
+      box-shadow: 3px 3px 0px var(--ink);
+      transition: all 0.15s ease;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .btn-comic:hover {
+      background: var(--crimson);
+      transform: translate(-1px, -1px);
+      box-shadow: 4px 4px 0px var(--ink);
+    }
+
+    .btn-comic:active {
+      transform: translate(2px, 2px);
+      box-shadow: 1px 1px 0px var(--ink);
+    }
+
+    .btn-comic.active {
+      background: var(--teal);
+      color: var(--ink);
+      border-color: var(--ink);
+      box-shadow: 3px 3px 0px var(--crimson);
+    }
+
+    /* Bottom Info & Instructions */
+    .bottom-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      gap: 16px;
+      pointer-events: auto;
+    }
+
+    .instructions-card {
+      background: var(--ink);
+      border: 2px solid var(--ivory);
+      box-shadow: 4px 4px 0px var(--shadow);
+      padding: 10px 16px;
+      font-size: 12px;
+      max-width: 500px;
+    }
+
+    .instructions-card h5 {
+      color: var(--highlight);
+      font-weight: 900;
+      letter-spacing: 1px;
+      margin-bottom: 4px;
+      text-transform: uppercase;
+      font-size: 11px;
+    }
+
+    .instructions-card p {
+      color: #ddd;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .key-badge {
+      display: inline-block;
+      background: var(--midtone);
+      border: 1px solid var(--ivory);
+      color: var(--ivory);
+      padding: 1px 6px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      font-weight: bold;
+      border-radius: 3px;
+      margin: 0 2px;
+    }
+
+    .phase-badge {
+      background: var(--highlight);
+      color: var(--ink);
+      font-family: 'Bungee', cursive;
+      font-size: 14px;
+      padding: 10px 16px;
+      border: 3px solid var(--ink);
+      box-shadow: 4px 4px 0px var(--crimson);
+      transform: rotate(2deg);
+      text-align: center;
+    }
+
+    /* Loading screen */
+    #loading-screen {
+      position: absolute;
+      inset: 0;
+      background: var(--ink);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      z-index: 100;
+      transition: opacity 0.4s ease;
+    }
+
+    .loader-title {
+      font-family: 'Bungee', cursive;
+      font-size: 38px;
+      color: var(--highlight);
+      text-shadow: 4px 4px 0px var(--crimson);
+      letter-spacing: 3px;
+      margin-bottom: 12px;
+      animation: pulse 1s infinite alternate;
+    }
+
+    @keyframes pulse {
+      from { transform: scale(0.98); }
+      to { transform: scale(1.02); }
+    }
+  </style>
+
+  <!-- Pinned Three.js via ES Module Import Map -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+
+  <!-- Loading Splash -->
+  <div id="loading-screen">
+    <div class="loader-title">INKVERSE</div>
+    <div style="font-family: 'JetBrains Mono', monospace; color: var(--teal); font-size: 13px; letter-spacing: 2px;">
+      INITIALIZING PHASE A: CORE SCENE & ARCHITECTURE...
+    </div>
+  </div>
+
+  <!-- WebGL Canvas Container -->
+  <canvas id="webgl-canvas"></canvas>
+  <div class="comic-vignette"></div>
+
+  <!-- Graphic Novel HUD Overlay -->
+  <div id="ui-layer">
+    <!-- Top Bar -->
+    <div class="top-header">
+      <div class="brand-block">
+        <div class="brand-title">
+          INKVERSE <span class="badge">PHASE A</span>
+        </div>
+        <div class="brand-subtitle">Visual Slice &bull; Core 3D Scene Architecture</div>
+      </div>
+
+      <!-- Dev Control Panel -->
+      <div class="dev-panel">
+        <h4>
+          <span>System Diagnostics</span>
+          <span id="fps-counter" class="stat-val">-- FPS</span>
+        </h4>
+        <div class="stat-row">
+          <span>Camera Mode:</span>
+          <span id="cam-mode-text" class="stat-val">2.5D Cinematic</span>
+        </div>
+        <div class="stat-row">
+          <span>Lighting Setup:</span>
+          <span id="light-mode-text" class="stat-val">Sunset Noir</span>
+        </div>
+        <div class="stat-row">
+          <span>Draw Calls:</span>
+          <span id="draw-calls-stat" class="stat-val">--</span>
+        </div>
+        <div class="stat-row">
+          <span>Triangles:</span>
+          <span id="poly-stat" class="stat-val">--</span>
+        </div>
+
+        <div class="btn-group">
+          <button id="btn-toggle-cam" class="btn-comic">
+            <span>Toggle Camera Orbit</span>
+            <span style="font-family: 'JetBrains Mono'">[C]</span>
+          </button>
+          <button id="btn-reset-cam" class="btn-comic">
+            <span>Reset 2.5D Framing</span>
+            <span style="font-family: 'JetBrains Mono'">[R]</span>
+          </button>
+          <button id="btn-toggle-lighting" class="btn-comic">
+            <span>Cycle Lighting Preset</span>
+            <span style="font-family: 'JetBrains Mono'">[L]</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bottom Bar -->
+    <div class="bottom-bar">
+      <div class="instructions-card">
+        <h5>Phase A Technical Slice — Verification Controls</h5>
+        <p>
+          Drag with <span class="key-badge">Left Mouse</span> (in Orbit mode) to inspect 3D depth and silhouettes &bull; 
+          <span class="key-badge">C</span> toggles 2.5D / Free Orbit &bull; 
+          <span class="key-badge">L</span> cycles lighting presets &bull; 
+          <span class="key-badge">R</span> snaps back to 2.5D cinematic platformer framing.
+        </p>
+      </div>
+
+      <div class="phase-badge">
+        VERIFYING<br>FOUNDATION
+      </div>
+    </div>
+  </div>
+
+  <!-- APPLICATION ENGINE (ES MODULES) -->
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+    /* =========================================================================
+     * PALETTE CONSTANTS & COLOR IDENTITY
+     * Based on comic-book print tones and Into the Spider-Verse aesthetics
+     * ========================================================================= */
+    export const COLOR_PALETTE = {
+      ink: 0x101020,             // #101020 - Deep comic line ink
+      shadow: 0x21183D,          // #21183D - Deep violet ambient shadow
+      midtone: 0x44316F,         // #44316F - Muted purple architectural midtone
+      crimson: 0xEF3D5A,         // #EF3D5A - Accent high-voltage red
+      warmHighlight: 0xFFCB65,   // #FFCB65 - Golden comic rim & key light
+      electricTeal: 0x38DCCB,    // #38DCCB - Sharp cyan back-rim accent
+      ivory: 0xF5F3E9,           // #F5F3E9 - Warm paper white
+      charcoalStreet: 0x1A1829,  // Dark tech-fabric charcoal
+      deepNavy: 0x141B34,        // Dark cityscape base
+      brickRed: 0x8C3345,        // Weathered comic masonry
+      hazardYellow: 0xF5B731,    // Industrial caution stripes
+    };
+
+    /* =========================================================================
+     * 1. CHARACTER SYSTEM: ORIGINAL HERO PROTOTYPE
+     * Athletic comic-book proportions, articulated hierarchy, layered streetwear.
+     * ========================================================================= */
+    export class HeroCharacter {
+      constructor() {
+        this.group = new THREE.Group();
+        this.group.name = "HeroCharacter";
+        
+        // Grounded directly on roof deck at Y = 0.0 with 3/4 heroic comic stance
+        this.group.position.set(0, 0, 0);
+        this.group.rotation.y = 0.40; // Dynamic 3/4 presentation angle
+
+        // Articulated hierarchy nodes for Phase E animation
+        this.nodes = {};
+
+        this._buildModel();
+      }
+
+      _buildModel() {
+        // Materials with controlled comic-book base tones
+        const matSuit = new THREE.MeshStandardMaterial({
+          color: COLOR_PALETTE.charcoalStreet,
+          roughness: 0.7,
+          metalness: 0.1,
+        });
+
+        const matIvory = new THREE.MeshStandardMaterial({
+          color: COLOR_PALETTE.ivory,
+          roughness: 0.55,
+          metalness: 0.05,
+        });
+
+        const matCrimson = new THREE.MeshStandardMaterial({
+          color: COLOR_PALETTE.crimson,
+          roughness: 0.5,
+          metalness: 0.1,
+        });
+
+        const matTeal = new THREE.MeshStandardMaterial({
+          color: COLOR_PALETTE.electricTeal,
+          roughness: 0.35,
+          metalness: 0.2,
+          emissive: COLOR_PALETTE.electricTeal,
+          emissiveIntensity: 0.35,
+        });
+
+        const matGold = new THREE.MeshStandardMaterial({
+          color: COLOR_PALETTE.warmHighlight,
+          roughness: 0.3,
+          metalness: 0.2,
+        });
+
+        const matSole = new THREE.MeshStandardMaterial({
+          color: 0xffffff,
+          roughness: 0.35,
+        });
+
+        // 1. Pelvis / Hip Pivot (Set at 1.12m so bottom of sneakers lands flush at Y = 0.0)
+        const pelvis = new THREE.Group();
+        pelvis.position.y = 1.12;
+        this.group.add(pelvis);
+        this.nodes.pelvis = pelvis;
+
+        // Pelvis geometry
+        const pelvisGeo = new THREE.CylinderGeometry(0.24, 0.20, 0.22, 7);
+        const pelvisMesh = new THREE.Mesh(pelvisGeo, matSuit);
+        pelvisMesh.castShadow = true;
+        pelvis.add(pelvisMesh);
+
+        // Utility belt
+        const beltGeo = new THREE.CylinderGeometry(0.26, 0.26, 0.08, 8);
+        const beltMesh = new THREE.Mesh(beltGeo, matCrimson);
+        beltMesh.position.y = 0.08;
+        beltMesh.castShadow = true;
+        pelvis.add(beltMesh);
+
+        // Belt buckle / tech pouch
+        const buckleGeo = new THREE.BoxGeometry(0.12, 0.09, 0.08);
+        const buckleMesh = new THREE.Mesh(buckleGeo, matTeal);
+        buckleMesh.position.set(0, 0.08, 0.26);
+        pelvis.add(buckleMesh);
+
+        // 2. Torso / Chest (Athletic Comic V-Taper)
+        const spine = new THREE.Group();
+        spine.position.y = 0.14;
+        pelvis.add(spine);
+        this.nodes.spine = spine;
+
+        // Lower torso
+        const lowerTorsoGeo = new THREE.CylinderGeometry(0.28, 0.22, 0.32, 7);
+        const lowerTorsoMesh = new THREE.Mesh(lowerTorsoGeo, matSuit);
+        lowerTorsoMesh.position.y = 0.16;
+        lowerTorsoMesh.castShadow = true;
+        spine.add(lowerTorsoMesh);
+
+        // Chest / Upper Torso (Athletic broad shoulders)
+        const chestGeo = new THREE.BoxGeometry(0.64, 0.44, 0.35);
+        const chestMesh = new THREE.Mesh(chestGeo, matCrimson);
+        chestMesh.position.y = 0.48;
+        chestMesh.castShadow = true;
+        spine.add(chestMesh);
+
+        // Cropped Streetwear Bomber Jacket Overlay
+        const jacketGeo = new THREE.BoxGeometry(0.70, 0.40, 0.39);
+        const jacketMesh = new THREE.Mesh(jacketGeo, matSuit);
+        jacketMesh.position.y = 0.52;
+        jacketMesh.castShadow = true;
+        spine.add(jacketMesh);
+
+        // Asymmetrical graphic chest strap / teal tech-line
+        const strapGeo = new THREE.BoxGeometry(0.72, 0.08, 0.41);
+        const strapMesh = new THREE.Mesh(strapGeo, matTeal);
+        strapMesh.position.set(0, 0.48, 0);
+        strapMesh.rotation.z = 0.25;
+        spine.add(strapMesh);
+
+        // High popped collar around neck
+        const collarGeo = new THREE.CylinderGeometry(0.24, 0.28, 0.18, 8, 1, true);
+        const collarMesh = new THREE.Mesh(collarGeo, matSuit);
+        collarMesh.position.y = 0.76;
+        spine.add(collarMesh);
+
+        // 3. Head & Comic Tech Visor
+        const neck = new THREE.Group();
+        neck.position.y = 0.78;
+        spine.add(neck);
+        this.nodes.neck = neck;
+
+        const headGroup = new THREE.Group();
+        headGroup.position.y = 0.14;
+        neck.add(headGroup);
+        this.nodes.head = headGroup;
+
+        // Sculpted head base
+        const headGeo = new THREE.BoxGeometry(0.32, 0.38, 0.34);
+        const headMesh = new THREE.Mesh(headGeo, matSuit);
+        headMesh.castShadow = true;
+        headGroup.add(headMesh);
+
+        // Stylized geometric hair / cowl volume
+        const hairGeo = new THREE.BoxGeometry(0.38, 0.24, 0.38);
+        const hairMat = new THREE.MeshStandardMaterial({
+          color: COLOR_PALETTE.charcoalStreet,
+          roughness: 0.85,
+        });
+        const hairMesh = new THREE.Mesh(hairGeo, hairMat);
+        hairMesh.position.set(0, 0.16, -0.02);
+        headGroup.add(hairMesh);
+
+        // Angular graphic comic visor (Heroic original identity)
+        const visorGeo = new THREE.BoxGeometry(0.28, 0.12, 0.08);
+        const visorMesh = new THREE.Mesh(visorGeo, matTeal);
+        visorMesh.position.set(0, 0.02, 0.18);
+        headGroup.add(visorMesh);
+
+        // Sharp golden brow accent
+        const browGeo = new THREE.BoxGeometry(0.32, 0.04, 0.09);
+        const browMesh = new THREE.Mesh(browGeo, matGold);
+        browMesh.position.set(0, 0.10, 0.18);
+        headGroup.add(browMesh);
+
+        // 4. Arms (Hierarchical Left & Right with Shoulder / Elbow / Wrist)
+        this.nodes.leftArm = this._createArm(spine, 0.40, true, matSuit, matCrimson, matTeal, matIvory);
+        this.nodes.rightArm = this._createArm(spine, -0.40, false, matSuit, matCrimson, matTeal, matIvory);
+
+        // 5. Legs & Chunky Sneakers (Left & Right with Hip / Knee / Ankle)
+        this.nodes.leftLeg = this._createLeg(pelvis, 0.17, true, matSuit, matCrimson, matTeal, matIvory, matSole);
+        this.nodes.rightLeg = this._createLeg(pelvis, -0.17, false, matSuit, matCrimson, matTeal, matIvory, matSole);
+      }
+
+      _createArm(parent, xOffset, isLeft, matJacket, matCrimson, matTeal, matGlove) {
+        const shoulder = new THREE.Group();
+        shoulder.position.set(xOffset, 0.62, 0);
+        parent.add(shoulder);
+
+        // Shoulder pad
+        const shoulderGeo = new THREE.BoxGeometry(0.22, 0.20, 0.22);
+        const shoulderMesh = new THREE.Mesh(shoulderGeo, matJacket);
+        shoulderMesh.position.y = -0.06;
+        shoulderMesh.castShadow = true;
+        shoulder.add(shoulderMesh);
+
+        // Upper arm
+        const upperArm = new THREE.Group();
+        upperArm.position.y = -0.12;
+        shoulder.add(upperArm);
+
+        const upperArmGeo = new THREE.BoxGeometry(0.16, 0.32, 0.16);
+        const upperArmMesh = new THREE.Mesh(upperArmGeo, matJacket);
+        upperArmMesh.position.y = -0.14;
+        upperArmMesh.castShadow = true;
+        upperArm.add(upperArmMesh);
+
+        // Elbow joint & Forearm
+        const elbow = new THREE.Group();
+        elbow.position.y = -0.30;
+        upperArm.add(elbow);
+
+        // Forearm with rolled-up sleeve accent
+        const sleeveBandGeo = new THREE.BoxGeometry(0.18, 0.06, 0.18);
+        const sleeveBandMesh = new THREE.Mesh(sleeveBandGeo, matCrimson);
+        elbow.add(sleeveBandMesh);
+
+        const forearmGeo = new THREE.BoxGeometry(0.14, 0.34, 0.14);
+        const forearmMesh = new THREE.Mesh(forearmGeo, matTeal);
+        forearmMesh.position.y = -0.18;
+        forearmMesh.castShadow = true;
+        elbow.add(forearmMesh);
+
+        // Tactical combat glove / fist
+        const wrist = new THREE.Group();
+        wrist.position.y = -0.34;
+        elbow.add(wrist);
+
+        const handGeo = new THREE.BoxGeometry(0.16, 0.18, 0.18);
+        const handMesh = new THREE.Mesh(handGeo, matGlove);
+        handMesh.position.y = -0.08;
+        handMesh.castShadow = true;
+        wrist.add(handMesh);
+
+        // Padded knuckle guard
+        const knuckleGeo = new THREE.BoxGeometry(0.18, 0.06, 0.08);
+        const knuckleMesh = new THREE.Mesh(knuckleGeo, matCrimson);
+        knuckleMesh.position.set(0, -0.08, isLeft ? 0.08 : -0.08);
+        wrist.add(knuckleMesh);
+
+        return { shoulder, upperArm, elbow, wrist };
+      }
+
+      _createLeg(parent, xOffset, isLeft, matPants, matCrimson, matTeal, matIvory, matSole) {
+        const hip = new THREE.Group();
+        hip.position.set(xOffset, -0.10, 0);
+        parent.add(hip);
+
+        // Thigh (elongated athletic comic proportion)
+        const thighGeo = new THREE.BoxGeometry(0.20, 0.44, 0.20);
+        const thighMesh = new THREE.Mesh(thighGeo, matPants);
+        thighMesh.position.y = -0.20;
+        thighMesh.castShadow = true;
+        hip.add(thighMesh);
+
+        // Knee Joint
+        const knee = new THREE.Group();
+        knee.position.y = -0.42;
+        hip.add(knee);
+
+        // Angular knee guard
+        const kneeGuardGeo = new THREE.BoxGeometry(0.22, 0.14, 0.24);
+        const kneeGuardMesh = new THREE.Mesh(kneeGuardGeo, matCrimson);
+        kneeGuardMesh.position.set(0, 0, 0.02);
+        kneeGuardMesh.castShadow = true;
+        knee.add(kneeGuardMesh);
+
+        // Calf / Shin
+        const calf = new THREE.Group();
+        calf.position.y = -0.08;
+        knee.add(calf);
+
+        const shinGeo = new THREE.BoxGeometry(0.18, 0.42, 0.18);
+        const shinMesh = new THREE.Mesh(shinGeo, matPants);
+        shinMesh.position.y = -0.20;
+        shinMesh.castShadow = true;
+        calf.add(shinMesh);
+
+        // Ankle & Chunky Comic High-Top Sneaker
+        const ankle = new THREE.Group();
+        ankle.position.y = -0.42;
+        calf.add(ankle);
+
+        // Sneaker Upper (Oversized, expressive)
+        const sneakerUpperGeo = new THREE.BoxGeometry(0.24, 0.20, 0.40);
+        const sneakerUpperMesh = new THREE.Mesh(sneakerUpperGeo, matIvory);
+        sneakerUpperMesh.position.set(0, 0.06, 0.08);
+        sneakerUpperMesh.castShadow = true;
+        ankle.add(sneakerUpperMesh);
+
+        // Sneaker Colored Heel & Wing Accent
+        const heelGeo = new THREE.BoxGeometry(0.25, 0.18, 0.16);
+        const heelMesh = new THREE.Mesh(heelGeo, matCrimson);
+        heelMesh.position.set(0, 0.06, -0.06);
+        ankle.add(heelMesh);
+
+        // Electric Teal Sneaker Tongue
+        const tongueGeo = new THREE.BoxGeometry(0.18, 0.22, 0.12);
+        const tongueMesh = new THREE.Mesh(tongueGeo, matTeal);
+        tongueMesh.position.set(0, 0.14, 0.14);
+        tongueMesh.rotation.x = -0.25;
+        ankle.add(tongueMesh);
+
+        // Sculpted Thick Comic Sole (Landing flush on floor)
+        const soleGeo = new THREE.BoxGeometry(0.28, 0.08, 0.46);
+        const soleMesh = new THREE.Mesh(soleGeo, matSole);
+        soleMesh.position.set(0, -0.06, 0.08);
+        soleMesh.castShadow = true;
+        ankle.add(soleMesh);
+
+        return { hip, knee, calf, ankle };
+      }
+
+      update(time) {
+        // Subtle organic breathing and stance idle preview
+        const breathe = Math.sin(time * 2.5);
+        this.nodes.spine.position.y = 0.14 + breathe * 0.015;
+        this.nodes.head.rotation.x = breathe * 0.02;
+        this.nodes.head.rotation.y = Math.sin(time * 0.8) * 0.08;
+
+        // Subtle arm idle sway
+        this.nodes.leftArm.shoulder.rotation.z = 0.12 + breathe * 0.03;
+        this.nodes.rightArm.shoulder.rotation.z = -0.12 - breathe * 0.03;
+        this.nodes.leftArm.elbow.rotation.x = -0.25 + Math.cos(time * 2.0) * 0.04;
+        this.nodes.rightArm.elbow.rotation.x = -0.30 - Math.cos(time * 2.0) * 0.04;
+      }
+    }
+
+    /* =========================================================================
+     * 2. ENVIRONMENT SYSTEM: DETAILED 2.5D ROOFTOP & SKYLINE
+     * Fore/Mid/Background architectural parallax layers.
+     * ========================================================================= */
+    export class RooftopEnvironment {
+      constructor() {
+        this.group = new THREE.Group();
+        this.group.name = "RooftopEnvironment";
+
+        this._createMaterials();
+        this._buildForegroundRooftop();
+        this._buildMidgroundBuildings();
+        this._buildBackgroundSkyline();
+        this._buildAtmosphericBackdrop();
+      }
+
+      _createMaterials() {
+        this.materials = {
+          roofDeck: new THREE.MeshStandardMaterial({
+            color: COLOR_PALETTE.shadow,
+            roughness: 0.85,
+            metalness: 0.1,
+          }),
+          parapetStone: new THREE.MeshStandardMaterial({
+            color: COLOR_PALETTE.midtone,
+            roughness: 0.7,
+          }),
+          brickWall: new THREE.MeshStandardMaterial({
+            color: COLOR_PALETTE.brickRed,
+            roughness: 0.9,
+          }),
+          industrialMetal: new THREE.MeshStandardMaterial({
+            color: 0x423d5c,
+            metalness: 0.6,
+            roughness: 0.35,
+          }),
+          hazardYellow: new THREE.MeshStandardMaterial({
+            color: COLOR_PALETTE.hazardYellow,
+            roughness: 0.6,
+          }),
+          woodPlank: new THREE.MeshStandardMaterial({
+            color: 0x6e433f,
+            roughness: 0.85,
+          }),
+          skylineDeep: new THREE.MeshBasicMaterial({
+            color: 0x14102c,
+          }),
+          skylineMid: new THREE.MeshBasicMaterial({
+            color: 0x221a42,
+          }),
+          windowGlowWarm: new THREE.MeshBasicMaterial({
+            color: COLOR_PALETTE.warmHighlight,
+          }),
+          windowGlowTeal: new THREE.MeshBasicMaterial({
+            color: COLOR_PALETTE.electricTeal,
+          }),
+          wireMat: new THREE.LineBasicMaterial({
+            color: COLOR_PALETTE.ink,
+            linewidth: 2,
+          }),
+        };
+      }
+
+      _buildForegroundRooftop() {
+        const fg = new THREE.Group();
+        fg.name = "ForegroundRooftop";
+        this.group.add(fg);
+
+        // 1. Main Roof Deck Slab (Length: 26m, Depth: 12m, Top surface at Y = 0.0)
+        const slabGeo = new THREE.BoxGeometry(26, 1.5, 12);
+        const slabMesh = new THREE.Mesh(slabGeo, this.materials.roofDeck);
+        slabMesh.position.set(0, -0.75, 0);
+        slabMesh.receiveShadow = true;
+        fg.add(slabMesh);
+
+        // 2. Stepped Observation Overlook (Frames the character's feet with a clear drop-off view)
+        // Left & Right Front Parapets with a central 6m opening for heroic full-body framing
+        const leftParapet = new THREE.Mesh(new THREE.BoxGeometry(9.6, 0.8, 0.45), this.materials.parapetStone);
+        leftParapet.position.set(-8.2, 0.40, 4.8);
+        leftParapet.castShadow = true;
+        leftParapet.receiveShadow = true;
+        fg.add(leftParapet);
+
+        const rightParapet = new THREE.Mesh(new THREE.BoxGeometry(9.6, 0.8, 0.45), this.materials.parapetStone);
+        rightParapet.position.set(8.2, 0.40, 4.8);
+        rightParapet.castShadow = true;
+        rightParapet.receiveShadow = true;
+        fg.add(rightParapet);
+
+        // Yellow caution curb edge in front of hero
+        const curbGeo = new THREE.BoxGeometry(6.8, 0.15, 0.35);
+        const curbMesh = new THREE.Mesh(curbGeo, this.materials.hazardYellow);
+        curbMesh.position.set(0, 0.075, 4.8);
+        curbMesh.receiveShadow = true;
+        fg.add(curbMesh);
+
+        // Back Parapet (Behind player for 2.5D depth silhouette)
+        const backParapetGeo = new THREE.BoxGeometry(26.4, 1.2, 0.45);
+        const backParapet = new THREE.Mesh(backParapetGeo, this.materials.parapetStone);
+        backParapet.position.set(0, 0.60, -5.8);
+        backParapet.receiveShadow = true;
+        fg.add(backParapet);
+
+        // 3. Rooftop Access Bulkhead (Stairwell Penthouse) on Left
+        const bulkhead = new THREE.Group();
+        bulkhead.position.set(-8.5, 0, -2.5);
+        fg.add(bulkhead);
+
+        const bulkheadWallGeo = new THREE.BoxGeometry(4.2, 3.8, 3.6);
+        const bulkheadMesh = new THREE.Mesh(bulkheadWallGeo, this.materials.brickWall);
+        bulkheadMesh.position.y = 1.9;
+        bulkheadMesh.castShadow = true;
+        bulkheadMesh.receiveShadow = true;
+        bulkhead.add(bulkheadMesh);
+
+        // Slanted corrugated roof over bulkhead
+        const bRoofGeo = new THREE.BoxGeometry(4.6, 0.25, 4.0);
+        const bRoofMesh = new THREE.Mesh(bRoofGeo, this.materials.industrialMetal);
+        bRoofMesh.position.set(0, 3.9, 0);
+        bRoofMesh.rotation.z = -0.08;
+        bRoofMesh.castShadow = true;
+        bulkhead.add(bRoofMesh);
+
+        // Heavy industrial metal door
+        const doorGeo = new THREE.BoxGeometry(1.4, 2.4, 0.12);
+        const doorMesh = new THREE.Mesh(doorGeo, this.materials.industrialMetal);
+        doorMesh.position.set(0.6, 1.2, 1.84);
+        bulkhead.add(doorMesh);
+
+        // Hazard warning sign over door
+        const hazardSignGeo = new THREE.BoxGeometry(1.6, 0.3, 0.05);
+        const hazardSign = new THREE.Mesh(hazardSignGeo, this.materials.hazardYellow);
+        hazardSign.position.set(0.6, 2.65, 1.86);
+        bulkhead.add(hazardSign);
+
+        // Bulkhead exterior lamp (warm spotlight source)
+        const lampGeo = new THREE.BoxGeometry(0.35, 0.25, 0.35);
+        const lampMesh = new THREE.Mesh(lampGeo, this.materials.windowGlowWarm);
+        lampMesh.position.set(0.6, 3.1, 1.95);
+        bulkhead.add(lampMesh);
+
+        // 4. Iconic Water Tower Structure on Right
+        const waterTower = new THREE.Group();
+        waterTower.position.set(7.8, 0, -2.8);
+        fg.add(waterTower);
+
+        // 4 Steel lattice legs
+        const legGeo = new THREE.CylinderGeometry(0.08, 0.12, 3.4, 6);
+        const legPositions = [
+          [-1.1, -1.1], [1.1, -1.1], [-1.1, 1.1], [1.1, 1.1]
+        ];
+        legPositions.forEach(([x, z]) => {
+          const leg = new THREE.Mesh(legGeo, this.materials.industrialMetal);
+          leg.position.set(x, 1.7, z);
+          leg.castShadow = true;
+          waterTower.add(leg);
+        });
+
+        // Cross braces
+        const braceGeo = new THREE.BoxGeometry(2.3, 0.06, 0.06);
+        const brace1 = new THREE.Mesh(braceGeo, this.materials.industrialMetal);
+        brace1.position.set(0, 1.8, 1.1);
+        brace1.rotation.z = 0.4;
+        waterTower.add(brace1);
+
+        const brace2 = new THREE.Mesh(braceGeo, this.materials.industrialMetal);
+        brace2.position.set(0, 1.8, 1.1);
+        brace2.rotation.z = -0.4;
+        waterTower.add(brace2);
+
+        // Wood plank circular tank
+        const tankGeo = new THREE.CylinderGeometry(1.7, 1.7, 2.6, 14);
+        const tankMesh = new THREE.Mesh(tankGeo, this.materials.woodPlank);
+        tankMesh.position.y = 4.7;
+        tankMesh.castShadow = true;
+        waterTower.add(tankMesh);
+
+        // Metal reinforcing bands around tank
+        const band1 = new THREE.Mesh(new THREE.CylinderGeometry(1.73, 1.73, 0.1, 14), this.materials.industrialMetal);
+        band1.position.y = 4.0;
+        waterTower.add(band1);
+
+        const band2 = new THREE.Mesh(new THREE.CylinderGeometry(1.73, 1.73, 0.1, 14), this.materials.industrialMetal);
+        band2.position.y = 5.3;
+        waterTower.add(band2);
+
+        // Conical Roof
+        const roofConeGeo = new THREE.ConeGeometry(1.95, 1.2, 14);
+        const roofCone = new THREE.Mesh(roofConeGeo, this.materials.industrialMetal);
+        roofCone.position.y = 6.6;
+        roofCone.castShadow = true;
+        waterTower.add(roofCone);
+
+        // 5. HVAC / AC Chiller Unit & Air Ducts
+        const hvacGroup = new THREE.Group();
+        hvacGroup.position.set(2.4, 0, -3.2);
+        fg.add(hvacGroup);
+
+        const hvacBodyGeo = new THREE.BoxGeometry(2.4, 1.4, 1.6);
+        const hvacBody = new THREE.Mesh(hvacBodyGeo, this.materials.industrialMetal);
+        hvacBody.position.y = 0.7;
+        hvacBody.castShadow = true;
+        hvacGroup.add(hvacBody);
+
+        // Two top circular cooling fans
+        const fanRimGeo = new THREE.CylinderGeometry(0.48, 0.48, 0.15, 12);
+        const fan1 = new THREE.Mesh(fanRimGeo, this.materials.parapetStone);
+        fan1.position.set(-0.6, 1.45, 0);
+        hvacGroup.add(fan1);
+
+        const fan2 = new THREE.Mesh(fanRimGeo, this.materials.parapetStone);
+        fan2.position.set(0.6, 1.45, 0);
+        hvacGroup.add(fan2);
+
+        // Exhaust duct pipe curving into roof
+        const ductGeo = new THREE.CylinderGeometry(0.22, 0.22, 1.8, 10);
+        const duct = new THREE.Mesh(ductGeo, this.materials.industrialMetal);
+        duct.rotation.z = Math.PI / 2;
+        duct.position.set(-1.8, 0.6, 0);
+        hvacGroup.add(duct);
+
+        // 6. Rooftop Antenna Mast & Catenary Power Cables
+        const antennaGeo = new THREE.CylinderGeometry(0.04, 0.09, 6.2, 6);
+        const antenna = new THREE.Mesh(antennaGeo, this.materials.industrialMetal);
+        antenna.position.set(-8.5, 6.8, -2.5);
+        antenna.castShadow = true;
+        fg.add(antenna);
+
+        // Red blinker warning sphere on top of mast
+        const beaconGeo = new THREE.SphereGeometry(0.12, 8, 8);
+        const beaconMat = new THREE.MeshBasicMaterial({ color: COLOR_PALETTE.crimson });
+        const beacon = new THREE.Mesh(beaconGeo, beaconMat);
+        beacon.position.set(-8.5, 9.9, -2.5);
+        fg.add(beacon);
+
+        // Catenary power cables running overhead
+        this._buildCables(fg);
+      }
+
+      _buildCables(parent) {
+        // Curve 1: Antenna to Water Tower
+        const p1 = new THREE.Vector3(-8.5, 9.2, -2.5);
+        const p2 = new THREE.Vector3(0, 6.5, -3.5);
+        const p3 = new THREE.Vector3(7.8, 6.2, -2.8);
+        const curve = new THREE.QuadraticBezierCurve3(p1, p2, p3);
+        const points = curve.getPoints(24);
+        const cableGeo = new THREE.BufferGeometry().setFromPoints(points);
+        const cableLine = new THREE.Line(cableGeo, this.materials.wireMat);
+        parent.add(cableLine);
+      }
+
+      _buildMidgroundBuildings() {
+        const mg = new THREE.Group();
+        mg.name = "MidgroundLayer";
+        mg.position.z = -16;
+        this.group.add(mg);
+
+        // Left Art Deco Tower
+        const b1 = this._createBuildingBlock(8, 22, 7, -12, 4, this.materials.skylineMid, true);
+        mg.add(b1);
+
+        // Center Low Industrial Rooftops (Creates window for distant horizon)
+        const b2 = this._createBuildingBlock(10, 10, 6, 0, -2, this.materials.skylineMid, false);
+        mg.add(b2);
+
+        // Right High-Rise with Neon Billboard Structure
+        const b3 = this._createBuildingBlock(9, 28, 8, 13, 6, this.materials.skylineMid, true);
+        mg.add(b3);
+
+        // Stylized Graphic Comic Billboard on Right Midground Tower
+        const billboard = new THREE.Group();
+        billboard.position.set(13, 19, 4.2);
+        mg.add(billboard);
+
+        const bbFrameGeo = new THREE.BoxGeometry(6.4, 3.4, 0.2);
+        const bbFrame = new THREE.Mesh(bbFrameGeo, this.materials.industrialMetal);
+        billboard.add(bbFrame);
+
+        const bbPosterGeo = new THREE.PlaneGeometry(6.0, 3.0);
+        const bbPosterMat = new THREE.MeshBasicMaterial({ color: COLOR_PALETTE.crimson });
+        const bbPoster = new THREE.Mesh(bbPosterGeo, bbPosterMat);
+        bbPoster.position.z = 0.12;
+        billboard.add(bbPoster);
+
+        // Graphic inner stripe on billboard
+        const bbStripeGeo = new THREE.PlaneGeometry(5.6, 0.6);
+        const bbStripeMat = new THREE.MeshBasicMaterial({ color: COLOR_PALETTE.warmHighlight });
+        const bbStripe = new THREE.Mesh(bbStripeGeo, bbStripeMat);
+        bbStripe.position.z = 0.14;
+        bbStripe.rotation.z = -0.12;
+        billboard.add(bbStripe);
+      }
+
+      _buildBackgroundSkyline() {
+        const bg = new THREE.Group();
+        bg.name = "BackgroundSkyline";
+        bg.position.z = -45;
+        this.group.add(bg);
+
+        // Varied skyscraper silhouette cluster across horizon
+        const skylineData = [
+          { x: -28, w: 12, h: 42, color: 0x161132 },
+          { x: -16, w: 9, h: 54, color: 0x1a143b },
+          { x: -7, w: 7, h: 36, color: 0x130e28 },
+          { x: 3, w: 11, h: 48, color: 0x1d1642 },
+          { x: 15, w: 10, h: 62, color: 0x181236 },
+          { x: 26, w: 14, h: 40, color: 0x110c24 },
+        ];
+
+        skylineData.forEach((item) => {
+          const geo = new THREE.BoxGeometry(item.w, item.h, 6);
+          const mat = new THREE.MeshBasicMaterial({ color: item.color });
+          const mesh = new THREE.Mesh(geo, mat);
+          mesh.position.set(item.x, item.h * 0.5 - 10, 0);
+          bg.add(mesh);
+
+          this._addWindowsToBuilding(mesh, item.w, item.h);
+        });
+      }
+
+      _addWindowsToBuilding(parentMesh, width, height) {
+        const windowCount = Math.floor(width * 1.4);
+        const winGeo = new THREE.PlaneGeometry(0.35, 0.55);
+        
+        for (let i = 0; i < windowCount; i++) {
+          const isTeal = Math.random() > 0.6;
+          const mat = isTeal ? this.materials.windowGlowTeal : this.materials.windowGlowWarm;
+          const win = new THREE.Mesh(winGeo, mat);
+          
+          const wx = (Math.random() - 0.5) * (width - 1.2);
+          const wy = (Math.random() - 0.5) * (height - 8);
+          win.position.set(wx, wy, 3.02);
+          parentMesh.add(win);
+        }
+      }
+
+      _createBuildingBlock(w, h, d, x, y, material, addWaterTank) {
+        const bGroup = new THREE.Group();
+        bGroup.position.set(x, y, 0);
+
+        const geo = new THREE.BoxGeometry(w, h, d);
+        const mesh = new THREE.Mesh(geo, material);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        bGroup.add(mesh);
+
+        if (addWaterTank) {
+          const tankGeo = new THREE.CylinderGeometry(0.9, 0.9, 1.8, 8);
+          const tank = new THREE.Mesh(tankGeo, this.materials.parapetStone);
+          tank.position.set(w * 0.25, h * 0.5 + 0.9, 0);
+          bGroup.add(tank);
+        }
+
+        return bGroup;
+      }
+
+      _buildAtmosphericBackdrop() {
+        const skyGeo = new THREE.PlaneGeometry(160, 90);
+        const canvas = document.createElement('canvas');
+        canvas.width = 16;
+        canvas.height = 512;
+        const ctx = canvas.getContext('2d');
+        const grad = ctx.createLinearGradient(0, 0, 0, 512);
+        grad.addColorStop(0.0, '#0a0817'); // Zenith deep space ink
+        grad.addColorStop(0.35, '#21183d'); // Midtone violet
+        grad.addColorStop(0.65, '#44316f'); // Comic purple
+        grad.addColorStop(0.85, '#8c3345'); // Crimson dusk
+        grad.addColorStop(1.0, '#ffcb65'); // Warm golden comic horizon glow
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, 16, 512);
+
+        const skyTexture = new THREE.CanvasTexture(canvas);
+        const skyMat = new THREE.MeshBasicMaterial({
+          map: skyTexture,
+          depthWrite: false,
+        });
+
+        const skyMesh = new THREE.Mesh(skyGeo, skyMat);
+        skyMesh.position.set(0, 20, -70);
+        this.group.add(skyMesh);
+      }
+    }
+
+    /* =========================================================================
+     * 3. LIGHTING SYSTEM: COMIC KEY / SHADOW / TEAL RIM
+     * Dual-tone high-contrast directional & volumetric comic lighting.
+     * ========================================================================= */
+    export class LightingManager {
+      constructor(scene) {
+        this.scene = scene;
+        this.mode = 'sunset'; // 'sunset' | 'twilight'
+
+        this._setupLights();
+      }
+
+      _setupLights() {
+        // 1. Sky & Ground Ambient Fill (Deep indigo shadow tinting)
+        this.hemiLight = new THREE.HemisphereLight(
+          COLOR_PALETTE.midtone, // Sky tone
+          COLOR_PALETTE.shadow,  // Ground bounce shadow tone
+          0.90
+        );
+        this.scene.add(this.hemiLight);
+
+        // 2. Primary Key Light (Warm golden-yellow sunlight casting crisp shadows)
+        this.keyLight = new THREE.DirectionalLight(COLOR_PALETTE.warmHighlight, 1.85);
+        this.keyLight.position.set(14, 22, 10);
+        this.keyLight.castShadow = true;
+        
+        // Shadow map fidelity
+        this.keyLight.shadow.mapSize.width = 2048;
+        this.keyLight.shadow.mapSize.height = 2048;
+        this.keyLight.shadow.camera.near = 0.5;
+        this.keyLight.shadow.camera.far = 60;
+        this.keyLight.shadow.camera.left = -16;
+        this.keyLight.shadow.camera.right = 16;
+        this.keyLight.shadow.camera.top = 16;
+        this.keyLight.shadow.camera.bottom = -8;
+        this.keyLight.shadow.bias = -0.0005;
+        this.scene.add(this.keyLight);
+
+        // 3. Stylized Electric Teal Rim Light (Opposing backlight for crisp silhouette edge separation)
+        this.rimLight = new THREE.DirectionalLight(COLOR_PALETTE.electricTeal, 1.5);
+        this.rimLight.position.set(-14, 12, -8);
+        this.scene.add(this.rimLight);
+
+        // 4. Subtle Crimson Bounce Fill (From lower city neon reflection)
+        this.accentLight = new THREE.PointLight(COLOR_PALETTE.crimson, 2.4, 24);
+        this.accentLight.position.set(-3, -0.5, 3.5);
+        this.scene.add(this.accentLight);
+      }
+
+      cyclePreset() {
+        if (this.mode === 'sunset') {
+          this.mode = 'twilight';
+          this.keyLight.color.setHex(0xa6b2ff);
+          this.keyLight.intensity = 1.1;
+          this.rimLight.color.setHex(COLOR_PALETTE.crimson);
+          this.rimLight.intensity = 1.8;
+          this.hemiLight.color.setHex(COLOR_PALETTE.shadow);
+          this.hemiLight.groundColor.setHex(COLOR_PALETTE.ink);
+          return "Twilight Neon";
+        } else {
+          this.mode = 'sunset';
+          this.keyLight.color.setHex(COLOR_PALETTE.warmHighlight);
+          this.keyLight.intensity = 1.85;
+          this.rimLight.color.setHex(COLOR_PALETTE.electricTeal);
+          this.rimLight.intensity = 1.5;
+          this.hemiLight.color.setHex(COLOR_PALETTE.midtone);
+          this.hemiLight.groundColor.setHex(COLOR_PALETTE.shadow);
+          return "Sunset Noir";
+        }
+      }
+    }
+
+    /* =========================================================================
+     * 4. MAIN ENGINE & APPLICATION CONTROLLER
+     * ========================================================================= */
+    class InkverseEngine {
+      constructor() {
+        this.canvas = document.getElementById('webgl-canvas');
+        this.clock = new THREE.Clock();
+        this.fpsStats = { frames: 0, prevTime: performance.now() };
+
+        this.cameraMode = '2.5D'; // '2.5D' | 'ORBIT'
+        this.targetCameraPos = new THREE.Vector3(0, 2.4, 8.8);
+        this.targetLookAt = new THREE.Vector3(0, 1.4, 0);
+
+        this._initRenderer();
+        this._initCamera();
+        this._initScene();
+        this._initControls();
+        this._bindUI();
+
+        // Dismiss loading screen
+        setTimeout(() => {
+          const loader = document.getElementById('loading-screen');
+          if (loader) {
+            loader.style.opacity = '0';
+            setTimeout(() => loader.remove(), 400);
+          }
+        }, 300);
+
+        this._animate = this._animate.bind(this);
+        requestAnimationFrame(this._animate);
+      }
+
+      _initRenderer() {
+        this.renderer = new THREE.WebGLRenderer({
+          canvas: this.canvas,
+          antialias: true,
+          powerPreference: "high-performance",
+        });
+
+        this.renderer.setSize(window.innerWidth, window.innerHeight);
+        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+        this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        this.renderer.toneMappingExposure = 1.05;
+        this.renderer.shadowMap.enabled = true;
+        this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+        window.addEventListener('resize', () => this._onResize());
+      }
+
+      _initScene() {
+        this.scene = new THREE.Scene();
+        this.scene.background = new THREE.Color(COLOR_PALETTE.ink);
+
+        // Atmospheric distance fog to unify layers
+        this.scene.fog = new THREE.FogExp2(COLOR_PALETTE.shadow, 0.016);
+
+        // Lighting Manager
+        this.lighting = new LightingManager(this.scene);
+
+        // Environment
+        this.environment = new RooftopEnvironment();
+        this.scene.add(this.environment.group);
+
+        // Protagonist Hero
+        this.hero = new HeroCharacter();
+        this.scene.add(this.hero.group);
+      }
+
+      _initCamera() {
+        this.camera = new THREE.PerspectiveCamera(
+          42,
+          window.innerWidth / window.innerHeight,
+          0.1,
+          500
+        );
+        this.camera.position.copy(this.targetCameraPos);
+        this.camera.lookAt(this.targetLookAt);
+      }
+
+      _initControls() {
+        this.orbitControls = new OrbitControls(this.camera, this.canvas);
+        this.orbitControls.enableDamping = true;
+        this.orbitControls.dampingFactor = 0.08;
+        this.orbitControls.target.copy(this.targetLookAt);
+        this.orbitControls.enabled = false; // Starts in locked 2.5D mode
+        this.orbitControls.maxPolarAngle = Math.PI * 0.52; // Keep above floor
+      }
+
+      _bindUI() {
+        const btnToggleCam = document.getElementById('btn-toggle-cam');
+        const btnResetCam = document.getElementById('btn-reset-cam');
+        const btnLighting = document.getElementById('btn-toggle-lighting');
+        const camModeText = document.getElementById('cam-mode-text');
+        const lightModeText = document.getElementById('light-mode-text');
+
+        const toggleCamMode = () => {
+          if (this.cameraMode === '2.5D') {
+            this.cameraMode = 'ORBIT';
+            this.orbitControls.enabled = true;
+            btnToggleCam.classList.add('active');
+            camModeText.textContent = "Free Orbit (Inspect)";
+          } else {
+            this.cameraMode = '2.5D';
+            this.orbitControls.enabled = false;
+            btnToggleCam.classList.remove('active');
+            camModeText.textContent = "2.5D Cinematic";
+            this._resetCameraFraming();
+          }
+        };
+
+        btnToggleCam.addEventListener('click', toggleCamMode);
+
+        btnResetCam.addEventListener('click', () => {
+          this._resetCameraFraming();
+        });
+
+        btnLighting.addEventListener('click', () => {
+          const name = this.lighting.cyclePreset();
+          lightModeText.textContent = name;
+        });
+
+        // Keyboard hotkeys
+        window.addEventListener('keydown', (e) => {
+          if (e.key === 'c' || e.key === 'C') toggleCamMode();
+          if (e.key === 'r' || e.key === 'R') this._resetCameraFraming();
+          if (e.key === 'l' || e.key === 'L') {
+            const name = this.lighting.cyclePreset();
+            lightModeText.textContent = name;
+          }
+        });
+      }
+
+      _resetCameraFraming() {
+        this.targetCameraPos.set(0, 2.4, 8.8);
+        this.targetLookAt.set(0, 1.4, 0);
+        this.orbitControls.target.copy(this.targetLookAt);
+      }
+
+      _onResize() {
+        if (!this.camera || !this.renderer) return;
+        this.camera.aspect = window.innerWidth / window.innerHeight;
+        this.camera.updateProjectionMatrix();
+        this.renderer.setSize(window.innerWidth, window.innerHeight);
+      }
+
+      _updateFPS() {
+        this.fpsStats.frames++;
+        const now = performance.now();
+        if (now >= this.fpsStats.prevTime + 1000) {
+          const fps = Math.round((this.fpsStats.frames * 1000) / (now - this.fpsStats.prevTime));
+          document.getElementById('fps-counter').textContent = `${fps} FPS`;
+          
+          // Render stats
+          const drawCalls = this.renderer.info.render.calls;
+          const triangles = this.renderer.info.render.triangles;
+          document.getElementById('draw-calls-stat').textContent = drawCalls;
+          document.getElementById('poly-stat').textContent = triangles.toLocaleString();
+
+          this.fpsStats.frames = 0;
+          this.fpsStats.prevTime = now;
+        }
+      }
+
+      _animate() {
+        requestAnimationFrame(this._animate);
+
+        const delta = this.clock.getDelta();
+        const elapsed = this.clock.getElapsedTime();
+
+        // Update hero procedural idle
+        if (this.hero) {
+          this.hero.update(elapsed);
+        }
+
+        // Camera smooth damping in 2.5D mode
+        if (this.cameraMode === '2.5D') {
+          const subtleDriftX = Math.sin(elapsed * 0.4) * 0.20;
+          const subtleDriftY = Math.cos(elapsed * 0.6) * 0.08;
+
+          const destX = this.targetCameraPos.x + subtleDriftX;
+          const destY = this.targetCameraPos.y + subtleDriftY;
+          const destZ = this.targetCameraPos.z;
+
+          this.camera.position.x += (destX - this.camera.position.x) * (delta * 3.0);
+          this.camera.position.y += (destY - this.camera.position.y) * (delta * 3.0);
+          this.camera.position.z += (destZ - this.camera.position.z) * (delta * 3.0);
+
+          this.camera.lookAt(this.targetLookAt);
+        } else {
+          this.orbitControls.update();
+        }
+
+        // Render scene
+        this.renderer.render(this.scene, this.camera);
+
+        this._updateFPS();
+      }
+    }
+
+    // Launch Engine on DOM Ready
+    window.addEventListener('DOMContentLoaded', () => {
+      window.inkverse = new InkverseEngine();
+    });
+  </script>
+</body>
+</html>

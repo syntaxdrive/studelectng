@@ -1358,6 +1358,8 @@ export async function updateResultsVisibilityAction(
   const cleanInst = (institutionSlug || "").toLowerCase().trim().replace(/^inst-/, "");
   const cleanOrg = (organizationSlug || "").toLowerCase().trim().replace(/^org-/, "");
 
+  const store = readElectionRulesStore();
+
   const keysToUpdate = Array.from(
     new Set(
       [
@@ -1367,11 +1369,11 @@ export async function updateResultsVisibilityAction(
         cleanOrg ? `elec-${cleanOrg}-2026` : null,
         cleanInst ? `elec-${cleanInst}-2026` : null,
         electionId ? electionId.replace(/^elec-/, "").replace(/-2026$/, "") : null,
+        ...Object.keys(store).filter((k) => cleanOrg && k.toLowerCase().includes(cleanOrg)),
       ].filter(Boolean) as string[]
     )
   );
 
-  const store = readElectionRulesStore();
   let existingRule: ElectionRulesState | undefined;
   for (const k of keysToUpdate) {
     if (store[k]) {
@@ -1434,6 +1436,11 @@ export async function updateResultsVisibilityAction(
   } catch (err) {
     console.warn("updateResultsVisibilityAction Supabase sync notice:", err);
   }
+
+  try {
+    const { clearTelemetryCache } = await import("./vote");
+    await clearTelemetryCache();
+  } catch (_) {}
 
   invalidateCache();
   revalidatePath("/", "layout");

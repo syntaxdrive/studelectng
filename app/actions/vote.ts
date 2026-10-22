@@ -406,6 +406,53 @@ export async function castBallotAction(input: CastBallotInput) {
   });
 }
 
+export async function clearTelemetryCache(electionId?: string) {
+  if (electionId) {
+    telemetryCache.delete(electionId);
+  } else {
+    telemetryCache.clear();
+  }
+}
+
+async function shouldSealResultsForRequester(
+  electionId: string,
+  cleanInst: string,
+  cleanOrg: string
+): Promise<boolean> {
+  try {
+    const { getAdminSession } = await import("@/lib/auth/session");
+    const adminSession = await getAdminSession();
+    // Authorized ELCOM & SuperAdmins are allowed to view live tallies
+    if (adminSession && (adminSession.role === "SUPER_ADMIN" || adminSession.role === "ELCOM_ADMIN")) {
+      return false;
+    }
+    const { getElectionRulesAction } = await import("./student-register");
+    const rules = await getElectionRulesAction(electionId, cleanInst, cleanOrg);
+    return !rules || rules.resultsVisibility !== "LIVE";
+  } catch (_) {
+    return true;
+  }
+}
+
+function sanitizeSealedTelemetry(data: any): any {
+  if (!data) return data;
+  return {
+    ...data,
+    resultsSealed: true,
+    resultsVisibility: "SEALED_UNTIL_CLOSE",
+    posts: (data.posts || []).map((p: any) => ({
+      ...p,
+      candidates: (p.candidates || []).map((c: any) => ({
+        ...c,
+        voteCount: 0,
+      })),
+    })),
+    levelBreakdown: [],
+    hourlyDistribution: [],
+    recentAuditLedger: [],
+  };
+}
+
 /**
  * Get Real-Time Live Results, Turnout & Telemetry for ELCOM Admin & Press Room.
  * Queries Supabase Cloud ballots and merges with local buffer to ensure real-time accuracy across serverless instances.
@@ -414,7 +461,8 @@ export async function castBallotAction(input: CastBallotInput) {
 export async function getRealtimeElectionTelemetryAction(
   electionId: string,
   instSlug: string = "ui",
-  orgSlug?: string
+  orgSlug?: string,
+  forceUnsealedForAdmin: boolean = false
 ) {
   try {
     const cleanInst = (instSlug || "ui").toLowerCase().trim();
@@ -436,6 +484,13 @@ export async function getRealtimeElectionTelemetryAction(
     // Check in-memory cache first (4s TTL - shields Supabase connection pool during 9am-3pm rush hour)
     const cached = telemetryCache.get(electionId);
     if (cached && Date.now() - cached.timestamp < 4000) {
+      if (forceUnsealedForAdmin) {
+        return cached.data;
+      }
+      const isSealed = await shouldSealResultsForRequester(electionId, cleanInst, cleanOrg);
+      if (isSealed) {
+        return sanitizeSealedTelemetry(cached.data);
+      }
       return cached.data;
     }
 
@@ -732,11 +787,21 @@ export async function getRealtimeElectionTelemetryAction(
       lastUpdated: Date.now(),
     };
 
-    // Save into in-memory cache
+    // Save unredacted into in-memory cache for admin sessions
     telemetryCache.set(electionId, {
       timestamp: Date.now(),
       data: result,
     });
+
+    // If explicitly requested by an admin session or certificate view, return full unredacted telemetry
+    if (forceUnsealedForAdmin) {
+      return result;
+    }
+
+    const isSealed = await shouldSealResultsForRequester(electionId, cleanInst, cleanOrg);
+    if (isSealed) {
+      return sanitizeSealedTelemetry(result);
+    }
 
     return result;
   } catch (err: any) {

@@ -437,33 +437,12 @@ export default function InstitutionAdminPage({
             setElectionRules((prev) => ({ ...prev, ...parsed }));
           }
         }
-        const saved = localStorage.getItem(`studelect_registration_open_${instSlug}_${org}`);
-        if (saved !== null) {
-          setElectionRules((prev) => ({ ...prev, registrationOpen: saved === "true" }));
-        }
-        const savedVis = localStorage.getItem(`studelect_results_visibility_${instSlug}_${org}`);
-        if (savedVis) {
-          setElectionRules((prev) => ({ ...prev, resultsVisibility: savedVis as any }));
-        }
       } catch (_) {}
 
       const res = await getElectionRulesAction(electionId, instSlug, activeOrgSlug);
       if (res) {
-        let effectiveReg = res.registrationOpen !== false;
-        try {
-          const saved = localStorage.getItem(`studelect_registration_open_${instSlug}_${activeOrgSlug}`);
-          if (saved !== null) {
-            effectiveReg = saved === "true";
-          }
-        } catch (_) {}
-
-        let effectiveVisibility = res.resultsVisibility || "SEALED_UNTIL_CLOSE";
-        try {
-          const savedVis = localStorage.getItem(`studelect_results_visibility_${instSlug}_${activeOrgSlug}`);
-          if (savedVis) {
-            effectiveVisibility = savedVis as any;
-          }
-        } catch (_) {}
+        const effectiveReg = res.registrationOpen !== false;
+        const effectiveVisibility = res.resultsVisibility || "SEALED_UNTIL_CLOSE";
 
         setElectionRules({
           ...res,
@@ -781,7 +760,7 @@ export default function InstitutionAdminPage({
   const loadTelemetry = async () => {
     try {
       const [data, freshPosts] = await Promise.all([
-        getRealtimeElectionTelemetryAction(electionId, instSlug, activeOrgSlug),
+        getRealtimeElectionTelemetryAction(electionId, instSlug, activeOrgSlug, true),
         getElectionPostsAndCandidatesAction(electionId),
         loadLicense(),
       ]);
@@ -1284,6 +1263,7 @@ export default function InstitutionAdminPage({
           resultsVisibility: newVisibility,
         });
       }
+      await loadTelemetry();
     } catch (_) {}
   };
 
@@ -1298,14 +1278,7 @@ export default function InstitutionAdminPage({
     // 1. Optimistic update in React state immediately
     setElectionRules((prev) => ({ ...prev, registrationOpen: willOpen }));
 
-    // 2. Persist in localStorage immediately so it never reverts on render/re-mount
-    try {
-      if (activeOrgSlug) {
-        localStorage.setItem(`studelect_registration_open_${instSlug}_${activeOrgSlug}`, String(willOpen));
-      }
-    } catch (_) {}
-
-    // 3. Persist to server store and Supabase
+    // 2. Persist to server store and Supabase
     const { toggleRegistrationAction, getElectionRulesAction } = await import("@/app/actions/student-register");
     const res = await toggleRegistrationAction(electionId, willOpen, instSlug, activeOrgSlug);
     setAdminActionMessage(res.message);
@@ -1421,18 +1394,19 @@ export default function InstitutionAdminPage({
 
   // ── Authoritative Election & Certificate Metrics ─────────────────────────────
   const certEffectiveRegistered =
-    studentVoters.length > 0
-      ? (activeCount > 0 ? activeCount : studentVoters.length)
-      : (voterRoll.length > 0
-          ? voterRoll.length
-          : (orgLicenseInfo?.registeredVotersCount || telemetryData?.totalRegistered || 0));
+    totalVoters > 0
+      ? totalVoters
+      : (studentVoters.length > 0
+          ? studentVoters.length
+          : (telemetryData?.totalRegistered || voterRoll.length || orgLicenseInfo?.registeredVotersCount || 0));
 
-  const certPostsList: PostWithCandidatesDto[] = (posts && posts.length > 0) ? posts : (telemetryData?.posts || []);
+  const certPostsList: PostWithCandidatesDto[] =
+    (telemetryData?.posts && telemetryData.posts.length > 0)
+      ? telemetryData.posts
+      : ((posts && posts.length > 0) ? posts : []);
 
   const getCandidateEffectiveVotes = (cand: any, postId?: string): number => {
-    const direct = Number(cand?.voteCount ?? cand?.votes ?? cand?.vote_count);
-    if (!isNaN(direct) && direct > 0) return direct;
-
+    // 1. Prioritize telemetry calculated directly from verified cast ballots
     if (telemetryData?.posts && Array.isArray(telemetryData.posts)) {
       for (const tp of telemetryData.posts) {
         if (!postId || tp.id === postId) {
@@ -1441,12 +1415,13 @@ export default function InstitutionAdminPage({
           );
           if (found) {
             const tVotes = Number(found.voteCount ?? found.votes ?? found.vote_count ?? 0);
-            if (!isNaN(tVotes) && tVotes > 0) return tVotes;
+            if (!isNaN(tVotes)) return tVotes;
           }
         }
       }
     }
 
+    const direct = Number(cand?.voteCount ?? cand?.votes ?? cand?.vote_count);
     return !isNaN(direct) && direct >= 0 ? direct : 0;
   };
 

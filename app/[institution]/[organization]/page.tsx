@@ -321,13 +321,6 @@ export default function OrganizationPortalPage({
         if (savedLogo) setOrgLogoUrl(savedLogo);
         const savedStatus = localStorage.getItem(`studelect_election_status_${instSlug}_${orgSlug}`);
         if (savedStatus) setElectionStatus(savedStatus);
-        // Results are sealed by default until ELCOM releases them
-        setResultsVisibility("SEALED_UNTIL_CLOSE");
-        try {
-          localStorage.setItem(`studelect_results_visibility_${instSlug}_${orgSlug}`, "SEALED_UNTIL_CLOSE");
-        } catch (_) {}
-        const savedReg = localStorage.getItem(`studelect_registration_open_${instSlug}_${orgSlug}`);
-        if (savedReg !== null) setRegistrationOpen(savedReg === "true");
       } catch (_) {}
 
       // Fetch organization DP / logo from server
@@ -356,7 +349,11 @@ export default function OrganizationPortalPage({
           orgSlug
         );
         if (isMounted && telemetry && telemetry.success) {
-          setTelemetryResults(telemetry);
+          if (telemetry.resultsSealed) {
+            setTelemetryResults(null);
+          } else {
+            setTelemetryResults(telemetry);
+          }
           if (typeof telemetry.totalBallotsCast === "number") {
             setRealBallotsCast(telemetry.totalBallotsCast);
           }
@@ -396,13 +393,7 @@ export default function OrganizationPortalPage({
             localStorage.setItem(`studelect_results_visibility_${instSlug}_${orgSlug}`, currentVis);
           } catch (_) {}
           setIsPaymentHalted(!!rules.isPaymentHalted);
-          let effectiveReg = rules.registrationOpen !== false;
-          try {
-            const savedReg = localStorage.getItem(`studelect_registration_open_${instSlug}_${orgSlug}`)
-              ?? localStorage.getItem(`studelect_registration_open_${instSlug}`);
-            if (savedReg !== null) effectiveReg = savedReg === "true";
-          } catch (_) {}
-          setRegistrationOpen(effectiveReg);
+          setRegistrationOpen(rules.registrationOpen !== false);
         }
       } catch (_) {}
     }
@@ -420,16 +411,10 @@ export default function OrganizationPortalPage({
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
 
-    // Instant local sync if admin is testing in another tab of same browser
+    // Instant local sync if admin updates organization branding or contacts
     const onStorage = (e: StorageEvent) => {
       if (e.key === `studelect_election_status_${instSlug}_${orgSlug}` && e.newValue) {
         setElectionStatus(e.newValue);
-      }
-      if (e.key === `studelect_results_visibility_${instSlug}_${orgSlug}` && e.newValue) {
-        setResultsVisibility(e.newValue);
-      }
-      if (e.key === `studelect_registration_open_${instSlug}_${orgSlug}` && e.newValue !== null) {
-        setRegistrationOpen(e.newValue === "true");
       }
       if (e.key === `studelect_contact_${instSlug}_${orgSlug}` && e.newValue) {
         try {
@@ -453,12 +438,12 @@ export default function OrganizationPortalPage({
     };
   }, [election.id, instSlug, orgSlug]);
 
-  // Safeguard: strictly block voter navigation to RESULTS tab from student side
+  // Safeguard: block voter navigation to RESULTS tab if results are sealed
   useEffect(() => {
-    if (activeTab === "RESULTS") {
+    if (activeTab === "RESULTS" && resultsVisibility !== "LIVE") {
       setActiveTab("VOTE");
     }
-  }, [activeTab]);
+  }, [activeTab, resultsVisibility]);
 
   // ── ELCOM Public Contact Loader ─────────────────────────────────────────────
   useEffect(() => {
@@ -989,8 +974,24 @@ export default function OrganizationPortalPage({
           }`}
         >
           <Users className="w-4 h-4" />
-          <span>Candidates & Manifestos</span>
+          <span>3. Candidates & Manifestos</span>
         </button>
+
+        {resultsVisibility === "LIVE" && (
+          <button
+            type="button"
+            onClick={() => setActiveTab("RESULTS")}
+            className={`px-4 py-2 rounded-lg transition flex items-center gap-1.5 ${
+              activeTab === "RESULTS"
+                ? "bg-emerald-700 text-white shadow-xs"
+                : "text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200"
+            }`}
+          >
+            <BarChart3 className="w-4 h-4 text-emerald-600" />
+            <span>4. Live Results</span>
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+          </button>
+        )}
       </div>
 
       {/* ========================================================================= */}
@@ -1071,10 +1072,21 @@ export default function OrganizationPortalPage({
                     <p className="text-[11px] text-zinc-600 leading-relaxed">
                       Voting has concluded and polls are officially closed. Official certified standings will be released by the Electoral Commission.
                     </p>
-                    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-200 text-zinc-700 text-xs font-semibold">
-                      <Lock className="w-3.5 h-3.5 text-zinc-600" />
-                      <span>Official Standings Withheld by ELCOM</span>
-                    </span>
+                    {resultsVisibility === "LIVE" ? (
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab("RESULTS")}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 text-white text-xs font-semibold hover:bg-zinc-800 transition"
+                      >
+                        <BarChart3 className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>View Official Standings & Tallies &rarr;</span>
+                      </button>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-200 text-zinc-700 text-xs font-semibold">
+                        <Lock className="w-3.5 h-3.5 text-zinc-600" />
+                        <span>Official Standings Withheld by ELCOM</span>
+                      </span>
+                    )}
                   </div>
                 )}
 
@@ -1745,6 +1757,16 @@ export default function OrganizationPortalPage({
               />
 
               <div className="flex items-center justify-center gap-3 pt-2 text-xs">
+                {resultsVisibility === "LIVE" && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("RESULTS")}
+                    className="px-4 py-2.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white font-bold transition flex items-center gap-1.5 shadow-xs"
+                  >
+                    <BarChart3 className="w-3.5 h-3.5" />
+                    <span>View Live Standings</span>
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={handleVoterLogout}
@@ -2263,9 +2285,9 @@ export default function OrganizationPortalPage({
 
 
       {/* ========================================================================= */}
-      {/* TAB 4: LIVE RESULTS & STANDINGS (STRICTLY DISABLED FOR STUDENTS)          */}
+      {/* TAB 4: LIVE RESULTS & STANDINGS (ACCESSIBLE WHEN RELEASED BY ELCOM)        */}
       {/* ========================================================================= */}
-      {false && activeTab === "RESULTS" && (
+      {activeTab === "RESULTS" && (
         <div className="space-y-6">
           {resultsVisibility === "SEALED_UNTIL_CLOSE" ? (
             <div className="bg-white p-8 sm:p-12 rounded-2xl border border-zinc-200 shadow-sm text-center max-w-lg mx-auto space-y-4 animate-in fade-in">
